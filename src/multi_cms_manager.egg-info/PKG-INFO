@@ -1,0 +1,58 @@
+Metadata-Version: 2.4
+Name: multi-cms-manager
+Version: 0.1.0
+Summary: Multi-CMS Manager Desktop Application
+Requires-Python: >=3.10
+Description-Content-Type: text/markdown
+Requires-Dist: PyQt6>=6.4.0
+Requires-Dist: SQLAlchemy>=2.0.0
+Requires-Dist: alembic>=1.11.0
+Requires-Dist: pydantic>=2.0.0
+Requires-Dist: pydantic-settings>=2.0.0
+Requires-Dist: structlog>=23.1.0
+Requires-Dist: keyring>=24.0.0
+Requires-Dist: tenacity>=8.2.0
+Requires-Dist: pybreaker>=1.0.0
+Requires-Dist: cryptography>=41.0.0
+Requires-Dist: requests>=2.31.0
+Requires-Dist: paramiko>=3.0.0
+Provides-Extra: dev
+Requires-Dist: pytest>=7.4.0; extra == "dev"
+Requires-Dist: responses>=0.23.0; extra == "dev"
+Requires-Dist: ruff>=0.1.0; extra == "dev"
+Requires-Dist: openpyxl>=3.1.0; extra == "dev"
+
+# Multi-CMS Manager 📝
+
+Python tabanlı, çevrimdışı/çevrimiçi hibrit çalışan, Dolibarr ve WooCommerce'i tek noktadan yöneten masaüstü uygulaması.
+
+## Özellikler
+- **Çift Yönlü Akıllı Senkronizasyon**: Dolibarr ve WooCommerce arasında veri senkronizasyonu.
+- **Yedekleme ve Taşıma Motoru**: Veritabanı ve dosya yedekleme/taşıma.
+- **Güvenli API Saklama**: Keyring ile işletim sisteminin güvenli kasasında API anahtarları.
+- **Dirençli Mimari**: Çöken API'ler için Circuit Breaker (pybreaker) ve Yeniden Deneme (tenacity).
+- **Yerel Şifreli Veritabanı**: SQLCipher ile şifrelenmiş SQLite veritabanı.
+
+## Kurulum
+
+1. Sanal ortamı oluşturun ve aktifleştirin:
+   ```bash
+   python -m venv .venv
+   .venv\Scripts\activate
+   ```
+
+2. Bağımlılıkları yükleyin:
+   ```bash
+   pip install --upgrade pip
+   pip install -e .[dev]
+   ```
+
+3. Geliştirici yol haritasını Excel olarak üretin:
+   ```bash
+   python scripts/generate_roadmap.py
+   ```
+
+## Testlerin Çalıştırılması
+```bash
+pytest
+```
