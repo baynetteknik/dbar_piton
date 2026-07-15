@@ -16,12 +16,14 @@ class FileBackupService:
         source_dir: Path | str,
         output_path: Path | str,
         progress_callback: Callable[[int], None] | None = None,
+        exclude_extensions: list[str] | None = None,
     ) -> bool:
-        """Belirtilen dizini tar.gz olarak sıkıştırır ve byte bazlı ilerleme raporlar.
+        """Belirtilen dizini tar.gz olarak sıkıştırır, uzantı bazlı filtreleme uygular ve byte bazlı ilerleme raporlar.
 
         :param source_dir: Sıkıştırılacak kaynak dizin yolu.
         :param output_path: Oluşturulacak .tar.gz dosya yolu.
         :param progress_callback: Toplam yazılan byte miktarını dönen fonksiyon.
+        :param exclude_extensions: Hariç tutulacak dosya uzantıları listesi (örn: ['.tmp', '.log']).
         """
         source_dir = Path(source_dir)
         output_path = Path(output_path)
@@ -37,9 +39,19 @@ class FileBackupService:
             "file_backup_started",
             source=str(source_dir),
             target=str(output_path),
+            exclude_exts=exclude_extensions,
         )
 
         total_bytes_processed = 0
+        
+        # Filtre uzantılarını standartlaştır (.tmp -> .tmp, tmp -> .tmp)
+        exclude_set = set()
+        if exclude_extensions:
+            for ext in exclude_extensions:
+                ext_lower = ext.lower().strip()
+                if not ext_lower.startswith("."):
+                    ext_lower = f".{ext_lower}"
+                exclude_set.add(ext_lower)
 
         try:
             # "w:gz" modu ile gzip sıkıştırmalı tar arşivi açıyoruz
@@ -54,6 +66,11 @@ class FileBackupService:
                             file_full_path.is_symlink()
                             or not file_full_path.exists()
                         ):
+                            continue
+
+                        # Uzantı bazlı filtreleme kontrolü
+                        if file_full_path.suffix.lower() in exclude_set:
+                            logger.debug("file_backup_skip_filtered", path=str(file_full_path))
                             continue
 
                         try:
@@ -110,4 +127,40 @@ class FileBackupService:
                     os.remove(output_path)
                 except OSError:
                     pass
+            return False
+
+    @staticmethod
+    def extract_directory(
+        archive_path: Path | str,
+        target_dir: Path | str,
+        progress_callback: Callable[[int], None] | None = None,
+    ) -> bool:
+        """Sıkıştırılmış yedek arşivini (tar.gz) belirtilen dizine geri yükler (extract)."""
+        archive_path = Path(archive_path)
+        target_dir = Path(target_dir)
+
+        if not archive_path.exists():
+            logger.error("file_restore_archive_not_found", path=str(archive_path))
+            return False
+
+        target_dir.mkdir(parents=True, exist_ok=True)
+        logger.info("file_restore_started", archive=str(archive_path), target=str(target_dir))
+
+        total_bytes_extracted = 0
+        try:
+            with tarfile.open(archive_path, "r:gz") as tar:
+                members = tar.getmembers()
+                for member in members:
+                    tar.extract(member, path=target_dir)
+                    if member.isreg(): # Sadece normal dosyaların boyutunu topluyoruz
+                        total_bytes_extracted += member.size
+                        if progress_callback:
+                            try:
+                                progress_callback(total_bytes_extracted)
+                            except Exception as cb_err:
+                                logger.warning("file_restore_callback_error", error=str(cb_err))
+            logger.info("file_restore_completed_successfully", total_bytes=total_bytes_extracted)
+            return True
+        except Exception as e:
+            logger.error("file_restore_failed_exception", error=str(e))
             return False

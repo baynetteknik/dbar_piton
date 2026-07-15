@@ -96,3 +96,60 @@ def test_file_backup_service(tmp_path):
         names = tar.getnames()
         assert "file1.txt" in names
         assert "subdir/file2.txt" in names
+
+def test_file_backup_service_with_exclude(tmp_path):
+    src_dir = tmp_path / "source_exclude"
+    src_dir.mkdir()
+    (src_dir / "file1.txt").write_text("Keep", encoding="utf-8")
+    (src_dir / "file2.tmp").write_text("Exclude", encoding="utf-8")
+    (src_dir / "file3.log").write_text("Exclude log", encoding="utf-8")
+
+    archive_file = tmp_path / "archive_exclude.tar.gz"
+
+    success = FileBackupService.compress_directory(
+        source_dir=src_dir,
+        output_path=archive_file,
+        exclude_extensions=[".tmp", "log"]
+    )
+
+    assert success is True
+    assert archive_file.exists()
+
+    with tarfile.open(archive_file, "r:gz") as tar:
+        names = tar.getnames()
+        assert "file1.txt" in names
+        assert "file2.tmp" not in names
+        assert "file3.log" not in names
+
+@patch("subprocess.run")
+def test_database_backup_mssql_success(mock_run, tmp_path):
+    # Setup mock sqlcmd execution
+    mock_res = MagicMock()
+    mock_res.returncode = 0
+    mock_run.return_value = mock_res
+
+    output_file = tmp_path / "mssql_db.sql.gz"
+    temp_bak = output_file.with_suffix(".bak")
+    
+    # Sıkıştırma aşaması için gerçek dosya oluşturmalıyız
+    temp_bak.write_text("MOCK BACKUP CONTENT")
+
+    config = {
+        "db_host": "localhost",
+        "db_user": "sa",
+        "db_pass": "StrictPassword123!",
+        "db_name": "mssql_db",
+        "db_type": "mssql"
+    }
+    
+    service = DatabaseBackupService(config)
+    success = service.backup_to_gzip(output_path=output_file)
+
+    assert success is True
+    assert output_file.exists()
+    assert not temp_bak.exists()
+
+    # Verify gzip contents
+    with gzip.open(output_file, "rb") as f:
+        content = f.read()
+    assert b"MOCK BACKUP CONTENT" in content

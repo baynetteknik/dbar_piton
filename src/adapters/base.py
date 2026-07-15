@@ -39,3 +39,18 @@ class BaseCMSAdapter(ABC):
     def update_order_status(self, order_id: str, status: str) -> bool:
         """Uzak sistemdeki bir siparişin durumunu (Örn: Tamamlandı, Beklemede) günceller."""
         pass
+
+    @abstractmethod
+    def delete_product(self, remote_id: str) -> bool:
+        """Uzak sistemdeki bir ürünü siler veya deaktive eder."""
+        pass
+
+    @abstractmethod
+    def fetch_product_by_id(self, remote_id: str) -> dict[str, Any] | None:
+        """Uzak sistemden ID ile tek bir ürünü çeker."""
+        pass
+
+    @abstractmethod
+    def fetch_order_by_id(self, remote_id: str) -> dict[str, Any] | None:
+        """Uzak sistemden ID ile tek bir siparişi çeker."""
+        pass

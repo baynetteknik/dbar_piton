@@ -61,6 +61,58 @@ class DatabaseManager:
         self.SessionLocal = sessionmaker(
             autocommit=False, autoflush=False, bind=self.engine,
         )
+        
+        # Otomatik tablo oluşturma (Alembic dışı yerel çalıştırma ve testler için)
+        Base.metadata.create_all(self.engine)
+        self._ensure_compatibility_columns()
+        logger.info("Database schemas ensured and initialized.")
+
+    def _ensure_compatibility_columns(self):
+        """Eski veritabanlarında yeni şema sütunlarının varlığını kontrol eder ve eksikse ALTER TABLE ile ekler."""
+        with self.engine.connect() as conn:
+            # products tablosu kontrolü
+            cursor = conn.exec_driver_sql("PRAGMA table_info(products)")
+            existing_prod_cols = {row[1] for row in cursor.fetchall()}
+            
+            prod_adds = {
+                "description": "ALTER TABLE products ADD COLUMN description TEXT",
+                "category_id": "ALTER TABLE products ADD COLUMN category_id INTEGER REFERENCES categories(id) ON DELETE SET NULL",
+                "custom_code": "ALTER TABLE products ADD COLUMN custom_code VARCHAR(100)",
+                "base_price": "ALTER TABLE products ADD COLUMN base_price FLOAT DEFAULT 0.0",
+                "image_path": "ALTER TABLE products ADD COLUMN image_path VARCHAR(255)",
+                "price": "ALTER TABLE products ADD COLUMN price FLOAT DEFAULT 0.0"
+            }
+            
+            for col, sql in prod_adds.items():
+                if col not in existing_prod_cols:
+                    try:
+                        conn.exec_driver_sql(sql)
+                        logger.info(f"Added missing column '{col}' to products table.")
+                    except Exception as e:
+                        logger.warning(f"Could not add column '{col}' to products: {e}")
+                        
+            # orders tablosu kontrolü
+            cursor = conn.exec_driver_sql("PRAGMA table_info(orders)")
+            existing_ord_cols = {row[1] for row in cursor.fetchall()}
+            
+            ord_adds = {
+                "customer_id": "ALTER TABLE orders ADD COLUMN customer_id INTEGER REFERENCES customers(id)",
+                "customer_name": "ALTER TABLE orders ADD COLUMN customer_name VARCHAR(255) DEFAULT ''",
+                "total_amount": "ALTER TABLE orders ADD COLUMN total_amount FLOAT DEFAULT 0.0",
+                "marketplace": "ALTER TABLE orders ADD COLUMN marketplace VARCHAR(50)",
+                "total": "ALTER TABLE orders ADD COLUMN total FLOAT DEFAULT 0.0",
+                "raw_status": "ALTER TABLE orders ADD COLUMN raw_status VARCHAR(50)",
+                "order_date": "ALTER TABLE orders ADD COLUMN order_date DATETIME"
+            }
+            
+            for col, sql in ord_adds.items():
+                if col not in existing_ord_cols:
+                    try:
+                        conn.exec_driver_sql(sql)
+                        logger.info(f"Added missing column '{col}' to orders table.")
+                    except Exception as e:
+                        logger.warning(f"Could not add column '{col}' to orders: {e}")
+            conn.commit()
 
     def get_db(self) -> Session:
         """Returns a new DB session instance."""

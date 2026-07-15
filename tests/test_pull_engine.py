@@ -68,6 +68,7 @@ def test_pull_engine_products(db_session):
         fetch_method_name="fetch_products",
         model_class=Product,
         mapper_func=map_remote_to_product,
+        site_id=1,
         per_page=2,
     )
 
@@ -81,6 +82,14 @@ def test_pull_engine_products(db_session):
     assert products[0].sku == "SKU101"
     assert products[2].remote_id == "103"
     assert products[2].sku == "SKU103"
+
+    # Verify SyncLog for the first pull
+    from src.core.models import SyncLog
+    logs = db_session.query(SyncLog).filter(SyncLog.site_id == 1).all()
+    assert len(logs) == 1
+    assert logs[0].sync_type == "pull"
+    assert logs[0].status == "success"
+    assert "Product" in logs[0].details
 
     # 4. Now run it again, but with updated values on remote
     def fake_fetch_products_updated(page, per_page, modified_after=None):
@@ -105,6 +114,7 @@ def test_pull_engine_products(db_session):
         fetch_method_name="fetch_products",
         model_class=Product,
         mapper_func=map_remote_to_product,
+        site_id=1,
         per_page=2,
     )
 
@@ -116,3 +126,9 @@ def test_pull_engine_products(db_session):
     assert p1.name == "Prod 101 Updated"
     assert p1.price == 14.50
     assert p1.stock == 4
+
+    # Verify that a second sync log has been created
+    logs = db_session.query(SyncLog).filter(SyncLog.site_id == 1).order_by(SyncLog.id).all()
+    assert len(logs) == 2
+    assert logs[1].status == "success"
+    assert "Product" in logs[1].details
