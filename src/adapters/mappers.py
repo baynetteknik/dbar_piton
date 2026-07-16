@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Any
 
-from src.core.models import Order, Product
+from src.core.models import Order, Product, Customer
 
 
 def parse_datetime(val: Any) -> datetime | None:
@@ -101,6 +101,37 @@ class DolibarrMapper:
             remote_modified_at=remote_modified_at,
         )
 
+    @staticmethod
+    def to_customer_orm(site_id: int, data: dict[str, Any]) -> Customer:
+        remote_id = str(data.get("id"))
+        fullname = data.get("nom", data.get("name", ""))
+        email = data.get("email")
+        phone = data.get("phone")
+        address = data.get("address")
+        tax_office = data.get("tax_office") or data.get("localtax1_ass")
+        tax_number = data.get("tva_intra") or data.get("tva_ass")
+        customer_code = data.get("code_client")
+        
+        options = data.get("array_options", {}) or {}
+        special_code_1 = options.get("options_special_code_1")
+        special_code_2 = options.get("options_special_code_2")
+        special_code_3 = options.get("options_special_code_3")
+        
+        return Customer(
+            remote_id=remote_id,
+            marketplace="dolibarr",
+            fullname=fullname,
+            email=email,
+            phone=phone,
+            address=address,
+            tax_office=tax_office,
+            tax_number=tax_number,
+            customer_code=customer_code,
+            special_code_1=special_code_1,
+            special_code_2=special_code_2,
+            special_code_3=special_code_3,
+        )
+
 
 class WooCommerceMapper:
     """Maps WooCommerce JSON API DTO objects to local ORM Models."""
@@ -164,6 +195,29 @@ class WooCommerceMapper:
             total_amount=total_amount,
             status=status,
             remote_modified_at=remote_modified_at,
+        )
+
+    @staticmethod
+    def to_customer_orm(site_id: int, data: dict[str, Any]) -> Customer:
+        remote_id = str(data.get("id"))
+        first_name = data.get("first_name", "")
+        last_name = data.get("last_name", "")
+        fullname = f"{first_name} {last_name}".strip() or data.get("username", "")
+        email = data.get("email")
+        
+        billing = data.get("billing", {}) or {}
+        phone = billing.get("phone")
+        address = billing.get("address_1", "")
+        if billing.get("address_2"):
+            address += " " + billing.get("address_2")
+            
+        return Customer(
+            remote_id=remote_id,
+            marketplace="woocommerce",
+            fullname=fullname,
+            email=email,
+            phone=phone,
+            address=address,
         )
 
 
@@ -283,5 +337,87 @@ def map_remote_to_order(
         existing_obj.total_amount = total_amount
         existing_obj.status = status
         existing_obj.remote_modified_at = remote_modified_at
+
+    return existing_obj
+
+
+def map_remote_to_customer(
+    remote_item: dict[str, Any], existing_obj: Customer | None = None,
+) -> Customer:
+    """Generic mapper function for PullEngine to upsert Customers."""
+    cms_type = remote_item.get("cms_type", "woocommerce")
+    
+    if cms_type == "dolibarr":
+        remote_id = str(remote_item.get("id"))
+        fullname = remote_item.get("nom", remote_item.get("name", ""))
+        email = remote_item.get("email")
+        phone = remote_item.get("phone")
+        address = remote_item.get("address")
+        tax_office = remote_item.get("tax_office") or remote_item.get("localtax1_ass")
+        tax_number = remote_item.get("tva_intra") or remote_item.get("tva_ass")
+        customer_code = remote_item.get("code_client")
+        
+        options = remote_item.get("array_options", {}) or {}
+        special_code_1 = options.get("options_special_code_1")
+        special_code_2 = options.get("options_special_code_2")
+        special_code_3 = options.get("options_special_code_3")
+        group_name = remote_item.get("group_name")
+        sub_group_1 = remote_item.get("sub_group_1")
+        sub_group_2 = remote_item.get("sub_group_2")
+    else:
+        remote_id = str(remote_item.get("id"))
+        first_name = remote_item.get("first_name", "")
+        last_name = remote_item.get("last_name", "")
+        fullname = f"{first_name} {last_name}".strip() or remote_item.get("username", "")
+        email = remote_item.get("email")
+        
+        billing = remote_item.get("billing", {}) or {}
+        phone = billing.get("phone")
+        address = billing.get("address_1", "")
+        if billing.get("address_2"):
+            address += " " + billing.get("address_2")
+            
+        tax_office = None
+        tax_number = None
+        customer_code = None
+        special_code_1 = None
+        special_code_2 = None
+        special_code_3 = None
+        group_name = None
+        sub_group_1 = None
+        sub_group_2 = None
+
+    if existing_obj is None:
+        existing_obj = Customer(
+            remote_id=remote_id,
+            marketplace=cms_type,
+            fullname=fullname,
+            email=email,
+            phone=phone,
+            address=address,
+            tax_office=tax_office,
+            tax_number=tax_number,
+            customer_code=customer_code,
+            special_code_1=special_code_1,
+            special_code_2=special_code_2,
+            special_code_3=special_code_3,
+            group_name=group_name,
+            sub_group_1=sub_group_1,
+            sub_group_2=sub_group_2,
+        )
+    else:
+        existing_obj.fullname = fullname
+        existing_obj.email = email
+        existing_obj.phone = phone
+        existing_obj.address = address
+        existing_obj.tax_office = tax_office
+        existing_obj.tax_number = tax_number
+        existing_obj.customer_code = customer_code
+        existing_obj.special_code_1 = special_code_1
+        existing_obj.special_code_2 = special_code_2
+        existing_obj.special_code_3 = special_code_3
+        existing_obj.group_name = group_name
+        existing_obj.sub_group_1 = sub_group_1
+        existing_obj.sub_group_2 = sub_group_2
 
     return existing_obj

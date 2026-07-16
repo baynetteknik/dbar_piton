@@ -54,3 +54,28 @@ class BaseCMSAdapter(ABC):
     def fetch_order_by_id(self, remote_id: str) -> dict[str, Any] | None:
         """Uzak sistemden ID ile tek bir siparişi çeker."""
         pass
+
+    @abstractmethod
+    def fetch_customers(
+        self,
+        page: int = 1,
+        per_page: int = 100,
+        modified_after: str | None = None,
+    ) -> list[dict[str, Any]]:
+        """Uzak sistemden müşterileri (carileri) sayfalamalı olarak çeker."""
+        pass
+
+    @abstractmethod
+    def push_customer(self, customer_data: dict[str, Any]) -> dict[str, Any]:
+        """Yerelde güncellenen veya eklenen bir müşteriyi uzak API'ye basar (Upsert)."""
+        pass
+
+    @abstractmethod
+    def delete_customer(self, remote_id: str) -> bool:
+        """Uzak sistemdeki bir müşteriyi siler veya deaktive eder."""
+        pass
+
+    @abstractmethod
+    def fetch_customer_by_id(self, remote_id: str) -> dict[str, Any] | None:
+        """Uzak sistemden ID ile tek bir müşteriyi çeker."""
+        pass

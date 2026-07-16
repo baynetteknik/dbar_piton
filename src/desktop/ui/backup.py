@@ -1256,6 +1256,7 @@ class BackupWidget(QWidget):
         
         self.lbl_task_title = QLabel()
         self.lbl_task_title.setStyleSheet("font-size: 18px; font-weight: 800; color: #1e293b; font-family: 'Segoe UI';")
+        self.lbl_task_title.setAlignment(Qt.AlignmentFlag.AlignRight)
         right_lyt.addWidget(self.lbl_task_title)
         
         self.detail_tabs = QTabWidget()

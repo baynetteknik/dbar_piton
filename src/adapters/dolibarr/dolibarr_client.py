@@ -11,7 +11,11 @@ class DolibarrClient:
         if not self.base_url.endswith("/api/index.php"):
             self.base_url = f"{self.base_url}/api/index.php"
         self.api_key = api_key
-        self.headers = {"DOLAPIKEY": self.api_key, "Accept": "application/json"}
+        self.headers = {
+            "DOLAPIKEY": self.api_key,
+            "Accept": "application/json",
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+        }
 
     def _request(self, method: str, endpoint: str, **kwargs: Any) -> Any:
         url = f"{self.base_url}{endpoint}"
@@ -56,7 +60,7 @@ class DolibarrClient:
 
         # Apply timestamp filter
         if modified_after is not None:
-            params["sqlfilters"] = f"t.tms >= {modified_after}"
+            params["sqlfilters"] = f"t.tms:>=:{modified_after}"
 
         result = self._request("GET", "/products", params=params)
         return result if isinstance(result, list) else []
@@ -98,7 +102,7 @@ class DolibarrClient:
         }
 
         if modified_after is not None:
-            params["sqlfilters"] = f"t.tms >= {modified_after}"
+            params["sqlfilters"] = f"t.tms:>=:{modified_after}"
 
         result = self._request("GET", "/orders", params=params)
         return result if isinstance(result, list) else []
@@ -114,4 +118,42 @@ class DolibarrClient:
     def update_order(self, remote_id: str, order_data: dict[str, Any]) -> bool:
         """Updates an existing order status or parameters in Dolibarr."""
         self._request("PUT", f"/orders/{remote_id}", json=order_data)
+        return True
+
+    def get_thirdparties(
+        self,
+        limit: int = 100,
+        page: int = 0,
+        modified_after: int | None = None,
+    ) -> list[dict[str, Any]]:
+        """Retrieves list of third parties (customers).
+
+        Filter by modified_after using UNIX timestamp mapping to t.tms.
+        """
+        params: dict[str, Any] = {
+            "limit": limit,
+            "page": page,
+            "sortfield": "t.rowid",
+            "sortorder": "ASC",
+        }
+
+        if modified_after is not None:
+            params["sqlfilters"] = f"t.tms:>=:{modified_after}"
+
+        result = self._request("GET", "/thirdparties", params=params)
+        return result if isinstance(result, list) else []
+
+    def create_thirdparty(self, data: dict[str, Any]) -> str:
+        """Creates a new third party in Dolibarr."""
+        result = self._request("POST", "/thirdparties", json=data)
+        return str(result)
+
+    def update_thirdparty(self, remote_id: str, data: dict[str, Any]) -> bool:
+        """Updates an existing third party in Dolibarr."""
+        self._request("PUT", f"/thirdparties/{remote_id}", json=data)
+        return True
+
+    def delete_thirdparty(self, remote_id: str) -> bool:
+        """Deletes a third party in Dolibarr."""
+        self._request("DELETE", f"/thirdparties/{remote_id}")
         return True

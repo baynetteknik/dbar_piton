@@ -391,9 +391,7 @@ class ResourcesWidget(QWidget):
         title_lbl = QLabel(self.tr("Ürün Veri Yönetimi (DataGrid)"))
         title_lbl.setFont(QFont("Segoe UI", 16, QFont.Weight.Bold))
         title_lbl.setStyleSheet("color: #2c3e50;")
-        top_layout.addWidget(title_lbl)
-        top_layout.addStretch()
-
+        
         self.pull_btn = QPushButton(self.tr("🔄 Uzak Sistemden Çek (Pull)"))
         self.pull_btn.setStyleSheet("""
             QPushButton {
@@ -428,6 +426,8 @@ class ResourcesWidget(QWidget):
 
         top_layout.addWidget(self.pull_btn)
         top_layout.addWidget(self.push_btn)
+        top_layout.addStretch()
+        top_layout.addWidget(title_lbl)
         layout.addLayout(top_layout)
 
         # Arama ve Hızlı Filtre Paneli
@@ -448,7 +448,18 @@ class ResourcesWidget(QWidget):
         self.add_prod_btn = QPushButton(self.tr("➕ Yeni Ürün Ekle"))
         self.add_prod_btn.clicked.connect(self.add_new_product)
         self.add_prod_btn.setStyleSheet("background-color: #00a8ff; color: white; padding: 6px; font-weight: bold;")
+        
+        self.import_prod_btn = QPushButton(self.tr("📥 İçe Aktar"))
+        self.import_prod_btn.clicked.connect(self.open_import_dialog)
+        self.import_prod_btn.setStyleSheet("background-color: #3b82f6; color: white; padding: 6px; font-weight: bold;")
+        
+        self.export_prod_btn = QPushButton(self.tr("📤 Dışa Aktar"))
+        self.export_prod_btn.clicked.connect(self.export_products)
+        self.export_prod_btn.setStyleSheet("background-color: #64748b; color: white; padding: 6px; font-weight: bold;")
+        
         filter_layout.addWidget(self.add_prod_btn)
+        filter_layout.addWidget(self.import_prod_btn)
+        filter_layout.addWidget(self.export_prod_btn)
         
         layout.addLayout(filter_layout)
 
@@ -515,6 +526,26 @@ class ResourcesWidget(QWidget):
         if dialog.exec() == QDialog.DialogCode.Accepted:
             self.refresh_products()
 
+    def open_import_dialog(self):
+        from src.desktop.ui.import_dialog import ExcelImportDialog
+        dialog = ExcelImportDialog(self.db, entity_type="product", parent=self)
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            self.refresh_products()
+
+    def export_products(self):
+        from src.core.importer import PRODUCT_FIELDS, export_to_excel_file
+        file_path, _ = QFileDialog.getSaveFileName(
+            self, self.tr("Ürün Listesini Kaydet"), "urunler.xlsx",
+            "Excel Dosyası (*.xlsx)"
+        )
+        if file_path:
+            try:
+                products = self.db.query(Product).filter(Product.is_deleted == False).all()
+                export_to_excel_file(file_path, PRODUCT_FIELDS, products)
+                QMessageBox.information(self, self.tr("Başarılı"), self.tr("Ürün listesi başarıyla dışa aktarıldı."))
+            except Exception as e:
+                QMessageBox.critical(self, self.tr("Hata"), f"Dışa aktarım hatası: {e}")
+
     def show_header_menu(self, pos):
         menu = QMenu(self)
         for col_idx in range(self.prod_model.columnCount()):
@@ -533,6 +564,21 @@ class ResourcesWidget(QWidget):
                 
             action.triggered.connect(toggle_col)
             menu.addAction(action)
+            
+        menu.addSeparator()
+        dia_action = QAction(self.tr("⚙️ Kolonları Yapılandır (DIA)"), menu)
+        def open_dia_column_manager():
+            from src.desktop.ui.column_manager import ColumnManagerDialog
+            headers_dict = {}
+            for idx in range(self.prod_model.columnCount()):
+                headers_dict[idx] = (self.prod_model.headerData(idx, Qt.Orientation.Horizontal), "")
+            dlg = ColumnManagerDialog(headers_dict, self.hidden_columns, "view_settings", self)
+            if dlg.exec() == QDialog.DialogCode.Accepted:
+                self.hidden_columns = dlg.get_hidden_columns()
+                self.apply_hidden_columns()
+        dia_action.triggered.connect(open_dia_column_manager)
+        menu.addAction(dia_action)
+        
         menu.exec(self.prod_table.horizontalHeader().mapToGlobal(pos))
 
     def apply_hidden_columns(self):

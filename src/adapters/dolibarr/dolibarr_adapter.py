@@ -143,3 +143,64 @@ class DolibarrAdapter(BaseCMSAdapter):
             return None
         except Exception:
             return None
+
+    def fetch_customers(
+        self,
+        page: int = 1,
+        per_page: int = 100,
+        modified_after: str | None = None,
+    ) -> list[dict[str, Any]]:
+        """Uzak Dolibarr sisteminden müşterileri (thirdparties) çekip mappers için hazırlar."""
+        dolibarr_page = max(0, page - 1)
+        
+        ts_filter: int | None = None
+        if modified_after:
+            dt = parse_datetime(modified_after)
+            if dt:
+                ts_filter = int(dt.timestamp())
+
+        raw_customers = self.client.get_thirdparties(
+            limit=per_page,
+            page=dolibarr_page,
+            modified_after=ts_filter
+        )
+
+        for item in raw_customers:
+            item["site_id"] = self.site_id
+            item["cms_type"] = "dolibarr"
+
+        return raw_customers
+
+    def push_customer(self, customer_data: dict[str, Any]) -> dict[str, Any]:
+        """Bir müşteriyi Dolibarr tarafına gönderir (ekler veya günceller)."""
+        remote_id = customer_data.get("id") or customer_data.get("remote_id")
+        
+        if remote_id:
+            # Güncelleme
+            self.client.update_thirdparty(str(remote_id), customer_data)
+            c_id = str(remote_id)
+        else:
+            # Yeni oluşturma
+            c_id = self.client.create_thirdparty(customer_data)
+            
+        result = dict(customer_data)
+        result["id"] = c_id
+        result["site_id"] = self.site_id
+        result["cms_type"] = "dolibarr"
+        return result
+
+    def delete_customer(self, remote_id: str) -> bool:
+        """Uzak Dolibarr sistemindeki bir müşteriyi siler."""
+        return self.client.delete_thirdparty(remote_id)
+
+    def fetch_customer_by_id(self, remote_id: str) -> dict[str, Any] | None:
+        """Uzak Dolibarr sisteminden ID ile tek bir müşteriyi çeker."""
+        try:
+            res = self.client._request("GET", f"/thirdparties/{remote_id}")
+            if isinstance(res, dict):
+                res["site_id"] = self.site_id
+                res["cms_type"] = "dolibarr"
+                return res
+            return None
+        except Exception:
+            return None

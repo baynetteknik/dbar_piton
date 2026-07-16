@@ -5,13 +5,13 @@ from sqlalchemy import case
 from datetime import datetime
 from typing import Any
 
-from src.core.models import ChangeLog, Product, Order, Site
+from src.core.models import ChangeLog, Product, Order, Site, Customer
 from src.core.security.keyring_store import get_api_key
 from src.adapters.dolibarr.dolibarr_client import DolibarrClient
 from src.adapters.dolibarr.dolibarr_adapter import DolibarrAdapter
 from src.adapters.woocommerce.woocommerce_client import WooCommerceClient
 from src.adapters.woocommerce.woocommerce_adapter import WooCommerceAdapter
-from src.adapters.mappers import map_remote_to_product, map_remote_to_order, parse_datetime
+from src.adapters.mappers import map_remote_to_product, map_remote_to_order, map_remote_to_customer, parse_datetime
 
 from tenacity import Retrying, stop_after_attempt, wait_exponential
 
@@ -84,6 +84,33 @@ class PushEngine:
                     local_obj.remote_id,
                     local_obj.status
                 )
+        elif model_class == Customer:
+            customer_data = {
+                "nom": local_obj.fullname,
+                "email": local_obj.email,
+                "phone": local_obj.phone,
+                "address": local_obj.address,
+                "localtax1_ass": local_obj.tax_office,
+                "tva_intra": local_obj.tax_number,
+                "code_client": local_obj.customer_code,
+                "array_options": {
+                    "options_special_code_1": local_obj.special_code_1,
+                    "options_special_code_2": local_obj.special_code_2,
+                    "options_special_code_3": local_obj.special_code_3,
+                }
+            }
+            if local_obj.remote_id:
+                customer_data["id"] = local_obj.remote_id
+                customer_data["remote_id"] = local_obj.remote_id
+                
+            res = self._execute_api_call_with_retry_and_breaker(
+                site_id,
+                adapter.push_customer,
+                customer_data
+            )
+            
+            if isinstance(res, dict) and "id" in res:
+                local_obj.remote_id = str(res["id"])
 
         local_obj.remote_modified_at = datetime.utcnow()
         self.db.add(local_obj)
@@ -96,6 +123,9 @@ class PushEngine:
         elif changelog.entity_type == "order":
             model_class = Order
             mapper_func = map_remote_to_order
+        elif changelog.entity_type == "customer":
+            model_class = Customer
+            mapper_func = map_remote_to_customer
         else:
             raise ValueError(f"Bilinmeyen entity tip: {changelog.entity_type}")
 
@@ -122,6 +152,12 @@ class PushEngine:
                     local_obj.remote_id,
                     "Canceled"
                 )
+            elif changelog.entity_type == "customer" and local_obj.remote_id:
+                self._execute_api_call_with_retry_and_breaker(
+                    site.id,
+                    adapter.delete_customer,
+                    local_obj.remote_id
+                )
             changelog.status = "SUCCESS"
             self.db.add(changelog)
             self.db.commit()
@@ -136,7 +172,12 @@ class PushEngine:
             return
 
         # 3. Güncelleme Eylemi & Çatışma Tespiti (Conflict Detection)
-        fetch_by_id_method = adapter.fetch_product_by_id if changelog.entity_type == "product" else adapter.fetch_order_by_id
+        if changelog.entity_type == "product":
+            fetch_by_id_method = adapter.fetch_product_by_id
+        elif changelog.entity_type == "order":
+            fetch_by_id_method = adapter.fetch_order_by_id
+        else:
+            fetch_by_id_method = adapter.fetch_customer_by_id
         
         remote_obj = self._execute_api_call_with_retry_and_breaker(
             site.id,
@@ -219,6 +260,12 @@ class PushEngine:
                 o = self.db.query(Order).filter(Order.id == changelog.entity_id).first()
                 if o:
                     site_id = o.site_id
+            elif changelog.entity_type == "customer":
+                dolibarr_site = next((s for s in active_sites.values() if s.cms_type == "dolibarr"), None)
+                if dolibarr_site:
+                    site_id = dolibarr_site.id
+                else:
+                    site_id = next(iter(active_sites.keys())) if active_sites else None
 
             if not site_id or site_id not in active_sites:
                 changelog.status = "FAILED"

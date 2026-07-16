@@ -43,9 +43,9 @@ class DashboardWidget(QWidget):
         """)
         self.refresh_btn.clicked.connect(self.refresh_data)
         
-        header_layout.addWidget(title_label)
-        header_layout.addStretch()
         header_layout.addWidget(self.refresh_btn)
+        header_layout.addStretch()
+        header_layout.addWidget(title_label)
         layout.addLayout(header_layout)
 
         # İstatistik Kartları (Sitesi, Ürünler, Siparişler)

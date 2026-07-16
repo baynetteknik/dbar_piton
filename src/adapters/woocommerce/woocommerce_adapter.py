@@ -107,3 +107,24 @@ class WooCommerceAdapter(BaseCMSAdapter):
             return None
         except Exception:
             return None
+
+    def fetch_customers(
+        self,
+        page: int = 1,
+        per_page: int = 100,
+        modified_after: str | None = None,
+    ) -> list[dict[str, Any]]:
+        """WooCommerce için cari çekme işlemi (şu anlık desteklenmiyor)."""
+        return []
+
+    def push_customer(self, customer_data: dict[str, Any]) -> dict[str, Any]:
+        """WooCommerce için cari push işlemi (şu anlık desteklenmiyor)."""
+        raise NotImplementedError("WooCommerce cari gönderimi desteklenmiyor.")
+
+    def delete_customer(self, remote_id: str) -> bool:
+        """WooCommerce için cari silme işlemi (şu anlık desteklenmiyor)."""
+        return False
+
+    def fetch_customer_by_id(self, remote_id: str) -> dict[str, Any] | None:
+        """WooCommerce için ID ile cari çekme işlemi (şu anlık desteklenmiyor)."""
+        return None

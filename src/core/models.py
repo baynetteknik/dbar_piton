@@ -70,6 +70,10 @@ class Product(BaseModel):
     price: Mapped[float] = mapped_column(Float, default=0.0) # Legacy compatibility
     stock: Mapped[int] = mapped_column(Integer, default=0)
     image_path: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    barcode: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    vat_rate: Mapped[float | None] = mapped_column(Float, default=0.0, nullable=True)
+    status: Mapped[int | None] = mapped_column(Integer, default=1, nullable=True)
+    status_buy: Mapped[int | None] = mapped_column(Integer, default=1, nullable=True)
 
     category: Mapped["Category | None"] = relationship("Category", back_populates="products")
     prices: Mapped[list["ProductPrice"]] = relationship("ProductPrice", back_populates="product", cascade="all, delete-orphan")
@@ -165,6 +169,33 @@ class Customer(BaseModel):
     address: Mapped[str | None] = mapped_column(Text, nullable=True)
     tax_office: Mapped[str | None] = mapped_column(String(100), nullable=True)
     tax_number: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    customer_code: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    group_name: Mapped[str | None] = mapped_column(String(150), nullable=True)
+    sub_group_1: Mapped[str | None] = mapped_column(String(150), nullable=True)
+    sub_group_2: Mapped[str | None] = mapped_column(String(150), nullable=True)
+    special_code_1: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    special_code_2: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    special_code_3: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    status: Mapped[int | None] = mapped_column(Integer, default=1, nullable=True)
+
+    # Detaylı Alanlar
+    authorized_person: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    nickname: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    phone2: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    phone_home: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    fax: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    website: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    address2: Mapped[str | None] = mapped_column(Text, nullable=True)
+    city: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    district: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    country: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    postcode: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    region: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    efatura_user: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    efatura_mailbox: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    record_date: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    photo_path: Mapped[str | None] = mapped_column(String(255), nullable=True)
 
     orders: Mapped[list["Order"]] = relationship("Order", back_populates="customer")
 
@@ -374,6 +405,31 @@ def _record_update(mapper: Any, connection: Any, target: Any) -> None:
             updated_at=datetime.utcnow(),
         ),
     )
+
+
+class UndoPoint(BaseModel):
+    """Represents a rollback checkpoint for sync or import operations."""
+    __tablename__ = "undo_points"
+
+    operation_name: Mapped[str] = mapped_column(String(150), nullable=False)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    logs: Mapped[list["UndoLog"]] = relationship("UndoLog", back_populates="undo_point", cascade="all, delete-orphan")
+
+
+class UndoLog(Base):
+    """Stores pre-change backup state of a specific database entity for rollback purposes."""
+    __tablename__ = "undo_logs"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    undo_point_id: Mapped[int] = mapped_column(Integer, ForeignKey("undo_points.id", ondelete="CASCADE"), nullable=False)
+    table_name: Mapped[str] = mapped_column(String(100), nullable=False)
+    record_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    action: Mapped[str] = mapped_column(String(50), nullable=False)  # 'insert', 'update', 'delete'
+    old_data: Mapped[str | None] = mapped_column(Text, nullable=True)  # JSON serialized data before change
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+    undo_point: Mapped["UndoPoint"] = relationship("UndoPoint", back_populates="logs")
 
 
 event.listen(Product, "after_insert", _record_insert)
