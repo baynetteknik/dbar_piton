@@ -1,5 +1,6 @@
 from datetime import datetime
 from typing import Any
+
 from sqlalchemy import (
     Boolean,
     DateTime,
@@ -44,7 +45,7 @@ class Category(BaseModel):
 
     name: Mapped[str] = mapped_column(String(150), nullable=False, unique=True)
     parent_id: Mapped[int | None] = mapped_column(
-        Integer, ForeignKey("categories.id", ondelete="SET NULL"), nullable=True
+        Integer, ForeignKey("categories.id", ondelete="SET NULL"), nullable=True,
     )
 
     products: Mapped[list["Product"]] = relationship("Product", back_populates="category")
@@ -63,7 +64,7 @@ class Product(BaseModel):
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     category_id: Mapped[int | None] = mapped_column(
-        Integer, ForeignKey("categories.id", ondelete="SET NULL"), nullable=True
+        Integer, ForeignKey("categories.id", ondelete="SET NULL"), nullable=True,
     )
     custom_code: Mapped[str | None] = mapped_column(String(100), nullable=True)
     base_price: Mapped[float] = mapped_column(Float, default=0.0)
@@ -273,6 +274,32 @@ class SyncQueue(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 
+class SyncState(Base):
+    """Her entity tipi için son successful senkronizasyon zamanını tutar.
+    
+    Delta sync mekanizması için kullanılır. Sadece bu zamandan sonra
+    değişen kayıtlar çekilerek performans artırılır.
+    
+    Örnek: Bir ürün 2024-01-15 10:30:00'te güncellendiyse,
+    sync_state son başarılı pull zamanını 2024-01-15 10:30:00 olarak kaydeder.
+    Bir sonraki pull'da sadece bu tarihten sonraki değişiklikler çekilir.
+    """
+    __tablename__ = "sync_states"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    site_id: Mapped[int] = mapped_column(Integer, ForeignKey("sites.id", ondelete="CASCADE"), nullable=False)
+    entity_type: Mapped[str] = mapped_column(String(50), nullable=False)  # product, order, customer
+    last_sync_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    last_sync_direction: Mapped[str] = mapped_column(String(10), nullable=False)  # pull, push
+    records_synced: Mapped[int] = mapped_column(Integer, default=0)
+    checksum: Mapped[str | None] = mapped_column(String(64), nullable=True)  # MD5 checksum
+    
+    # Composite unique constraint
+    __table_args__ = (
+        {"extend_existing": True},
+    )
+
+
 class OperationLog(Base):
     """Diagnostic system logger storing process details for tasks and actions."""
     __tablename__ = "operation_logs"
@@ -318,6 +345,7 @@ class Site(BaseModel):
     url: Mapped[str] = mapped_column(String, nullable=False)
     api_key_account: Mapped[str] = mapped_column(String, nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    working_mode: Mapped[str] = mapped_column(String(50), default="local_master")
 
     products: Mapped[list["Product"]] = relationship(
         "Product", back_populates="site", cascade="all, delete-orphan",

@@ -24,6 +24,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from src.core.data_manager import DataManager
 from src.core.importer import CUSTOMER_FIELDS, export_to_excel_file
 from src.core.models import Customer, Site
 from src.core.sync.customer_sync import CustomerSyncEngine
@@ -33,20 +34,25 @@ from src.desktop.ui.import_dialog import ExcelImportDialog
 
 class CustomerDialog(QDialog):
     """DIA stiline ve sekmeli yapısına sahip gelişmiş Cari Kart Ekle / Düzenle ekranı."""
-    def __init__(self, db_session, customer_id=None, parent=None):
+    def __init__(self, db_session, company_id: int, customer_id=None, remote_id=None, parent=None):
         super().__init__(parent)
         self.db = db_session
+        self.company_id = company_id
         self.customer_id = customer_id
+        self.remote_id = remote_id
         self.photo_path = None
         
-        if self.customer_id:
+        from src.core.data_manager import DataManager
+        self.working_mode = DataManager.get_company_mode(self.db, self.company_id)
+        
+        if self.customer_id or self.remote_id:
             self.setWindowTitle(self.tr("Cari Kart Düzenle"))
         else:
             self.setWindowTitle(self.tr("Yeni Cari Kart Ekle"))
         self.setMinimumWidth(850)
         self.setMinimumHeight(650)
         self.init_ui()
-        if self.customer_id:
+        if self.customer_id or self.remote_id:
             self.load_customer_data()
 
     def init_ui(self):
@@ -400,7 +406,23 @@ class CustomerDialog(QDialog):
         self.set_default_avatar()
 
     def load_customer_data(self):
-        cust = self.db.query(Customer).filter(Customer.id == self.customer_id).first()
+        from src.adapters.mappers import DolibarrMapper
+        from src.core.data_manager import DataManager
+        
+        if self.working_mode == "direct_online" and self.remote_id:
+            try:
+                adapter = DataManager._get_adapter(self.db, self.company_id)
+                raw = adapter.fetch_customer_by_id(self.remote_id)
+                if raw:
+                    cust = DolibarrMapper.to_customer_orm(self.company_id, raw)
+                else:
+                    cust = None
+            except Exception as e:
+                QMessageBox.critical(self, self.tr("Hata"), f"Müşteri bilgileri uzak sunucudan çekilemedi: {e}")
+                return
+        else:
+            cust = self.db.query(Customer).filter(Customer.id == self.customer_id).first()
+            
         if cust:
             self.txt_code.setText(cust.customer_code or "")
             self.txt_fullname.setText(cust.fullname)
@@ -461,15 +483,20 @@ class CustomerDialog(QDialog):
             return
             
         try:
-            from src.core.models import ChangeLog, Site
-            active_dolibarr = self.db.query(Site).filter(Site.cms_type == "dolibarr", Site.is_active == True).first()
+            from src.core.data_manager import DataManager
+            from src.core.models import ChangeLog
             
-            if self.customer_id:
-                cust = self.db.query(Customer).filter(Customer.id == self.customer_id).first()
+            if self.working_mode == "direct_online":
+                cust = Customer(marketplace="dolibarr")
+                if self.remote_id:
+                    cust.remote_id = self.remote_id
             else:
-                cust = Customer(marketplace="local")
-                self.db.add(cust)
-                self.db.flush()
+                if self.customer_id:
+                    cust = self.db.query(Customer).filter(Customer.id == self.customer_id).first()
+                else:
+                    cust = Customer(marketplace="local")
+                    self.db.add(cust)
+                    self.db.flush()
 
             cust.customer_code = self.txt_code.text().strip() or None
             cust.fullname = fullname
@@ -517,19 +544,26 @@ class CustomerDialog(QDialog):
             cust.photo_path = self.photo_path
             cust.updated_at = datetime.utcnow()
 
-            # Push log ekle
-            if active_dolibarr:
-                action = "update" if self.customer_id else "create"
-                changelog = ChangeLog(
-                    entity_type="customer",
-                    entity_id=cust.id,
-                    action=action,
-                    status="PENDING_PUSH",
-                    retry_count=0,
-                )
-                self.db.add(changelog)
+            # Kaydetme işlemi
+            if self.working_mode == "direct_online":
+                success = DataManager.save_customer(self.db, self.company_id, cust)
+                if not success:
+                    raise Exception("Uzak sunucuya kayıt gönderilemedi.")
+            else:
+                from src.core.models import Site
+                active_dolibarr = self.db.query(Site).filter(Site.cms_type == "dolibarr", Site.is_active == True).first()
+                if active_dolibarr:
+                    action = "update" if self.customer_id else "create"
+                    changelog = ChangeLog(
+                        entity_type="customer",
+                        entity_id=cust.id,
+                        action=action,
+                        status="PENDING_PUSH",
+                        retry_count=0,
+                    )
+                    self.db.add(changelog)
+                self.db.commit()
 
-            self.db.commit()
             self.accept()
         except Exception as e:
             QMessageBox.critical(self, self.tr("Hata"), f"Cari kart kaydedilemedi: {e}")
@@ -898,9 +932,10 @@ class MusteriYonetimiWidget(QWidget):
 
     toast_requested = pyqtSignal(str, str) # message, type
 
-    def __init__(self, db_session):
+    def __init__(self, db_session, company_id: int):
         super().__init__()
         self.db = db_session
+        self.company_id = company_id
         self.hidden_columns = set()
         
         # Sayfalama Değişkenleri (Lazy Load)
@@ -1054,8 +1089,14 @@ class MusteriYonetimiWidget(QWidget):
         toolbar_layout.addWidget(btn_export)
         toolbar_layout.addWidget(btn_close)
         toolbar_layout.addStretch()
-        
         layout.addLayout(toolbar_layout)
+
+        # Şirket Çalışma Moduna Göre Arayüzü Özelleştir
+        self.working_mode = DataManager.get_company_mode(self.db, self.company_id)
+        if self.working_mode == "direct_online":
+            btn_pull.hide()
+            btn_push.hide()
+            btn_import.hide()
 
         # ==========================================
         # 🔍 ARAMA & DİNAMİK FİLTRELEME PANELİ
@@ -1263,7 +1304,7 @@ class MusteriYonetimiWidget(QWidget):
         """
 
     def open_new_customer_dialog(self):
-        dlg = CustomerDialog(self.db, None, self)
+        dlg = CustomerDialog(self.db, self.company_id, None, None, self)
         if dlg.exec() == QDialog.DialogCode.Accepted:
             self.toast_requested.emit(self.tr("Yeni cari kart başarıyla oluşturuldu."), "success")
             self.refresh_customers()
@@ -1278,9 +1319,13 @@ class MusteriYonetimiWidget(QWidget):
         source_index = self.table.proxy_model.mapToSource(proxy_index)
         source_model = self.table.proxy_model.sourceModel()
         cust_id_val = source_model.index(source_index.row(), 0).data()
+        
+        item = source_model.item(source_index.row(), 0)
+        remote_id = item.data(Qt.ItemDataRole.UserRole + 1) if item else None
+        
         if cust_id_val is not None:
             cust_id = int(cust_id_val)
-            dlg = CustomerDialog(self.db, cust_id, self)
+            dlg = CustomerDialog(self.db, self.company_id, cust_id, remote_id, self)
             if dlg.exec() == QDialog.DialogCode.Accepted:
                 self.toast_requested.emit(self.tr("Cari kart başarıyla güncellendi."), "success")
                 self.refresh_customers()
@@ -1342,6 +1387,10 @@ class MusteriYonetimiWidget(QWidget):
         proxy_index = indexes[0]
         source_index = self.table.proxy_model.mapToSource(proxy_index)
         source_model = self.table.proxy_model.sourceModel()
+        
+        item = source_model.item(source_index.row(), 0)
+        remote_id = item.data(Qt.ItemDataRole.UserRole + 1) if item else None
+        
         cust_id_val = source_model.index(source_index.row(), 0).data()
         if cust_id_val is not None:
             cust_id = int(cust_id_val)
@@ -1352,26 +1401,17 @@ class MusteriYonetimiWidget(QWidget):
             )
             if reply == QMessageBox.StandardButton.Yes:
                 try:
-                    from src.core.models import ChangeLog, Site
-                    active_dolibarr = self.db.query(Site).filter(Site.cms_type == "dolibarr", Site.is_active == True).first()
-                    
-                    cust = self.db.query(Customer).filter(Customer.id == cust_id).first()
-                    if cust:
-                        cust.is_deleted = True
-                        cust.updated_at = datetime.utcnow()
-                        
-                        if active_dolibarr:
-                            changelog = ChangeLog(
-                                entity_type="customer",
-                                entity_id=cust.id,
-                                action="delete",
-                                status="PENDING_PUSH",
-                            )
-                            self.db.add(changelog)
-                            
-                        self.db.commit()
+                    success = DataManager.delete_customer(
+                        db=self.db,
+                        company_id=self.company_id,
+                        customer_id=cust_id,
+                        remote_id=remote_id,
+                    )
+                    if success:
                         self.toast_requested.emit(self.tr("Cari kart silindi."), "success")
                         self.refresh_customers()
+                    else:
+                        QMessageBox.critical(self, self.tr("Hata"), self.tr("Silme işlemi başarısız oldu."))
                 except Exception as e:
                     QMessageBox.critical(self, self.tr("Hata"), f"Silme esnasında hata oluştu: {e}")
 
@@ -1596,58 +1636,36 @@ class MusteriYonetimiWidget(QWidget):
 
     def refresh_customers(self):
         try:
-            query = self.db.query(Customer).filter(Customer.is_deleted == False)
-            
-            # 1. Genel Arama Kutusu
             search_text = self.search_box.text().strip()
-            if search_text:
-                query = query.filter(
-                    Customer.fullname.like(f"%{search_text}%") | 
-                    Customer.tax_number.like(f"%{search_text}%") |
-                    Customer.customer_code.like(f"%{search_text}%") |
-                    Customer.email.like(f"%{search_text}%"),
-                )
-                
-            # 2. Grubu Süzgeci
             group_filter = self.cmb_filter_group.currentText()
-            if group_filter != "Tümü":
-                query = query.filter(Customer.group_name == group_filter)
-                
-            # 3. Durumu Süzgeci
             status_filter = self.cmb_filter_status.currentData()
-            if status_filter != -1:
-                query = query.filter(Customer.status == status_filter)
-                
-            # 4. Mecra Süzgeci
             marketplace_filter = self.cmb_filter_marketplace.currentText()
-            if marketplace_filter != "Tümü":
-                if marketplace_filter == "LOCAL":
-                    query = query.filter((Customer.marketplace == "local") | (Customer.marketplace.is_(None)))
-                else:
-                    query = query.filter(Customer.marketplace == marketplace_filter.lower())
-                    
-            # 5. Özel Kod 1 Süzgeci
             code1_filter = self.txt_filter_code1.text().strip()
-            if code1_filter:
-                query = query.filter(Customer.special_code_1.like(f"%{code1_filter}%"))
-            
-            # Kayıt adedini hesapla
-            self.total_records = query.count()
+
+            customers, total_records = DataManager.get_customers(
+                db=self.db,
+                company_id=self.company_id,
+                page=self.current_page,
+                per_page=self.per_page,
+                search_text=search_text,
+                group_filter=group_filter,
+                status_filter=status_filter,
+                marketplace_filter=marketplace_filter,
+                special_code_1=code1_filter,
+            )
+
+            self.total_records = total_records
             total_pages = max(1, math.ceil(self.total_records / self.per_page))
-            
+
             if self.current_page > total_pages:
                 self.current_page = total_pages
-                
+
             self.lbl_page_info.setText(f"Sayfa {self.current_page} / {total_pages} (Toplam: {self.total_records} Kayıt)")
-            
+
             self.btn_prev_page.setEnabled(self.current_page > 1)
             self.btn_first_page.setEnabled(self.current_page > 1)
             self.btn_next_page.setEnabled(self.current_page < total_pages)
             self.btn_last_page.setEnabled(self.current_page < total_pages)
-            
-            # Sayfalayarak çek
-            offset = (self.current_page - 1) * self.per_page
-            customers = query.limit(self.per_page).offset(offset).all()
             
             self.customer_model.removeRows(0, self.customer_model.rowCount())
             
@@ -1674,6 +1692,8 @@ class MusteriYonetimiWidget(QWidget):
                             
                     item.setEditable(False)
                     row_items.append(item)
+                if row_items:
+                    row_items[0].setData(cust.remote_id, Qt.ItemDataRole.UserRole + 1)
                 self.customer_model.appendRow(row_items)
                 
         except Exception as e:

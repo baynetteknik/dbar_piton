@@ -1,17 +1,34 @@
-import logging
 import datetime
-from PyQt6.QtWidgets import (
-    QMainWindow, QWidget, QHBoxLayout, QVBoxLayout, QFrame, QPushButton,
-    QLabel, QComboBox, QFormLayout, QLineEdit, QGridLayout,
-    QGraphicsDropShadowEffect, QScrollArea, QTabWidget, QListWidget, QMenu, QGroupBox
-)
-from PyQt6.QtCore import pyqtSignal, Qt, QTimer, QPoint, QPropertyAnimation, QEasingCurve
-from PyQt6.QtGui import QFont, QColor, QKeySequence, QShortcut, QAction, QCursor
+import logging
 
-from src.desktop.ui.sites import SitesWidget
-from src.desktop.ui.resources import ResourcesWidget
+from PyQt6.QtCore import Qt, QTimer, pyqtSignal
+from PyQt6.QtGui import QAction, QColor, QCursor, QFont, QKeySequence, QShortcut
+from PyQt6.QtWidgets import (
+    QComboBox,
+    QFormLayout,
+    QFrame,
+    QGraphicsDropShadowEffect,
+    QGridLayout,
+    QGroupBox,
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
+    QListWidget,
+    QMainWindow,
+    QMenu,
+    QPushButton,
+    QScrollArea,
+    QTabWidget,
+    QVBoxLayout,
+    QWidget,
+)
+
+from src.core.updater import CURRENT_VERSION, AutoUpdater
 from src.desktop.ui.backup import BackupWidget
 from src.desktop.ui.customers import MusteriYonetimiWidget
+from src.desktop.ui.resources import ResourcesWidget
+from src.desktop.ui.sites import SitesWidget
+from src.desktop.ui.toast import ToastNotification
 
 
 class QtLogHandler(logging.Handler):
@@ -27,95 +44,6 @@ class QtLogHandler(logging.Handler):
             self.signal.emit(msg)
         except Exception:
             self.handleError(record)
-
-
-# ==========================================
-# MODERN TOAST BİLDİRİM SİSTEMİ (PyQt6 Uyumlu)
-# ==========================================
-class ToastNotification(QFrame):
-    def __init__(self, parent, message, notification_type="info"):
-        super().__init__(parent)
-        self.parent_widget = parent
-        self.message = message
-        self.type = notification_type
-        
-        bg_colors = {
-            "success": "#10b981",
-            "warning": "#f59e0b",
-            "error": "#ef4444",
-            "info": "#3b82f6"
-        }
-        bg_color = bg_colors.get(notification_type, "#1e293b")
-        
-        self.setStyleSheet(f"""
-            QFrame {{
-                background-color: {bg_color};
-                color: white;
-                border-radius: 8px;
-                padding: 12px 20px;
-            }}
-        """)
-        
-        layout = QHBoxLayout(self)
-        layout.setContentsMargins(12, 8, 12, 8)
-        layout.setSpacing(10)
-        
-        icon_emoji = "ℹ️"
-        if notification_type == "success":
-            icon_emoji = "✅"
-        elif notification_type == "warning":
-            icon_emoji = "⚠️"
-        elif notification_type == "error":
-            icon_emoji = "❌"
-            
-        icon_lbl = QLabel(icon_emoji)
-        icon_lbl.setFont(QFont("Segoe UI", 12))
-        layout.addWidget(icon_lbl)
-        
-        msg_lbl = QLabel(message)
-        msg_lbl.setFont(QFont("Segoe UI", 11, QFont.Weight.Medium))
-        layout.addWidget(msg_lbl)
-        
-        shadow = QGraphicsDropShadowEffect(self)
-        shadow.setBlurRadius(15)
-        shadow.setColor(QColor(0, 0, 0, 80))
-        shadow.setOffset(0, 4)
-        self.setGraphicsEffect(shadow)
-        
-        self.adjustSize()
-        
-        self.anim = QPropertyAnimation(self, b"pos")
-        self.anim.setDuration(400)
-        self.anim.setEasingCurve(QEasingCurve.Type.OutCubic)
-        
-        self.timer = QTimer(self)
-        self.timer.setSingleShot(True)
-        self.timer.timeout.connect(self.fade_out)
-        
-    def show_toast(self):
-        parent_rect = self.parent_widget.rect()
-        start_x = parent_rect.width() - self.width() - 24
-        start_y = parent_rect.height()
-        end_y = parent_rect.height() - self.height() - 40
-        
-        self.move(start_x, start_y)
-        self.show()
-        
-        self.anim.setStartValue(QPoint(start_x, start_y))
-        self.anim.setEndValue(QPoint(start_x, end_y))
-        self.anim.start()
-        
-        self.timer.start(3000)
-        
-    def fade_out(self):
-        parent_rect = self.parent_widget.rect()
-        dest_x = self.x()
-        dest_y = parent_rect.height()
-        
-        self.anim.setStartValue(QPoint(self.x(), self.y()))
-        self.anim.setEndValue(QPoint(dest_x, dest_y))
-        self.anim.finished.connect(self.deleteLater)
-        self.anim.start()
 
 
 # ==========================================
@@ -186,7 +114,7 @@ class MenuPopup(QFrame):
         self.on_item_click(item_name)
         self.hide()
 
-    def leaveEvent(self, event):
+    def leaveEvent(self, event):  # noqa: N802
         self.hide()
         super().leaveEvent(event)
 
@@ -215,7 +143,7 @@ class HoverMenuButton(QPushButton):
             }
         """)
         
-    def enterEvent(self, event):
+    def enterEvent(self, event):  # noqa: N802
         global_pos = self.parentWidget().mapTo(self.main_window, self.pos())
         x = global_pos.x()
         y = global_pos.y() + self.height() + 2
@@ -273,7 +201,7 @@ class GridModuleButton(QPushButton):
         sh.setOffset(0, 2)
         self.setGraphicsEffect(sh)
         
-    def contextMenuEvent(self, event):
+    def contextMenuEvent(self, event):  # noqa: N802
         self.main_window.show_grid_module_context_menu(event.pos(), self.target_menu, self)
         event.accept()
 
@@ -301,24 +229,77 @@ class SettingsWidget(QWidget):
         super().__init__(parent)
         layout = QVBoxLayout(self)
         layout.setContentsMargins(30, 30, 30, 30)
-        
+
         title = QLabel(self.tr("Genel Ayarlar"))
         title.setFont(QFont("Segoe UI", 16, QFont.Weight.Bold))
         title.setStyleSheet("color: #2c3e50; margin-bottom: 20px;")
         layout.addWidget(title)
-        
-        form_group = QGroupBox(self.tr("Uygulama Tercihleri"))
-        form_group.setFont(QFont("Segoe UI", 10, QFont.Weight.Bold))
-        form_layout = QFormLayout(form_group)
-        
+
+        # Dil ayarları
+        lang_group = QGroupBox(self.tr("Uygulama Tercihleri"))
+        lang_group.setFont(QFont("Segoe UI", 10, QFont.Weight.Bold))
+        lang_layout = QFormLayout(lang_group)
+
         self.lang_combo = QComboBox()
         self.lang_combo.addItem("Türkçe (TR)", "tr")
         self.lang_combo.addItem("English (EN)", "en")
-        
-        form_layout.addRow(self.tr("Arayüz Dili:"), self.lang_combo)
-        
-        layout.addWidget(form_group)
+
+        lang_layout.addRow(self.tr("Arayüz Dili:"), self.lang_combo)
+        layout.addWidget(lang_group)
+
+        # Güncelleme grubu
+        update_group = QGroupBox(self.tr("Güncelleme"))
+        update_group.setFont(QFont("Segoe UI", 10, QFont.Weight.Bold))
+        update_layout = QFormLayout(update_group)
+
+        self.version_lbl = QLabel(CURRENT_VERSION)
+        self.version_lbl.setStyleSheet("color: #64748b; font-weight: bold;")
+        update_layout.addRow(self.tr("Mevcut Sürüm:"), self.version_lbl)
+
+        self.update_status_lbl = QLabel(self.tr("Kontrol edilmedi"))
+        self.update_status_lbl.setStyleSheet("color: #94a3b8;")
+        update_layout.addRow(self.tr("Durum:"), self.update_status_lbl)
+
+        btn_layout = QHBoxLayout()
+        self.check_update_btn = QPushButton(self.tr("Güncellemeleri Kontrol Et"))
+        self.check_update_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #3b82f6;
+                color: white;
+                border: none;
+                border-radius: 6px;
+                padding: 8px 16px;
+                font-weight: bold;
+            }
+            QPushButton:hover { background-color: #2563eb; }
+        """)
+        self.check_update_btn.clicked.connect(self._check_updates)
+        btn_layout.addWidget(self.check_update_btn)
+        btn_layout.addStretch()
+        update_layout.addRow(btn_layout)
+
+        layout.addWidget(update_group)
         layout.addStretch()
+
+    def _check_updates(self):
+        """Güncelleme kontrolü yapar."""
+        self.update_status_lbl.setText(self.tr("Kontrol ediliyor..."))
+        self.update_status_lbl.setStyleSheet("color: #3b82f6;")
+        self.check_update_btn.setEnabled(False)
+
+        updater = AutoUpdater()
+        update = updater.check_for_updates()
+
+        if update:
+            self.update_status_lbl.setText(
+                self.tr("Yeni sürüm mevcut: {}").format(update.version),
+            )
+            self.update_status_lbl.setStyleSheet("color: #10b981; font-weight: bold;")
+        else:
+            self.update_status_lbl.setText(self.tr("Uygulama güncel"))
+            self.update_status_lbl.setStyleSheet("color: #10b981;")
+
+        self.check_update_btn.setEnabled(True)
 
 
 class MainWindow(QMainWindow):
@@ -337,7 +318,7 @@ class MainWindow(QMainWindow):
             self.tr("👥 CARİ"): ([self.tr("Müşteriler & Cariler"), self.tr("Cari Analiz")], "👥"),
             self.tr("📦 STOK"): ([self.tr("Ürün Yönetimi"), self.tr("Fiyat Politikaları")], "📦"),
             self.tr("🔄 YEDEKLEME"): ([self.tr("Görevler"), self.tr("Pazaryeri Bağlantıları")], "🔄"),
-            self.tr("⚙️ SİSTEM"): ([self.tr("Genel Ayarlar"), self.tr("İşlem Günlükleri")], "⚙️")
+            self.tr("⚙️ SİSTEM"): ([self.tr("Genel Ayarlar"), self.tr("İşlem Günlükleri")], "⚙️"),
         }
         
         self.init_ui()
@@ -395,7 +376,6 @@ class MainWindow(QMainWindow):
         header_layout.addWidget(user_lbl)
         
         self.company_combo = QComboBox()
-        self.company_combo.addItems([self.tr("Baynet Teknik A.Ş."), self.tr("Kozmos Yazılım Ltd.")])
         self.company_combo.setMinimumWidth(180)
         self.company_combo.setStyleSheet("""
             QComboBox {
@@ -612,11 +592,8 @@ class MainWindow(QMainWindow):
         self.ctrl_k = QShortcut(QKeySequence("Ctrl+K"), self)
         self.ctrl_k.activated.connect(self.focus_search)
 
-        # Modül sayfaları ön yükleme
-        self.backup_page = BackupWidget(self.db)
-        self.products_page = ResourcesWidget(self.db)
-        self.connections_page = SitesWidget(self.db)
-        self.settings_page = SettingsWidget()
+        # Şirketleri yükle ve dinle
+        self.load_companies()
 
         # Log Altyapısı
         self.setup_live_logs()
@@ -662,16 +639,19 @@ class MainWindow(QMainWindow):
                 
         # Yeni sekme için widget oluştur
         new_widget = None
+        company_id = self.company_combo.currentData()
+        
         if menu_name == self.tr("Görevler"):
-            new_widget = self.backup_page
+            new_widget = BackupWidget(self.db, company_id)
         elif menu_name == self.tr("Ürün Yönetimi"):
-            new_widget = self.products_page
+            new_widget = ResourcesWidget(self.db, company_id)
         elif menu_name == self.tr("Pazaryeri Bağlantıları"):
-            new_widget = self.connections_page
+            new_widget = SitesWidget(self.db)
         elif menu_name == self.tr("Genel Ayarlar"):
-            new_widget = self.settings_page
+            from src.desktop.ui.settings import SettingsWidget
+            new_widget = SettingsWidget()
         elif menu_name == self.tr("Müşteriler & Cariler"):
-            new_widget = MusteriYonetimiWidget(self.db)
+            new_widget = MusteriYonetimiWidget(self.db, company_id)
             new_widget.toast_requested.connect(self.show_toast)
         else:
             new_widget = PlaceholderWidget(f"{menu_name} {self.tr('Modülü')}")
@@ -731,3 +711,21 @@ class MainWindow(QMainWindow):
             remove_action.triggered.connect(lambda: self.favoriden_cikar(item.text()))
             menu.addAction(remove_action)
             menu.exec(QCursor.pos())
+
+    def load_companies(self):
+        self.company_combo.clear()
+        try:
+            from src.core.models import Site
+            companies = self.db.query(Site).filter(Site.is_active == True).all()
+            for comp in companies:
+                self.company_combo.addItem(comp.name, comp.id)
+        except Exception:
+            pass
+        self.company_combo.currentIndexChanged.connect(self.on_company_changed)
+
+    def on_company_changed(self):
+        # Şirket değiştiğinde tüm açık sekmeleri temizle
+        while self.tab_widget.count() > 0:
+            self.tab_widget.removeTab(0)
+        self.tab_widget.setVisible(False)
+        self.dashboard_container.setVisible(True)

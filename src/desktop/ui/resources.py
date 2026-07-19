@@ -35,9 +35,10 @@ from src.desktop.ui.grid import ManagedTableView
 class ProductTableModel(QAbstractTableModel):
     """SQL LIMIT/OFFSET ve dinamik filtreleme/sıralama yeteneğine sahip, bellek dostu özel masaüstü tablo veri modeli."""
 
-    def __init__(self, db_session):
+    def __init__(self, db_session, company_id: int):
         super().__init__()
         self.db = db_session
+        self.company_id = company_id
         self.headers = [
             self.tr("ID"),
             self.tr("Stok Kodu (SKU)"),
@@ -60,16 +61,16 @@ class ProductTableModel(QAbstractTableModel):
         self.refresh_count()
 
     def refresh_count(self):
-        query = self.db.query(Product).filter(Product.is_deleted == False)
-        if self.search_text:
-            query = query.filter(
-                (Product.name.like(f"%{self.search_text}%")) |
-                (Product.sku.like(f"%{self.search_text}%")),
-            )
-        if self.category_filter != -1:
-            query = query.filter(Product.category_id == self.category_filter)
-            
-        self.total_count = query.count()
+        from src.core.data_manager import DataManager
+        _, total = DataManager.get_products(
+            db=self.db,
+            company_id=self.company_id,
+            page=1,
+            per_page=1,
+            search_text=self.search_text,
+            category_id=self.category_filter,
+        )
+        self.total_count = total
         self.cache.clear()
 
     def rowCount(self, parent=None):  # noqa: N802
@@ -83,41 +84,55 @@ class ProductTableModel(QAbstractTableModel):
         return len(self.headers)
 
     def _load_row(self, row_idx):
-        """İstenen satırı cache'de yoksa veritabanından lazy-loading mantığıyla çeker."""
+        """İstenen satırı cache'de yoksa veritabanından veya API'den lazy-loading mantığıyla çeker."""
         if row_idx in self.cache:
             return self.cache[row_idx]
             
-        # İlgili sayfayı toplu olarak çek
-        page_idx = (row_idx // self.page_size) * self.page_size
-        query = self.db.query(Product).filter(Product.is_deleted == False)
+        from src.core.data_manager import DataManager
+        mode = DataManager.get_company_mode(self.db, self.company_id)
         
-        if self.search_text:
-            query = query.filter(
-                (Product.name.like(f"%{self.search_text}%")) |
-                (Product.sku.like(f"%{self.search_text}%")),
-            )
-        if self.category_filter != -1:
-            query = query.filter(Product.category_id == self.category_filter)
+        page_num = (row_idx // self.page_size) + 1
+        page_idx = (row_idx // self.page_size) * self.page_size
+        
+        if mode == "local_master":
+            query = self.db.query(Product).filter(Product.is_deleted == False)
             
-        # Sıralama
-        sort_attr = Product.id
-        if self.sort_col == 1:
-            sort_attr = Product.sku
-        elif self.sort_col == 2:
-            sort_attr = Product.name
-        elif self.sort_col == 3:
-            sort_attr = Product.base_price
-        elif self.sort_col == 4:
-            sort_attr = Product.stock
-        elif self.sort_col == 5:
-            sort_attr = Product.custom_code
-            
-        if self.sort_order == Qt.SortOrder.DescendingOrder:
-            query = query.order_by(sort_attr.desc())
+            if self.search_text:
+                query = query.filter(
+                    (Product.name.like(f"%{self.search_text}%")) |
+                    (Product.sku.like(f"%{self.search_text}%")),
+                )
+            if self.category_filter != -1:
+                query = query.filter(Product.category_id == self.category_filter)
+                
+            sort_attr = Product.id
+            if self.sort_col == 1:
+                sort_attr = Product.sku
+            elif self.sort_col == 2:
+                sort_attr = Product.name
+            elif self.sort_col == 3:
+                sort_attr = Product.base_price
+            elif self.sort_col == 4:
+                sort_attr = Product.stock
+            elif self.sort_col == 5:
+                sort_attr = Product.custom_code
+                
+            if self.sort_order == Qt.SortOrder.DescendingOrder:
+                query = query.order_by(sort_attr.desc())
+            else:
+                query = query.order_by(sort_attr.asc())
+                
+            page_products = query.limit(self.page_size).offset(page_idx).all()
         else:
-            query = query.order_by(sort_attr.asc())
+            page_products, _ = DataManager.get_products(
+                db=self.db,
+                company_id=self.company_id,
+                page=page_num,
+                per_page=self.page_size,
+                search_text=self.search_text,
+                category_id=self.category_filter,
+            )
             
-        page_products = query.limit(self.page_size).offset(page_idx).all()
         for idx, prod in enumerate(page_products):
             self.cache[page_idx + idx] = prod
             
@@ -209,11 +224,16 @@ class ProductTableModel(QAbstractTableModel):
 class ProductDetailDialog(QDialog):
     """Ürün düzenleme ve resim yönetimi için detay penceresi."""
 
-    def __init__(self, db_session, product_id=None, parent=None):
+    def __init__(self, db_session, company_id: int, product_id=None, remote_id=None, parent=None):
         super().__init__(parent)
         self.db = db_session
+        self.company_id = company_id
         self.product_id = product_id
+        self.remote_id = remote_id
         self.image_dest_path = None
+        
+        from src.core.data_manager import DataManager
+        self.working_mode = DataManager.get_company_mode(self.db, self.company_id)
         self.init_ui()
 
     def init_ui(self):
@@ -296,7 +316,23 @@ class ProductDetailDialog(QDialog):
             self.cat_combo.addItem(cat.name, cat.id)
 
     def load_product_data(self):
-        prod = self.db.query(Product).filter(Product.id == self.product_id).first()
+        from src.adapters.mappers import DolibarrMapper
+        from src.core.data_manager import DataManager
+        
+        if self.working_mode == "direct_online" and self.remote_id:
+            try:
+                adapter = DataManager._get_adapter(self.db, self.company_id)
+                raw = adapter.fetch_product_by_id(self.remote_id)
+                if raw:
+                    prod = DolibarrMapper.to_product_orm(self.company_id, raw)
+                else:
+                    prod = None
+            except Exception as e:
+                QMessageBox.critical(self, self.tr("Hata"), f"Ürün bilgileri uzak sunucudan çekilemedi: {e}")
+                return
+        else:
+            prod = self.db.query(Product).filter(Product.id == self.product_id).first()
+            
         if prod:
             self.sku_input.setText(prod.sku)
             self.name_input.setText(prod.name)
@@ -360,12 +396,19 @@ class ProductDetailDialog(QDialog):
             cat_id = None
             
         try:
-            if self.product_id:
-                prod = self.db.query(Product).filter(Product.id == self.product_id).first()
-            else:
+            from src.core.data_manager import DataManager
+            
+            if self.working_mode == "direct_online":
                 prod = Product()
-                self.db.add(prod)
-                
+                if self.remote_id:
+                    prod.remote_id = self.remote_id
+            else:
+                if self.product_id:
+                    prod = self.db.query(Product).filter(Product.id == self.product_id).first()
+                else:
+                    prod = Product()
+                    self.db.add(prod)
+                    
             prod.sku = sku
             prod.name = name
             prod.description = self.desc_input.text().strip()
@@ -375,10 +418,17 @@ class ProductDetailDialog(QDialog):
             prod.category_id = cat_id
             prod.image_path = self.image_dest_path
             
-            self.db.commit()
+            if self.working_mode == "direct_online":
+                success = DataManager.save_product(self.db, self.company_id, prod)
+                if not success:
+                    raise Exception("Uzak sunucuya ürün gönderilemedi.")
+            else:
+                self.db.commit()
+                
             self.accept()
         except Exception as e:
-            self.db.rollback()
+            if self.working_mode != "direct_online":
+                self.db.rollback()
             QMessageBox.critical(self, self.tr("Hata"), f"Kayıt sırasında hata oluştu: {str(e)}")
 
 
@@ -388,9 +438,10 @@ class ResourcesWidget(QWidget):
     sync_started = pyqtSignal(str)
     sync_finished = pyqtSignal(str)
 
-    def __init__(self, db_session):
+    def __init__(self, db_session, company_id: int):
         super().__init__()
         self.db = db_session
+        self.company_id = company_id
         self.threadpool = QThreadPool.globalInstance()
         self.hidden_columns = set()
         self.init_ui()
@@ -496,6 +547,14 @@ class ResourcesWidget(QWidget):
         
         layout.addWidget(self.prod_table)
         
+        # Şirket Çalışma Moduna Göre Butonları Gizle
+        from src.core.data_manager import DataManager
+        self.working_mode = DataManager.get_company_mode(self.db, self.company_id)
+        if self.working_mode == "direct_online":
+            self.pull_btn.hide()
+            self.push_btn.hide()
+            self.import_prod_btn.hide()
+            
         self.load_categories_filter()
         self.refresh_products()
 
@@ -513,7 +572,7 @@ class ResourcesWidget(QWidget):
         search_txt = self.search_input.text().strip()
         cat_id = self.cat_filter_combo.currentData() or -1
         
-        self.prod_model = ProductTableModel(self.db)
+        self.prod_model = ProductTableModel(self.db, self.company_id)
         self.prod_model.set_filters(search_txt, cat_id)
         self.prod_table.set_source_model(self.prod_model)
 
@@ -523,13 +582,19 @@ class ResourcesWidget(QWidget):
     def on_row_double_clicked(self, index):
         # Eğer çift tıklanan sütun inline düzenlenebilir bir alan değilse Detay Dialog'unu aç
         if index.column() in (0, 6):
-            product_id = int(self.prod_model.data(self.prod_model.index(index.row(), 0)))
-            dialog = ProductDetailDialog(self.db, product_id, self)
+            source_index = self.prod_table.proxy_model.mapToSource(index)
+            source_model = self.prod_table.proxy_model.sourceModel()
+            
+            product_id = int(source_model.data(source_model.index(source_index.row(), 0)))
+            prod = source_model._load_row(source_index.row())
+            remote_id = prod.remote_id if prod else None
+            
+            dialog = ProductDetailDialog(self.db, self.company_id, product_id, remote_id, self)
             if dialog.exec() == QDialog.DialogCode.Accepted:
                 self.refresh_products()
 
     def add_new_product(self):
-        dialog = ProductDetailDialog(self.db, None, self)
+        dialog = ProductDetailDialog(self.db, self.company_id, None, None, self)
         if dialog.exec() == QDialog.DialogCode.Accepted:
             self.refresh_products()
 
