@@ -1235,10 +1235,7 @@ class MusteriYonetimiWidget(QWidget):
         self.pagination_layout.addStretch()
         self.pagination_layout.addWidget(QLabel("Sayfa Boyutu:"))
         self.pagination_layout.addWidget(self.combo_page_size)
-        
         layout.addLayout(self.pagination_layout)
-
-        self.apply_hidden_columns()
         self.refresh_customers()
 
     def toolbar_btn_style(self):
