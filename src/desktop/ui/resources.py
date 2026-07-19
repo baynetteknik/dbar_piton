@@ -1,25 +1,35 @@
 import os
 import shutil
-import json
 from pathlib import Path
-from PyQt6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton,
-    QTableView, QTabWidget, QMessageBox, QComboBox, QFormLayout, QGroupBox,
-    QHeaderView, QDialog, QFileDialog, QMenu
-)
-from PyQt6.QtCore import QAbstractTableModel, Qt, pyqtSignal, QModelIndex, QThreadPool
-from PyQt6.QtGui import QFont, QAction, QPixmap
 
-from src.core.models import Product, Order, Site, Category
-from src.desktop.core.workers import SyncWorker
+from PyQt6.QtCore import QAbstractTableModel, QModelIndex, Qt, QThreadPool, pyqtSignal
+from PyQt6.QtGui import QFont, QPixmap
+from PyQt6.QtWidgets import (
+    QComboBox,
+    QDialog,
+    QFileDialog,
+    QFormLayout,
+    QGroupBox,
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
+    QMessageBox,
+    QPushButton,
+    QVBoxLayout,
+    QWidget,
+)
+
+from src.adapters.dolibarr.dolibarr_adapter import DolibarrAdapter
+from src.adapters.dolibarr.dolibarr_client import DolibarrClient
+from src.adapters.mappers import map_remote_to_product
+from src.adapters.woocommerce.woocommerce_adapter import WooCommerceAdapter
+from src.adapters.woocommerce.woocommerce_client import WooCommerceClient
+from src.core.models import Category, Product, Site
+from src.core.security.keyring_store import get_api_key
 from src.core.sync.pull_engine import PullEngine
 from src.core.sync.push_engine import PushEngine
-from src.adapters.dolibarr.dolibarr_client import DolibarrClient
-from src.adapters.dolibarr.dolibarr_adapter import DolibarrAdapter
-from src.adapters.woocommerce.woocommerce_client import WooCommerceClient
-from src.adapters.woocommerce.woocommerce_adapter import WooCommerceAdapter
-from src.core.security.keyring_store import get_api_key
-from src.adapters.mappers import map_remote_to_product, map_remote_to_order
+from src.desktop.core.workers import SyncWorker
+from src.desktop.ui.grid import ManagedTableView
 
 
 class ProductTableModel(QAbstractTableModel):
@@ -35,7 +45,7 @@ class ProductTableModel(QAbstractTableModel):
             self.tr("Referans Fiyat"),
             self.tr("Stok"),
             self.tr("Özel Kod"),
-            self.tr("Kategori")
+            self.tr("Kategori"),
         ]
         self.page_size = 50
         self.cache = {}
@@ -54,7 +64,7 @@ class ProductTableModel(QAbstractTableModel):
         if self.search_text:
             query = query.filter(
                 (Product.name.like(f"%{self.search_text}%")) |
-                (Product.sku.like(f"%{self.search_text}%"))
+                (Product.sku.like(f"%{self.search_text}%")),
             )
         if self.category_filter != -1:
             query = query.filter(Product.category_id == self.category_filter)
@@ -62,10 +72,14 @@ class ProductTableModel(QAbstractTableModel):
         self.total_count = query.count()
         self.cache.clear()
 
-    def rowCount(self, parent=QModelIndex()):
+    def rowCount(self, parent=None):  # noqa: N802
+        if parent is None:
+            parent = QModelIndex()
         return self.total_count
 
-    def columnCount(self, parent=QModelIndex()):
+    def columnCount(self, parent=None):  # noqa: N802
+        if parent is None:
+            parent = QModelIndex()
         return len(self.headers)
 
     def _load_row(self, row_idx):
@@ -80,7 +94,7 @@ class ProductTableModel(QAbstractTableModel):
         if self.search_text:
             query = query.filter(
                 (Product.name.like(f"%{self.search_text}%")) |
-                (Product.sku.like(f"%{self.search_text}%"))
+                (Product.sku.like(f"%{self.search_text}%")),
             )
         if self.category_filter != -1:
             query = query.filter(Product.category_id == self.category_filter)
@@ -136,7 +150,7 @@ class ProductTableModel(QAbstractTableModel):
                 return product.category.name if product.category else "-"
         return None
 
-    def headerData(self, section, orientation, role=Qt.ItemDataRole.DisplayRole):
+    def headerData(self, section, orientation, role=Qt.ItemDataRole.DisplayRole):  # noqa: N802
         if role == Qt.ItemDataRole.DisplayRole:
             if orientation == Qt.Orientation.Horizontal:
                 return self.headers[section]
@@ -150,7 +164,7 @@ class ProductTableModel(QAbstractTableModel):
             return Qt.ItemFlag.ItemIsEditable | Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable
         return Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable
 
-    def setData(self, index, value, role=Qt.ItemDataRole.EditRole):
+    def setData(self, index, value, role=Qt.ItemDataRole.EditRole):  # noqa: N802
         if index.isValid() and role == Qt.ItemDataRole.EditRole:
             product = self._load_row(index.row())
             if not product:
@@ -172,7 +186,7 @@ class ProductTableModel(QAbstractTableModel):
                 self.db.commit()
                 self.dataChanged.emit(index, index, [role])
                 return True
-            except Exception as e:
+            except Exception:
                 self.db.rollback()
                 return False
         return False
@@ -464,10 +478,10 @@ class ResourcesWidget(QWidget):
         layout.addLayout(filter_layout)
 
         # Tablo Görünümü
-        self.prod_table = QTableView()
-        self.prod_table.setSelectionBehavior(QTableView.SelectionBehavior.SelectRows)
-        self.prod_table.setSelectionMode(QTableView.SelectionMode.SingleSelection)
+        self.prod_table = ManagedTableView(settings_key="products", parent=self)
+        self.prod_table.setSelectionMode(ManagedTableView.SelectionMode.SingleSelection)
         self.prod_table.setSortingEnabled(True)
+        self.prod_table.enable_filters(True)
         
         self.prod_table.setStyleSheet("""
             QTableView {
@@ -477,10 +491,6 @@ class ResourcesWidget(QWidget):
             }
         """)
         
-        # Sütun Başlığı Sağ Tık Menüsü (Görünüm Özelleştirme)
-        self.prod_table.horizontalHeader().setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
-        self.prod_table.horizontalHeader().customContextMenuRequested.connect(self.show_header_menu)
-        
         # Çift Tıklama Düzenleme Tetikleyicisi
         self.prod_table.doubleClicked.connect(self.on_row_double_clicked)
         
@@ -488,7 +498,6 @@ class ResourcesWidget(QWidget):
         
         self.load_categories_filter()
         self.refresh_products()
-        self.load_view_settings()
 
     def load_categories_filter(self):
         self.cat_filter_combo.clear()
@@ -506,9 +515,7 @@ class ResourcesWidget(QWidget):
         
         self.prod_model = ProductTableModel(self.db)
         self.prod_model.set_filters(search_txt, cat_id)
-        self.prod_table.setModel(self.prod_model)
-        
-        self.apply_hidden_columns()
+        self.prod_table.set_source_model(self.prod_model)
 
     def on_filter_changed(self):
         self.refresh_products()
@@ -536,7 +543,7 @@ class ResourcesWidget(QWidget):
         from src.core.importer import PRODUCT_FIELDS, export_to_excel_file
         file_path, _ = QFileDialog.getSaveFileName(
             self, self.tr("Ürün Listesini Kaydet"), "urunler.xlsx",
-            "Excel Dosyası (*.xlsx)"
+            "Excel Dosyası (*.xlsx)",
         )
         if file_path:
             try:
@@ -546,68 +553,7 @@ class ResourcesWidget(QWidget):
             except Exception as e:
                 QMessageBox.critical(self, self.tr("Hata"), f"Dışa aktarım hatası: {e}")
 
-    def show_header_menu(self, pos):
-        menu = QMenu(self)
-        for col_idx in range(self.prod_model.columnCount()):
-            col_name = self.prod_model.headerData(col_idx, Qt.Orientation.Horizontal)
-            action = QAction(col_name, menu, checkable=True)
-            action.setChecked(col_idx not in self.hidden_columns)
-            
-            # Sütunun durumuna göre check işlemini ata
-            def toggle_col(checked, idx=col_idx):
-                if checked:
-                    self.hidden_columns.discard(idx)
-                else:
-                    self.hidden_columns.add(idx)
-                self.apply_hidden_columns()
-                self.save_view_settings()
-                
-            action.triggered.connect(toggle_col)
-            menu.addAction(action)
-            
-        menu.addSeparator()
-        dia_action = QAction(self.tr("⚙️ Kolonları Yapılandır (DIA)"), menu)
-        def open_dia_column_manager():
-            from src.desktop.ui.column_manager import ColumnManagerDialog
-            headers_dict = {}
-            for idx in range(self.prod_model.columnCount()):
-                headers_dict[idx] = (self.prod_model.headerData(idx, Qt.Orientation.Horizontal), "")
-            dlg = ColumnManagerDialog(headers_dict, self.hidden_columns, "view_settings", self)
-            if dlg.exec() == QDialog.DialogCode.Accepted:
-                self.hidden_columns = dlg.get_hidden_columns()
-                self.apply_hidden_columns()
-        dia_action.triggered.connect(open_dia_column_manager)
-        menu.addAction(dia_action)
-        
-        menu.exec(self.prod_table.horizontalHeader().mapToGlobal(pos))
 
-    def apply_hidden_columns(self):
-        for col_idx in range(self.prod_model.columnCount()):
-            if col_idx in self.hidden_columns:
-                self.prod_table.setColumnHidden(col_idx, True)
-            else:
-                self.prod_table.setColumnHidden(col_idx, False)
-
-    def save_view_settings(self):
-        # Sütun tercihlerini JSON formatında yerel veritabanına veya dosyaya kaydeder
-        settings_path = Path("data/view_settings.json")
-        settings_path.parent.mkdir(parents=True, exist_ok=True)
-        try:
-            with open(settings_path, "w", encoding="utf-8") as f:
-                json.dump(list(self.hidden_columns), f)
-        except Exception:
-            pass
-
-    def load_view_settings(self):
-        settings_path = Path("data/view_settings.json")
-        if settings_path.exists():
-            try:
-                with open(settings_path, "r", encoding="utf-8") as f:
-                    hidden = json.load(f)
-                    self.hidden_columns = set(hidden)
-                self.apply_hidden_columns()
-            except Exception:
-                pass
 
     def trigger_pull(self):
         def pull_action():
@@ -636,7 +582,7 @@ class ResourcesWidget(QWidget):
                     fetch_method_name="fetch_products",
                     model_class=Product,
                     mapper_func=map_remote_to_product,
-                    site_id=site.id
+                    site_id=site.id,
                 )
                 total_added += added
                 total_updated += updated

@@ -1,46 +1,49 @@
 import sys
-from PyQt6.QtWidgets import QApplication
-from PyQt6.QtCore import Qt
 
-from src.core.logger import setup_logging
+from PyQt6.QtCore import Qt
+from PyQt6.QtWidgets import QApplication
+from qt_material import apply_stylesheet
+
 from src.core.database import DatabaseManager
+from src.core.logger import setup_logging
+from src.desktop.ui.login_window import LoginWindow
 from src.desktop.ui.main_window import MainWindow
 
 
 def main():
-    # 1. Loglama sistemini ilklendir
     setup_logging(log_dir="logs", log_level="INFO")
 
-    # 2. Veritabanı yöneticisini başlat
-    db_manager = DatabaseManager()
-    db_session = db_manager.get_db()
-
-    # 3. Yüksek DPI Ölçekleme ve PyQt uygulamasını oluştur
     QApplication.setHighDpiScaleFactorRoundingPolicy(
-        Qt.HighDpiScaleFactorRoundingPolicy.PassThrough
+        Qt.HighDpiScaleFactorRoundingPolicy.PassThrough,
     )
     app = QApplication(sys.argv)
 
-    # Global stil şablonu (Modern minimal açık tema)
-    app.setStyleSheet("""
-        QWidget {
-            font-family: 'Segoe UI', -apple-system, sans-serif;
-            font-size: 13px;
-        }
-        QMainWindow {
-            background-color: #f8f9fa;
-        }
-    """)
+    extra = {
+        'font_family': 'Segoe UI, -apple-system, sans-serif',
+        'font_size': '13px',
+    }
+    apply_stylesheet(app, theme='light_teal.xml', extra=extra)
 
-    # 4. Ana pencereyi yükle ve göster
-    window = MainWindow(db_session)
-    window.show()
+    login = LoginWindow()
+    login.show()
 
-    # 5. Uygulamayı çalıştır ve düzgün çıkış yap
+    main_window_container: list = []
+
+    def on_login_success(config: dict):
+        db_manager = DatabaseManager()
+        db_session = db_manager.get_db()
+
+        window = MainWindow(db_session)
+        window.show()
+        main_window_container.append((window, db_session))
+
+    login.login_success.connect(on_login_success)
+
     try:
         sys.exit(app.exec())
     finally:
-        db_session.close()
+        for _window, db_session in main_window_container:
+            db_session.close()
 
 
 if __name__ == "__main__":

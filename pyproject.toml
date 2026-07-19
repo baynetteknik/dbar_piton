@@ -22,7 +22,11 @@ dependencies = [
     "requests>=2.31.0",
     "paramiko>=3.0.0",
     "pandas>=2.0.0",
-    "odfpy>=1.4.1"
+    "odfpy>=1.4.1",
+    "msgpack>=1.0.0",
+    "zstandard>=0.22.0",
+    "packaging>=23.0",
+    "qt-material>=2.14"
 ]
 
 [project.optional-dependencies]

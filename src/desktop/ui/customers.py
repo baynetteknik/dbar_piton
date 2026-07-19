@@ -1,23 +1,34 @@
-import json
-import os
 import math
-from pathlib import Path
+import os
 from datetime import datetime
-import xml.etree.ElementTree as ET
-import requests
-from PyQt6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton,
-    QTableWidget, QTableWidgetItem, QHeaderView, QDialog, QMessageBox, QFileDialog,
-    QComboBox, QMenu, QFrame, QTextEdit, QRadioButton, QTabWidget, QCheckBox, QDateEdit,
-    QProgressBar, QApplication
-)
-from PyQt6.QtCore import Qt, pyqtSignal, QDate, QThread
-from PyQt6.QtGui import QFont, QAction, QColor, QPixmap
 
-from src.core.models import Customer, Site
-from src.desktop.ui.import_dialog import ExcelImportDialog
+from PyQt6.QtCore import QDate, Qt, QThread, pyqtSignal
+from PyQt6.QtGui import QColor, QFont, QPixmap, QStandardItem, QStandardItemModel
+from PyQt6.QtWidgets import (
+    QCheckBox,
+    QComboBox,
+    QDateEdit,
+    QDialog,
+    QFileDialog,
+    QFrame,
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
+    QMessageBox,
+    QProgressBar,
+    QPushButton,
+    QRadioButton,
+    QTabWidget,
+    QTextEdit,
+    QVBoxLayout,
+    QWidget,
+)
+
 from src.core.importer import CUSTOMER_FIELDS, export_to_excel_file
+from src.core.models import Customer, Site
 from src.core.sync.customer_sync import CustomerSyncEngine
+from src.desktop.ui.grid import ManagedTableView
+from src.desktop.ui.import_dialog import ExcelImportDialog
 
 
 class CustomerDialog(QDialog):
@@ -375,7 +386,7 @@ class CustomerDialog(QDialog):
     def change_photo(self):
         file_path, _ = QFileDialog.getOpenFileName(
             self, self.tr("Cari Fotoğrafı Seç"), "",
-            "Görsel Dosyaları (*.png *.jpg *.jpeg *.bmp)"
+            "Görsel Dosyaları (*.png *.jpg *.jpeg *.bmp)",
         )
         if file_path:
             self.photo_path = file_path
@@ -450,7 +461,7 @@ class CustomerDialog(QDialog):
             return
             
         try:
-            from src.core.models import Site, ChangeLog
+            from src.core.models import ChangeLog, Site
             active_dolibarr = self.db.query(Site).filter(Site.cms_type == "dolibarr", Site.is_active == True).first()
             
             if self.customer_id:
@@ -514,7 +525,7 @@ class CustomerDialog(QDialog):
                     entity_id=cust.id,
                     action=action,
                     status="PENDING_PUSH",
-                    retry_count=0
+                    retry_count=0,
                 )
                 self.db.add(changelog)
 
@@ -547,7 +558,7 @@ class SyncWorker(QThread):
                     conflict_strategy=self.conflict_strategy,
                     log_callback=self.log_signal.emit,
                     progress_callback=self.progress_signal.emit,
-                    site_id=self.site_id
+                    site_id=self.site_id,
                 )
                 self.finished_signal.emit(True, "Cari Çekme (Pull) işlemi başarıyla tamamlandı!", undo_id or 0)
             else:
@@ -556,7 +567,7 @@ class SyncWorker(QThread):
                     log_callback=self.log_signal.emit,
                     progress_callback=self.progress_signal.emit,
                     site_id=self.site_id,
-                    selected_ids=self.selected_ids
+                    selected_ids=self.selected_ids,
                 )
                 self.finished_signal.emit(True, f"Cari Gönderme (Push) işlemi başarıyla tamamlandı! Toplam {pushed} cari güncellendi.", 0)
         except InterruptedError as ie:
@@ -654,7 +665,7 @@ class SyncDialog(QDialog):
         # Yön Bilgisi Raporu
         direction_text = "Dolibarr -> Yerel Veritabanı (Cari Kartları Çek)" if self.direction == "pull" else "Yerel Veritabanı -> Dolibarr (Cari Kartları Gönder)"
         if self.direction == "push":
-            cnt = len(self.selected_ids) if self.selected_ids else self.db.query(Customer).filter(Customer.remote_id == None, Customer.is_deleted == False).count()
+            cnt = len(self.selected_ids) if self.selected_ids else self.db.query(Customer).filter(Customer.remote_id.is_(None), Customer.is_deleted == False).count()
             direction_text += f" | <b>Gönderilecek Cari Kart Adedi: {cnt}</b>"
             
         info_lbl = QLabel(f"<b>Yön:</b> {direction_text}")
@@ -777,7 +788,7 @@ class SyncDialog(QDialog):
     def write_log(self, text: str):
         self.log_console.append(text)
         self.log_console.verticalScrollBar().setValue(
-            self.log_console.verticalScrollBar().maximum()
+            self.log_console.verticalScrollBar().maximum(),
         )
 
     def update_progress(self, val, total):
@@ -814,7 +825,7 @@ class SyncDialog(QDialog):
             direction=self.direction,
             site_id=site_id,
             conflict_strategy=strategy,
-            selected_ids=self.selected_ids
+            selected_ids=self.selected_ids,
         )
         
         # Dialog slotları
@@ -870,7 +881,7 @@ class SyncDialog(QDialog):
         reply = QMessageBox.question(
             self, "Onay",
             "Az önce yapılan tüm ekleme ve güncellemeleri geri alarak veritabanını eski haline getirmek istediğinize emin misiniz?",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
         )
         if reply == QMessageBox.StandardButton.Yes:
             self.btn_undo.setEnabled(False)
@@ -925,7 +936,6 @@ class MusteriYonetimiWidget(QWidget):
             15: ("Özel Kod 3", "special_code_3"),
         }
         
-        self.load_view_settings()
         self.init_ui()
 
     def init_ui(self):
@@ -1137,24 +1147,17 @@ class MusteriYonetimiWidget(QWidget):
         # ==========================================
         # CARİ KART LİSTESİ TABLOSU
         # ==========================================
-        self.table = QTableWidget()
-        self.table.setColumnCount(len(self.headers_dict))
+        self.table = ManagedTableView(settings_key="customers", parent=self)
+        self.customer_model = QStandardItemModel(self)
+        self.table.set_source_model(self.customer_model)
+        self.table.enable_filters(True)
         
-        headers = [self.headers_dict[i][0] for i in range(len(self.headers_dict))]
-        self.table.setHorizontalHeaderLabels(headers)
-        
-        self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
-        self.table.setSelectionMode(QTableWidget.SelectionMode.ExtendedSelection)
         self.table.verticalHeader().setVisible(False)
         self.table.setShowGrid(True)
         self.table.setAlternatingRowColors(True)
         
-        self.table.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
-        self.table.horizontalHeader().setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
-        self.table.horizontalHeader().customContextMenuRequested.connect(self.show_header_menu)
-        
         self.table.setStyleSheet("""
-            QTableWidget {
+            QTableView {
                 border: 1px solid #cbd5e1;
                 background-color: white;
                 gridline-color: #f1f5f9;
@@ -1163,10 +1166,10 @@ class MusteriYonetimiWidget(QWidget):
                 font-size: 12px;
                 color: #334155;
             }
-            QTableWidget::item {
+            QTableView::item {
                 padding: 6px;
             }
-            QTableWidget::item:selected {
+            QTableView::item:selected {
                 background-color: #eff6ff;
                 color: #1d4ed8;
                 font-weight: 600;
@@ -1269,30 +1272,34 @@ class MusteriYonetimiWidget(QWidget):
             self.refresh_customers()
 
     def open_edit_customer_dialog(self):
-        selected_ranges = self.table.selectedRanges()
-        if not selected_ranges:
+        indexes = self.table.selectionModel().selectedRows()
+        if not indexes:
             QMessageBox.warning(self, self.tr("Uyarı"), self.tr("Lütfen düzenlemek istediğiniz cari kartı seçin."))
             return
             
-        row = selected_ranges[0].topRow()
-        cust_id_item = self.table.item(row, 0)
-        if cust_id_item:
-            cust_id = int(cust_id_item.text())
+        proxy_index = indexes[0]
+        source_index = self.table.proxy_model.mapToSource(proxy_index)
+        source_model = self.table.proxy_model.sourceModel()
+        cust_id_val = source_model.index(source_index.row(), 0).data()
+        if cust_id_val is not None:
+            cust_id = int(cust_id_val)
             dlg = CustomerDialog(self.db, cust_id, self)
             if dlg.exec() == QDialog.DialogCode.Accepted:
                 self.toast_requested.emit(self.tr("Cari kart başarıyla güncellendi."), "success")
                 self.refresh_customers()
 
     def copy_customer(self):
-        selected_ranges = self.table.selectedRanges()
-        if not selected_ranges:
+        indexes = self.table.selectionModel().selectedRows()
+        if not indexes:
             QMessageBox.warning(self, self.tr("Uyarı"), self.tr("Lütfen kopyalamak istediğiniz cariyi seçin."))
             return
             
-        row = selected_ranges[0].topRow()
-        cust_id_item = self.table.item(row, 0)
-        if cust_id_item:
-            cust_id = int(cust_id_item.text())
+        proxy_index = indexes[0]
+        source_index = self.table.proxy_model.mapToSource(proxy_index)
+        source_model = self.table.proxy_model.sourceModel()
+        cust_id_val = source_model.index(source_index.row(), 0).data()
+        if cust_id_val is not None:
+            cust_id = int(cust_id_val)
             source_cust = self.db.query(Customer).filter(Customer.id == cust_id).first()
             if source_cust:
                 try:
@@ -1320,7 +1327,7 @@ class MusteriYonetimiWidget(QWidget):
                         special_code_1=source_cust.special_code_1,
                         special_code_2=source_cust.special_code_2,
                         special_code_3=source_cust.special_code_3,
-                        marketplace="local"
+                        marketplace="local",
                     )
                     self.db.add(copied_cust)
                     self.db.commit()
@@ -1330,23 +1337,25 @@ class MusteriYonetimiWidget(QWidget):
                     QMessageBox.critical(self, self.tr("Hata"), f"Kopyalama esnasında hata: {e}")
 
     def delete_customer(self):
-        selected_ranges = self.table.selectedRanges()
-        if not selected_ranges:
+        indexes = self.table.selectionModel().selectedRows()
+        if not indexes:
             QMessageBox.warning(self, self.tr("Uyarı"), self.tr("Lütfen silmek istediğiniz cari kartı seçin."))
             return
             
-        row = selected_ranges[0].topRow()
-        cust_id_item = self.table.item(row, 0)
-        if cust_id_item:
-            cust_id = int(cust_id_item.text())
+        proxy_index = indexes[0]
+        source_index = self.table.proxy_model.mapToSource(proxy_index)
+        source_model = self.table.proxy_model.sourceModel()
+        cust_id_val = source_model.index(source_index.row(), 0).data()
+        if cust_id_val is not None:
+            cust_id = int(cust_id_val)
             reply = QMessageBox.question(
                 self, self.tr("Silme Onayı"),
                 self.tr("Seçili cari kartı silmek istediğinize emin misiniz?"),
-                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             )
             if reply == QMessageBox.StandardButton.Yes:
                 try:
-                    from src.core.models import Site, ChangeLog
+                    from src.core.models import ChangeLog, Site
                     active_dolibarr = self.db.query(Site).filter(Site.cms_type == "dolibarr", Site.is_active == True).first()
                     
                     cust = self.db.query(Customer).filter(Customer.id == cust_id).first()
@@ -1359,7 +1368,7 @@ class MusteriYonetimiWidget(QWidget):
                                 entity_type="customer",
                                 entity_id=cust.id,
                                 action="delete",
-                                status="PENDING_PUSH"
+                                status="PENDING_PUSH",
                             )
                             self.db.add(changelog)
                             
@@ -1378,11 +1387,11 @@ class MusteriYonetimiWidget(QWidget):
         reply = QMessageBox.question(
             self, self.tr("Toplu Silme Onayı"),
             self.tr(f"Seçilen {len(selected_rows)} adet cari kartı silmek istediğinize emin misiniz?"),
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
         )
         if reply == QMessageBox.StandardButton.Yes:
             try:
-                from src.core.models import Site, ChangeLog
+                from src.core.models import ChangeLog, Site
                 active_dolibarr = self.db.query(Site).filter(Site.cms_type == "dolibarr", Site.is_active == True).first()
                 
                 for cust_id in selected_rows:
@@ -1395,7 +1404,7 @@ class MusteriYonetimiWidget(QWidget):
                                 entity_type="customer",
                                 entity_id=cust.id,
                                 action="delete",
-                                status="PENDING_PUSH"
+                                status="PENDING_PUSH",
                             )
                             self.db.add(changelog)
                 self.db.commit()
@@ -1411,7 +1420,7 @@ class MusteriYonetimiWidget(QWidget):
             return
             
         try:
-            from src.core.models import Site, ChangeLog
+            from src.core.models import ChangeLog, Site
             active_dolibarr = self.db.query(Site).filter(Site.cms_type == "dolibarr", Site.is_active == True).first()
             
             for cust_id in selected_rows:
@@ -1425,7 +1434,7 @@ class MusteriYonetimiWidget(QWidget):
                             entity_type="customer",
                             entity_id=cust.id,
                             action="update",
-                            status="PENDING_PUSH"
+                            status="PENDING_PUSH",
                         )
                         self.db.add(changelog)
             self.db.commit()
@@ -1435,11 +1444,15 @@ class MusteriYonetimiWidget(QWidget):
             QMessageBox.critical(self, self.tr("Hata"), f"Durum değiştirme esnasında hata: {e}")
 
     def get_selected_rows(self) -> list[int]:
+        indexes = self.table.selectionModel().selectedRows()
         ids = []
-        for item in self.table.selectedItems():
-            if item.column() == 0:
+        source_model = self.table.proxy_model.sourceModel()
+        for idx in indexes:
+            source_index = self.table.proxy_model.mapToSource(idx)
+            val = source_model.index(source_index.row(), 0).data()
+            if val is not None:
                 try:
-                    ids.append(int(item.text()))
+                    ids.append(int(val))
                 except ValueError:
                     pass
         return list(set(ids))
@@ -1504,7 +1517,7 @@ class MusteriYonetimiWidget(QWidget):
                 error_count += 1
                 
         summary_title = "Senkronizasyon Raporu"
-        summary_msg = f"⏱️ <b>Durum:</b> İşlem Tamamlandı.<br><br>"
+        summary_msg = "⏱️ <b>Durum:</b> İşlem Tamamlandı.<br><br>"
         if not success:
             summary_title = "Senkronizasyon Durduruldu / Hata"
             summary_msg = f"⚠️ <b>Durum:</b> {message}<br><br>"
@@ -1538,7 +1551,7 @@ class MusteriYonetimiWidget(QWidget):
     def export_customers(self):
         file_path, _ = QFileDialog.getSaveFileName(
             self, self.tr("Cari Listesini Kaydet"), "cariler.xlsx",
-            "Excel Dosyası (*.xlsx)"
+            "Excel Dosyası (*.xlsx)",
         )
         if file_path:
             try:
@@ -1595,7 +1608,7 @@ class MusteriYonetimiWidget(QWidget):
                     Customer.fullname.like(f"%{search_text}%") | 
                     Customer.tax_number.like(f"%{search_text}%") |
                     Customer.customer_code.like(f"%{search_text}%") |
-                    Customer.email.like(f"%{search_text}%")
+                    Customer.email.like(f"%{search_text}%"),
                 )
                 
             # 2. Grubu Süzgeci
@@ -1612,7 +1625,7 @@ class MusteriYonetimiWidget(QWidget):
             marketplace_filter = self.cmb_filter_marketplace.currentText()
             if marketplace_filter != "Tümü":
                 if marketplace_filter == "LOCAL":
-                    query = query.filter((Customer.marketplace == "local") | (Customer.marketplace == None))
+                    query = query.filter((Customer.marketplace == "local") | (Customer.marketplace.is_(None)))
                 else:
                     query = query.filter(Customer.marketplace == marketplace_filter.lower())
                     
@@ -1639,87 +1652,34 @@ class MusteriYonetimiWidget(QWidget):
             offset = (self.current_page - 1) * self.per_page
             customers = query.limit(self.per_page).offset(offset).all()
             
-            self.table.setRowCount(len(customers))
-            for row, cust in enumerate(customers):
-                for col_idx, (header_name, field_name) in self.headers_dict.items():
+            self.customer_model.removeRows(0, self.customer_model.rowCount())
+            
+            for cust in customers:
+                row_items = []
+                for _col_idx, (_header_name, field_name) in self.headers_dict.items():
                     val = getattr(cust, field_name, "")
                     
                     if field_name == "status":
                         status_str = "Aktif" if val == 1 else "Pasif"
-                        item = QTableWidgetItem(status_str)
+                        item = QStandardItem(status_str)
                         if val == 1:
                             item.setForeground(QColor("#10B981"))
                         else:
                             item.setForeground(QColor("#EF4444"))
                     elif field_name == "marketplace":
-                        item = QTableWidgetItem(str(val).upper() if val else "LOCAL")
+                        item = QStandardItem(str(val).upper() if val else "LOCAL")
                         item.setFont(QFont("Segoe UI", 9, QFont.Weight.Bold))
                         item.setForeground(QColor("#2563eb"))
                     else:
-                        item = QTableWidgetItem(str(val) if val is not None else "")
+                        item = QStandardItem(str(val) if val is not None else "")
                         if field_name == "id":
                             item.setForeground(QColor("#64748b"))
                             
-                    item.setFlags(item.flags() ^ Qt.ItemFlag.ItemIsEditable)
-                    self.table.setItem(row, col_idx, item)
-                    
+                    item.setEditable(False)
+                    row_items.append(item)
+                self.customer_model.appendRow(row_items)
+                
         except Exception as e:
             QMessageBox.critical(self, self.tr("Hata"), f"Müşteriler listelenemedi: {e}")
 
-    # Kolon Yönetimi
-    def show_header_menu(self, pos):
-        menu = QMenu(self)
-        for col_idx in range(len(self.headers_dict)):
-            col_name = self.headers_dict[col_idx][0]
-            action = QAction(col_name, menu, checkable=True)
-            action.setChecked(col_idx not in self.hidden_columns)
-            
-            def toggle_col(checked, idx=col_idx):
-                if checked:
-                    self.hidden_columns.discard(idx)
-                else:
-                    self.hidden_columns.add(idx)
-                self.apply_hidden_columns()
-                self.save_view_settings()
-                
-            action.triggered.connect(toggle_col)
-            menu.addAction(action)
-            
-        menu.addSeparator()
-        dia_action = QAction(self.tr("⚙️ Kolonları Yapılandır (DIA)"), menu)
-        def open_dia_column_manager():
-            from src.desktop.ui.column_manager import ColumnManagerDialog
-            dlg = ColumnManagerDialog(self.headers_dict, self.hidden_columns, "customer_column_settings", self)
-            if dlg.exec() == QDialog.DialogCode.Accepted:
-                self.hidden_columns = dlg.get_hidden_columns()
-                self.apply_hidden_columns()
-        dia_action.triggered.connect(open_dia_column_manager)
-        menu.addAction(dia_action)
-        
-        menu.exec(self.table.horizontalHeader().mapToGlobal(pos))
 
-    def apply_hidden_columns(self):
-        for col_idx in range(len(self.headers_dict)):
-            if col_idx in self.hidden_columns:
-                self.table.setColumnHidden(col_idx, True)
-            else:
-                self.table.setColumnHidden(col_idx, False)
-
-    def save_view_settings(self):
-        settings_path = Path("data/customer_column_settings.json")
-        settings_path.parent.mkdir(parents=True, exist_ok=True)
-        try:
-            with open(settings_path, "w", encoding="utf-8") as f:
-                json.dump(list(self.hidden_columns), f)
-        except Exception:
-            pass
-
-    def load_view_settings(self):
-        settings_path = Path("data/customer_column_settings.json")
-        if settings_path.exists():
-            try:
-                with open(settings_path, "r", encoding="utf-8") as f:
-                    hidden = json.load(f)
-                    self.hidden_columns = set(hidden)
-            except Exception:
-                pass
