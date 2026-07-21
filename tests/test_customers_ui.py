@@ -24,12 +24,15 @@ def test_edge_triggered_panel_pin_and_tooltips(qapp):
     # Verify initial settings
     assert panel.is_pinned is False
     assert panel.pin_btn.toolTip() == "Paneli Sabitle"
+    assert panel.pin_btn.text() == "📌 Sabitle"
     assert panel.close_btn.toolTip() == "Paneli Kapat"
+    assert panel.close_btn.text() == "❌ Gizle"
 
     # Toggle pin
     panel.toggle_pin()
     assert panel.is_pinned is True
     assert panel.pin_btn.toolTip() == "Sabitlemeyi Kaldır"
+    assert panel.pin_btn.text() == "📍 Serbest"
     
     # Verify style sheet changes (should contain background-color #3b82f6)
     style = panel.pin_btn.styleSheet()
@@ -39,6 +42,7 @@ def test_edge_triggered_panel_pin_and_tooltips(qapp):
     panel.toggle_pin()
     assert panel.is_pinned is False
     assert panel.pin_btn.toolTip() == "Paneli Sabitle"
+    assert panel.pin_btn.text() == "📌 Sabitle"
     assert "#ffffff" in panel.pin_btn.styleSheet()
 
 
@@ -51,7 +55,7 @@ def test_musteri_yonetimi_widget_pagination_margins(qapp, db_session):
         cms_type="dolibarr",
         working_mode="local_master",
         url="http://test.url",
-        api_key_account="test-api-key"
+        api_key_account="test-api-key",
     )
     db_session.add(site)
     db_session.commit()

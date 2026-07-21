@@ -83,9 +83,9 @@ class EdgeTriggeredPanel(QWidget):
         header_lyt.setContentsMargins(2, 2, 2, 2)
         header_lyt.setSpacing(4)
 
-        self.pin_btn = QPushButton("📌")
+        self.pin_btn = QPushButton("📌 Sabitle")
         self.pin_btn.setObjectName(f"PinBtn_{self.side}")
-        self.pin_btn.setFixedSize(24, 24)
+        self.pin_btn.setFixedHeight(24)
         self.pin_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.pin_btn.setToolTip("Paneli Sabitle")
         self.pin_btn.setStyleSheet("""
@@ -93,15 +93,18 @@ class EdgeTriggeredPanel(QWidget):
                 background-color: #ffffff;
                 border: 1px solid #cbd5e1;
                 border-radius: 4px;
-                font-size: 11px;
+                font-size: 10px;
+                font-weight: bold;
+                color: #475569;
+                padding: 2px 6px;
             }
-            QPushButton:hover { background-color: #f1f5f9; }
+            QPushButton:hover { background-color: #f1f5f9; color: #0f172a; }
         """)
         self.pin_btn.clicked.connect(self.toggle_pin)
 
-        self.close_btn = QPushButton("❌")
+        self.close_btn = QPushButton("❌ Gizle")
         self.close_btn.setObjectName(f"CloseBtn_{self.side}")
-        self.close_btn.setFixedSize(24, 24)
+        self.close_btn.setFixedHeight(24)
         self.close_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.close_btn.setToolTip("Paneli Kapat")
         self.close_btn.setStyleSheet("""
@@ -109,7 +112,10 @@ class EdgeTriggeredPanel(QWidget):
                 background-color: #ffffff;
                 border: 1px solid #cbd5e1;
                 border-radius: 4px;
-                font-size: 9px;
+                font-size: 10px;
+                font-weight: bold;
+                color: #475569;
+                padding: 2px 6px;
             }
             QPushButton:hover { background-color: #fee2e2; color: #ef4444; }
         """)
@@ -169,26 +175,34 @@ class EdgeTriggeredPanel(QWidget):
     def toggle_pin(self):
         self.is_pinned = not self.is_pinned
         if self.is_pinned:
+            self.pin_btn.setText("📍 Serbest")
             self.pin_btn.setToolTip("Sabitlemeyi Kaldır")
             self.pin_btn.setStyleSheet("""
                 QPushButton {
                     background-color: #3b82f6;
                     border: 1px solid #1d4ed8;
                     border-radius: 4px;
-                    font-size: 11px;
+                    font-size: 10px;
+                    font-weight: bold;
+                    color: white;
+                    padding: 2px 6px;
                 }
                 QPushButton:hover { background-color: #2563eb; }
             """)
         else:
+            self.pin_btn.setText("📌 Sabitle")
             self.pin_btn.setToolTip("Paneli Sabitle")
             self.pin_btn.setStyleSheet("""
                 QPushButton {
                     background-color: #ffffff;
                     border: 1px solid #cbd5e1;
                     border-radius: 4px;
-                    font-size: 11px;
+                    font-size: 10px;
+                    font-weight: bold;
+                    color: #475569;
+                    padding: 2px 6px;
                 }
-                QPushButton:hover { background-color: #f1f5f9; }
+                QPushButton:hover { background-color: #f1f5f9; color: #0f172a; }
             """)
         self.pinned_changed.emit(self.is_pinned)
         self.update_position()

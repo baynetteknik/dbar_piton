@@ -66,6 +66,8 @@ class FilterableTableView(QWidget):
         # Kaydırılabilir Filtre Giriş Kutuları Konteyneri
         self.inputs_container = QWidget()
         self.inputs_container.setObjectName("FilterInputsContainer")
+        from PyQt6.QtWidgets import QSizePolicy
+        self.inputs_container.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
 
         self.inputs_layout = QHBoxLayout(self.inputs_container)
         self.inputs_layout.setContentsMargins(0, 0, 0, 0)
