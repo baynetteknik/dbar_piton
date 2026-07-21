@@ -329,11 +329,20 @@ class FilterableTableView(QWidget):
         self.menu_profile_combo.setStyleSheet("font-size: 11px; padding: 2px 4px;")
         self.menu_profile_combo.addItem("Varsayılan")
         
-        # Kayıtlı profilleri yükle
+        # Kayıtlı profilleri yükle (En son aktif profil en üsttedir)
         profiles = self.load_column_profile_list()
         for p in profiles:
             self.menu_profile_combo.addItem(p)
             
+        from PyQt6.QtCore import QSettings
+        settings = QSettings("baynetteknik", "dbar_piton")
+        active = settings.value("active_column_profile", "Varsayılan", type=str)
+        idx = self.menu_profile_combo.findText(active)
+        if idx >= 0:
+            self.menu_profile_combo.blockSignals(True)
+            self.menu_profile_combo.setCurrentIndex(idx)
+            self.menu_profile_combo.blockSignals(False)
+
         # Combo değiştiğinde profili yükle ve menüyü kapat
         self.menu_profile_combo.currentTextChanged.connect(
             lambda name, m=menu: self.on_profile_selected(name, m),
@@ -382,12 +391,16 @@ class FilterableTableView(QWidget):
         prof_save_lyt.setSpacing(4)
 
         self.menu_profile_input = QLineEdit()
-        self.menu_profile_input.setPlaceholderText("Yeni profil adı...")
+        if active != "Varsayılan":
+            self.menu_profile_input.setText(active)
+            self.menu_profile_input.setPlaceholderText(f"Mevcut '{active}' güncellenecek...")
+        else:
+            self.menu_profile_input.setPlaceholderText("Yeni profil adı...")
         self.menu_profile_input.setStyleSheet("font-size: 11px; padding: 2px 4px;")
         prof_save_lyt.addWidget(self.menu_profile_input, 1)
 
         btn_save_prof = QPushButton("💾 Kaydet")
-        btn_save_prof.setToolTip("Profili Kaydet")
+        btn_save_prof.setToolTip("Görünümü Kaydet / Güncelle")
         btn_save_prof.setFixedHeight(22)
         btn_save_prof.setStyleSheet("""
             QPushButton {
@@ -431,9 +444,14 @@ class FilterableTableView(QWidget):
         menu.close()
 
     def on_save_profile_clicked(self, name_input, combo, menu):
-        """Mevcut görünümü yeni isimle kaydeder (aynı isim varsa onay ister) ve menüyü kapatır."""
+        """Mevcut görünümü yeni isimle veya seçili profile kaydeder (günceller)."""
         name = name_input.text().strip()
+        if not name:
+            name = combo.currentText()
+
         if not name or name == "Varsayılan":
+            from PyQt6.QtWidgets import QMessageBox
+            QMessageBox.warning(menu, self.tr("Uyarı"), self.tr("Lütfen kaydedilecek profil için bir isim girin veya listeden bir profil seçin."))
             return
 
         import json
@@ -444,12 +462,13 @@ class FilterableTableView(QWidget):
         try:
             profiles = json.loads(profiles_json)
             if name in profiles:
+                from PyQt6.QtWidgets import QMessageBox
                 reply = QMessageBox.question(
                     menu,
-                    self.tr("Profil Üzerine Yazılsın mı?"),
-                    self.tr(f"'{name}' adında bir görünüm profili zaten mevcut.\nMevcut profilin üzerine yazmak istediğinizden emin misiniz?"),
+                    self.tr("Profil Güncellensin mi?"),
+                    self.tr(f"'{name}' isimli görünüm profili zaten mevcut.\nYaptığınız görünüm değişikliklerini '{name}' profilinin üzerine kaydetmek istediğinizden emin misiniz?"),
                     QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-                    QMessageBox.StandardButton.No,
+                    QMessageBox.StandardButton.Yes,
                 )
                 if reply != QMessageBox.StandardButton.Yes:
                     return
