@@ -253,6 +253,7 @@ class FilterableTableView(QWidget):
 
         # Ana widget ve dikey layout
         main_widget = QWidget()
+        main_widget.setMinimumWidth(300)
         main_layout = QVBoxLayout(main_widget)
         main_layout.setContentsMargins(6, 6, 6, 6)
         main_layout.setSpacing(8)
@@ -418,11 +419,31 @@ class FilterableTableView(QWidget):
         prof_save_lyt.addWidget(btn_save_prof)
         main_layout.addLayout(prof_save_lyt)
 
+        # 4. Otomatik Kapanmayı Engelleme / Menüyü Açık Tut Seçeneği
+        from PyQt6.QtWidgets import QCheckBox
+        self.menu_keep_open_cb = QCheckBox("📌 Menüyü Açık Tut")
+        self.menu_keep_open_cb.setStyleSheet("font-size: 11px; font-weight: bold; color: #1e40af; padding-top: 4px;")
+        
+        from PyQt6.QtCore import QSettings
+        settings = QSettings("baynetteknik", "dbar_piton")
+        keep_open = settings.value("keep_profile_menu_open", False, type=bool)
+        self.menu_keep_open_cb.setChecked(keep_open)
+        self.menu_keep_open_cb.toggled.connect(
+            lambda checked: settings.setValue("keep_profile_menu_open", checked),
+        )
+        main_layout.addWidget(self.menu_keep_open_cb)
+
         action = QWidgetAction(menu)
         action.setDefaultWidget(main_widget)
         menu.addAction(action)
 
         menu.exec(self.table_view.horizontalHeader().mapToGlobal(pos))
+
+    def close_menu_if_needed(self, menu):
+        """Eğer 'Menüyü Açık Tut' seçeneği işaretli değilse menüyü kapatır."""
+        if hasattr(self, "menu_keep_open_cb") and self.menu_keep_open_cb.isChecked():
+            return
+        menu.close()
 
     def toggle_column_visibility(self, col_idx, visible):
         self.set_column_hidden(col_idx, not visible)
@@ -437,11 +458,11 @@ class FilterableTableView(QWidget):
                 cb.hide()
 
     def on_profile_selected(self, name, menu):
-        """Profil seçildiğinde tabloya uygular ve menüyü kapatır."""
+        """Profil seçildiğinde tabloya uygular ve istenirse menüyü kapatır."""
         if not menu.isVisible():
             return
         self.load_profile(name)
-        menu.close()
+        self.close_menu_if_needed(menu)
 
     def on_save_profile_clicked(self, name_input, combo, menu):
         """Mevcut görünümü yeni isimle veya seçili profile kaydeder (günceller)."""
@@ -477,7 +498,7 @@ class FilterableTableView(QWidget):
 
         self.save_column_profile(name)
         name_input.clear()
-        menu.close()
+        self.close_menu_if_needed(menu)
 
     def on_delete_profile_clicked(self, combo, menu):
         """Seçili profili siler ve menüyü kapatır."""
@@ -485,7 +506,7 @@ class FilterableTableView(QWidget):
         if not name or name == "Varsayılan":
             return
         self.delete_column_profile(name)
-        menu.close()
+        self.close_menu_if_needed(menu)
 
     def save_column_profile(self, name):
         """Sütun durumlarını QSettings ile JSON olarak saklar."""

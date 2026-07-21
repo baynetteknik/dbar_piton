@@ -1209,12 +1209,35 @@ class MusteriYonetimiWidget(QWidget):
         self.btn_last_page.setToolTip("Son Sayfa")
         self.btn_last_page.clicked.connect(self.go_to_last_page)
         
+        self.lbl_per_page = QLabel("Sayfa Başına:")
+        self.lbl_per_page.setStyleSheet("color: #64748b; font-size: 11px; font-weight: bold;")
+
         self.combo_page_size = QComboBox()
         self.combo_page_size.setObjectName("ComboPageSize")
         self.combo_page_size.setToolTip("Sayfa başına gösterilecek kayıt sayısı")
-        self.combo_page_size.addItems(["25", "50", "100", "250"])
-        self.combo_page_size.setCurrentText(str(self.per_page))
-        self.combo_page_size.currentTextChanged.connect(self.on_page_size_changed)
+        self.combo_page_size.addItems(["25 kayıt", "50 kayıt", "100 kayıt", "250 kayıt"])
+        self.combo_page_size.setMinimumWidth(110)
+        self.combo_page_size.setStyleSheet("""
+            QComboBox {
+                border: 1px solid #cbd5e1;
+                border-radius: 4px;
+                background-color: white;
+                padding: 3px 6px;
+                color: #334155;
+                font-weight: 600;
+                font-size: 11px;
+            }
+            QComboBox::drop-down {
+                border: none;
+            }
+        """)
+        # Varsayılan değere uygun elemanı seç
+        for i in range(self.combo_page_size.count()):
+            if str(self.per_page) in self.combo_page_size.itemText(i):
+                self.combo_page_size.setCurrentIndex(i)
+                break
+
+        self.combo_page_size.currentTextChanged.connect(self.on_page_size_combo_changed)
         
         pg_btn_style = """
             QPushButton {
@@ -1774,6 +1797,15 @@ class MusteriYonetimiWidget(QWidget):
         total_pages = max(1, math.ceil(self.total_records / self.per_page))
         self.current_page = total_pages
         self.refresh_customers()
+
+    def on_page_size_combo_changed(self, text):
+        try:
+            val = int(text.split()[0])
+            self.per_page = val
+            self.current_page = 1
+            self.refresh_customers()
+        except Exception:
+            pass
 
     def on_page_size_changed(self, text):
         try:
