@@ -29,11 +29,12 @@ class FilterableTableView(QWidget):
         self.init_ui()
 
     def init_ui(self):
+        from PyQt6.QtWidgets import QScrollArea, QSizePolicy
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
 
-        # 1. Filtre Çubuğu Paneli (Senkronize Scroll & Width barındıracak)
+        # 1. Filtre Çubuğu Paneli (artık QScrollArea içinde)
         self.filter_bar_container = QWidget()
         self.filter_bar_container.setObjectName("FilterBarContainer")
         self.filter_bar_container.setFixedHeight(30)
@@ -63,11 +64,18 @@ class FilterableTableView(QWidget):
         """)
         self.reset_btn.clicked.connect(self.clear_all_filters)
 
-        # Kaydırılabilir Filtre Giriş Kutuları Konteyneri
+        # *** YENİ: Kaydırılabilir Filtre Alanı (QScrollArea) ***
+        self.scroll_area = QScrollArea()
+        self.scroll_area.setObjectName("FilterScrollArea")
+        self.scroll_area.setWidgetResizable(True)
+        self.scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.scroll_area.setStyleSheet("QScrollArea { border: none; background: transparent; }")
+
+        # İçine inputs_container'ı yerleştir
         self.inputs_container = QWidget()
         self.inputs_container.setObjectName("FilterInputsContainer")
-        from PyQt6.QtWidgets import QSizePolicy
-        self.inputs_container.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
+        self.inputs_container.setSizePolicy(QSizePolicy.Policy.MinimumExpanding, QSizePolicy.Policy.Preferred)
 
         self.inputs_layout = QHBoxLayout(self.inputs_container)
         self.inputs_layout.setContentsMargins(0, 0, 0, 0)
@@ -94,15 +102,14 @@ class FilterableTableView(QWidget):
                     background-color: #eff6ff;
                 }
             """)
-            # Hızlı filtre tetikleyicisi
             le.textChanged.connect(
                 lambda text, col=field_name: self.on_filter_text_changed(col, text),
             )
             self.inputs_layout.addWidget(le)
             self.filter_widgets[col_idx] = le
 
-        self.inputs_layout.addStretch()  # En sağda kalan boşluk için esneme
-        filter_bar_layout.addWidget(self.inputs_container, 1)
+        self.scroll_area.setWidget(self.inputs_container)
+        filter_bar_layout.addWidget(self.scroll_area, 1)
         filter_bar_layout.addWidget(self.reset_btn)
 
         layout.addWidget(self.filter_bar_container)
@@ -112,19 +119,35 @@ class FilterableTableView(QWidget):
         self.table_view.setObjectName("MainTableView")
         self.table_view.horizontalHeader().setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.table_view.horizontalHeader().customContextMenuRequested.connect(self.show_header_context_menu)
+        
+        # Sütun ayırıcı çizgileri ve hover efektini QHeaderView stili ile uygulayalım
+        self.table_view.horizontalHeader().setStyleSheet("""
+            QHeaderView::section {
+                background-color: #f8fafc;
+                color: #475569;
+                padding: 8px;
+                border: none;
+                border-right: 2px solid #cbd5e1;
+                border-bottom: 2px solid #cbd5e1;
+                font-weight: bold;
+            }
+            QHeaderView::section:last {
+                border-right: none;
+            }
+            QHeaderView::section:hover {
+                background-color: #e2e8f0;
+            }
+        """)
         layout.addWidget(self.table_view, 1)
 
         # Sütun genişlikleri ve kaydırma senkronizasyonu
-        self.table_view.horizontalHeader().sectionResized.connect(
-            self.sync_filter_widths,
-        )
-        self.table_view.horizontalScrollBar().valueChanged.connect(
-            self.sync_filter_scroll,
-        )
+        self.table_view.horizontalHeader().sectionResized.connect(self.sync_filter_widths)
+        self.table_view.horizontalScrollBar().valueChanged.connect(self.sync_filter_scroll)
 
     def sync_filter_widths(self):
         """Tablo sütun genişliği değiştiğinde filtre kutularının genişliğini senkronize eder."""
         header = self.table_view.horizontalHeader()
+        total_width = 0
         for col_idx, le in self.filter_widgets.items():
             if header.isSectionHidden(col_idx):
                 le.hide()
@@ -132,12 +155,16 @@ class FilterableTableView(QWidget):
                 le.show()
                 col_width = header.sectionSize(col_idx)
                 le.setFixedWidth(col_width)
+                total_width += col_width
+        # Filtre kutularının toplam genişliğini container'a ayarla (scroll area içinde)
+        self.inputs_container.setFixedWidth(total_width)
         # Scroll senkronizasyonunu da tetikle
         self.sync_filter_scroll(self.table_view.horizontalScrollBar().value())
 
     def sync_filter_scroll(self, val):
-        """Yatay kaydırma yapıldığında filtre giriş kutularını da sola kaydırır."""
-        self.inputs_layout.setContentsMargins(-val, 0, 0, 0)
+        """Yatay kaydırma yapıldığında scroll area'yı kaydır."""
+        if hasattr(self, 'scroll_area'):
+            self.scroll_area.horizontalScrollBar().setValue(val)
 
     def on_filter_text_changed(self, field_name, text):
         """Filtre girdilerinde değişim olduğunda veritabanını tetikler."""
