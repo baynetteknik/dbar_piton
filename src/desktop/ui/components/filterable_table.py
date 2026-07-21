@@ -340,14 +340,16 @@ class FilterableTableView(QWidget):
         )
         prof_select_lyt.addWidget(self.menu_profile_combo, 1)
 
-        btn_delete_prof = QPushButton("🗑️")
+        btn_delete_prof = QPushButton("🗑️ Sil")
         btn_delete_prof.setToolTip("Profili Sil")
-        btn_delete_prof.setFixedSize(22, 22)
+        btn_delete_prof.setFixedHeight(22)
         btn_delete_prof.setStyleSheet("""
             QPushButton {
                 background-color: #fee2e2;
                 border: 1px solid #fca5a5;
                 border-radius: 4px;
+                font-size: 11px;
+                padding: 2px 4px;
             }
             QPushButton:hover { background-color: #fca5a5; }
         """)
@@ -356,14 +358,16 @@ class FilterableTableView(QWidget):
         )
         prof_select_lyt.addWidget(btn_delete_prof)
 
-        btn_manage_prof = QPushButton("⚙️")
+        btn_manage_prof = QPushButton("⚙️ Yönet")
         btn_manage_prof.setToolTip("Görünüm Profillerini Yönet")
-        btn_manage_prof.setFixedSize(22, 22)
+        btn_manage_prof.setFixedHeight(22)
         btn_manage_prof.setStyleSheet("""
             QPushButton {
                 background-color: #f1f5f9;
                 border: 1px solid #cbd5e1;
                 border-radius: 4px;
+                font-size: 11px;
+                padding: 2px 4px;
             }
             QPushButton:hover { background-color: #e2e8f0; }
         """)
@@ -382,14 +386,16 @@ class FilterableTableView(QWidget):
         self.menu_profile_input.setStyleSheet("font-size: 11px; padding: 2px 4px;")
         prof_save_lyt.addWidget(self.menu_profile_input, 1)
 
-        btn_save_prof = QPushButton("💾")
+        btn_save_prof = QPushButton("💾 Kaydet")
         btn_save_prof.setToolTip("Profili Kaydet")
-        btn_save_prof.setFixedSize(22, 22)
+        btn_save_prof.setFixedHeight(22)
         btn_save_prof.setStyleSheet("""
             QPushButton {
                 background-color: #eff6ff;
                 border: 1px solid #bfdbfe;
                 border-radius: 4px;
+                font-size: 11px;
+                padding: 2px 6px;
             }
             QPushButton:hover { background-color: #bfdbfe; }
         """)
@@ -425,10 +431,31 @@ class FilterableTableView(QWidget):
         menu.close()
 
     def on_save_profile_clicked(self, name_input, combo, menu):
-        """Mevcut görünümü yeni isimle kaydeder ve menüyü kapatır."""
+        """Mevcut görünümü yeni isimle kaydeder (aynı isim varsa onay ister) ve menüyü kapatır."""
         name = name_input.text().strip()
         if not name or name == "Varsayılan":
             return
+
+        import json
+
+        from PyQt6.QtCore import QSettings
+        settings = QSettings("baynetteknik", "dbar_piton")
+        profiles_json = settings.value("column_profiles", "{}", type=str)
+        try:
+            profiles = json.loads(profiles_json)
+            if name in profiles:
+                reply = QMessageBox.question(
+                    menu,
+                    self.tr("Profil Üzerine Yazılsın mı?"),
+                    self.tr(f"'{name}' adında bir görünüm profili zaten mevcut.\nMevcut profilin üzerine yazmak istediğinizden emin misiniz?"),
+                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                    QMessageBox.StandardButton.No,
+                )
+                if reply != QMessageBox.StandardButton.Yes:
+                    return
+        except Exception:
+            pass
+
         self.save_column_profile(name)
         name_input.clear()
         menu.close()
@@ -493,16 +520,21 @@ class FilterableTableView(QWidget):
             settings.sync()
 
     def load_column_profile_list(self) -> list[str]:
-        """Kayıtlı profillerin isimlerini döner."""
+        """Kayıtlı profillerin isimlerini döner (En son aktif profil ilk sıradadır)."""
         import json
 
         from PyQt6.QtCore import QSettings
         settings = QSettings("baynetteknik", "dbar_piton")
         
         profiles_json = settings.value("column_profiles", "{}", type=str)
+        active_profile = settings.value("active_column_profile", "Varsayılan", type=str)
         try:
             profiles = json.loads(profiles_json)
-            return list(profiles.keys())
+            p_list = list(profiles.keys())
+            if active_profile in p_list:
+                p_list.remove(active_profile)
+                p_list.insert(0, active_profile)
+            return p_list
         except Exception:
             return []
 
