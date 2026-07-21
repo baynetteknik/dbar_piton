@@ -1133,6 +1133,7 @@ class MusteriYonetimiWidget(QWidget):
         from PyQt6.QtWidgets import QAbstractItemView
         self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.table.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
+        self.table.horizontalHeader().setDefaultSectionSize(120)
         self.table.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.table.customContextMenuRequested.connect(self.show_table_context_menu)
         
@@ -1473,7 +1474,7 @@ class MusteriYonetimiWidget(QWidget):
                 try:
                     copied_cust = Customer(
                         fullname=f"{source_cust.fullname} - Kopya",
-                        customer_code=f"{source_cust.customer_code}-K" if source_cust.customer_code else None,
+                        customer_code=f"{source_cust.customer_code}-KOPYA" if source_cust.customer_code else "KOPYA",
                         authorized_person=source_cust.authorized_person,
                         nickname=source_cust.nickname,
                         tax_office=source_cust.tax_office,
@@ -1499,8 +1500,19 @@ class MusteriYonetimiWidget(QWidget):
                     )
                     self.db.add(copied_cust)
                     self.db.commit()
-                    self.toast_requested.emit(self.tr("Cari kart kopyalandı."), "success")
-                    self.refresh_customers()
+                    
+                    # Open CustomerDialog to let user review and approve/edit
+                    dlg = CustomerDialog(self.db, self.company_id, copied_cust.id, None, self)
+                    if dlg.exec() == QDialog.DialogCode.Accepted:
+                        self.toast_requested.emit(self.tr("Cari kart başarıyla kopyalandı."), "success")
+                        self.refresh_customers()
+                    else:
+                        # User cancelled, delete the temporary copy
+                        self.db.delete(copied_cust)
+                        self.db.commit()
+                        self.toast_requested.emit(self.tr("Kopyalama işlemi iptal edildi."), "info")
+                        self.refresh_customers()
+                        
                 except Exception as e:
                     QMessageBox.critical(self, self.tr("Hata"), f"Kopyalama esnasında hata: {e}")
 

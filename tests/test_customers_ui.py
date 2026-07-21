@@ -124,3 +124,43 @@ def test_musteri_yonetimi_widget_selection_and_proxy_model_fix(qapp, db_session)
     
     selected_ids = widget.get_selected_rows()
     assert selected_ids == [123]
+
+
+def test_filterable_table_view_column_profiles(qapp):
+    """Tests saving, deleting, and loading column profiles using QSettings."""
+    from PyQt6.QtGui import QStandardItemModel
+
+    from src.desktop.ui.components.filterable_table import FilterableTableView
+    
+    headers = {0: ("ID", "id"), 1: ("Ad", "name"), 2: ("Soyad", "surname")}
+    table = FilterableTableView(headers)
+    
+    # Set a model so the table horizontalHeader actually has columns
+    model = QStandardItemModel()
+    model.setHorizontalHeaderLabels(["ID", "Ad", "Soyad"])
+    table.table_view.setModel(model)
+    
+    # Verify initial visibility
+    assert table.table_view.horizontalHeader().isSectionHidden(0) is False
+    assert table.table_view.horizontalHeader().isSectionHidden(1) is False
+    
+    # Hide column 1 and save profile "TestProfile"
+    table.set_column_hidden(1, True)
+    table.save_column_profile("TestProfile")
+    
+    # Ensure profile list contains "TestProfile"
+    profiles = table.load_column_profile_list()
+    assert "TestProfile" in profiles
+    
+    # Show column 1 again
+    table.set_column_hidden(1, False)
+    assert table.table_view.horizontalHeader().isSectionHidden(1) is False
+    
+    # Load profile and verify column 1 is hidden again
+    table.load_profile("TestProfile")
+    assert table.table_view.horizontalHeader().isSectionHidden(1) is True
+    
+    # Delete profile and verify it is removed from list
+    table.delete_column_profile("TestProfile")
+    profiles = table.load_column_profile_list()
+    assert "TestProfile" not in profiles

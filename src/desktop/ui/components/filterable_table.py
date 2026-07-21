@@ -160,26 +160,279 @@ class FilterableTableView(QWidget):
         self.column_visibility_changed.emit(col_idx, not hidden)
 
     def show_header_context_menu(self, pos):
-        """Tablo başlığına sağ tıklandığında sütun göster/gizle menüsünü açar."""
-        from PyQt6.QtGui import QAction
-        from PyQt6.QtWidgets import QMenu
+        """Tablo başlığına sağ tıklandığında iki sütunlu, arama ve profil kayıt özellikli menüyü açar."""
+        from PyQt6.QtWidgets import (
+            QCheckBox,
+            QComboBox,
+            QFrame,
+            QGridLayout,
+            QHBoxLayout,
+            QLabel,
+            QLineEdit,
+            QMenu,
+            QPushButton,
+            QVBoxLayout,
+            QWidget,
+            QWidgetAction,
+        )
 
         menu = QMenu(self)
-        header = self.table_view.horizontalHeader()
+        menu.setStyleSheet("""
+            QMenu {
+                background-color: #f8fafc;
+                border: 1px solid #cbd5e1;
+                border-radius: 8px;
+                padding: 6px;
+            }
+        """)
 
-        for col_idx in sorted(self.headers_dict.keys()):
+        # Ana widget ve dikey layout
+        main_widget = QWidget()
+        main_layout = QVBoxLayout(main_widget)
+        main_layout.setContentsMargins(6, 6, 6, 6)
+        main_layout.setSpacing(8)
+
+        # 1. Arama Kutusu
+        self.menu_search_box = QLineEdit()
+        self.menu_search_box.setPlaceholderText("Sütun ara...")
+        self.menu_search_box.setStyleSheet("""
+            QLineEdit {
+                border: 1px solid #cbd5e1;
+                border-radius: 4px;
+                padding: 4px 8px;
+                font-size: 11px;
+                background-color: white;
+                color: #0f172a;
+            }
+        """)
+        self.menu_search_box.textChanged.connect(self.filter_column_checkboxes)
+        main_layout.addWidget(self.menu_search_box)
+
+        # 2. Checkbox'lar (Grid Layout)
+        grid_widget = QWidget()
+        grid_layout = QGridLayout(grid_widget)
+        grid_layout.setContentsMargins(0, 4, 0, 4)
+        grid_layout.setSpacing(6)
+
+        header = self.table_view.horizontalHeader()
+        cols = sorted(self.headers_dict.keys())
+        self.menu_checkboxes = {}
+
+        num_cols = 2
+        for i, col_idx in enumerate(cols):
             label, _ = self.headers_dict[col_idx]
-            action = QAction(label, self)
-            action.setCheckable(True)
-            action.setChecked(not header.isSectionHidden(col_idx))
-            
-            # Action tetiklendiğinde sütun gizleme fonksiyonunu çağır
-            action.triggered.connect(
+            cb = QCheckBox(label)
+            cb.setChecked(not header.isSectionHidden(col_idx))
+            cb.setStyleSheet("""
+                QCheckBox {
+                    font-size: 11px;
+                    color: #334155;
+                }
+                QCheckBox::indicator {
+                    width: 14px;
+                    height: 14px;
+                }
+            """)
+            cb.toggled.connect(
                 lambda checked, idx=col_idx: self.toggle_column_visibility(idx, checked),
             )
-            menu.addAction(action)
+            self.menu_checkboxes[col_idx] = cb
+
+            row = i // num_cols
+            col = i % num_cols
+            grid_layout.addWidget(cb, row, col)
+
+        main_layout.addWidget(grid_widget)
+
+        # Ayırıcı çizgi
+        line = QFrame()
+        line.setFrameShape(QFrame.Shape.HLine)
+        line.setFrameShadow(QFrame.Shadow.Sunken)
+        line.setStyleSheet("color: #e2e8f0;")
+        main_layout.addWidget(line)
+
+        # 3. Görünüm Profilleri Bölümü
+        profile_title = QLabel("Görünüm Profilleri")
+        profile_title.setStyleSheet("font-weight: bold; font-size: 10px; color: #64748b;")
+        main_layout.addWidget(profile_title)
+
+        # Profil Seçme ve Silme Satırı
+        prof_select_lyt = QHBoxLayout()
+        prof_select_lyt.setSpacing(4)
+
+        self.menu_profile_combo = QComboBox()
+        self.menu_profile_combo.setStyleSheet("font-size: 11px; padding: 2px 4px;")
+        self.menu_profile_combo.addItem("Varsayılan")
+        
+        # Kayıtlı profilleri yükle
+        profiles = self.load_column_profile_list()
+        for p in profiles:
+            self.menu_profile_combo.addItem(p)
+            
+        # Combo değiştiğinde profili yükle ve menüyü kapat
+        self.menu_profile_combo.currentTextChanged.connect(
+            lambda name, m=menu: self.on_profile_selected(name, m),
+        )
+        prof_select_lyt.addWidget(self.menu_profile_combo, 1)
+
+        btn_delete_prof = QPushButton("🗑️")
+        btn_delete_prof.setToolTip("Profili Sil")
+        btn_delete_prof.setFixedSize(22, 22)
+        btn_delete_prof.setStyleSheet("""
+            QPushButton {
+                background-color: #fee2e2;
+                border: 1px solid #fca5a5;
+                border-radius: 4px;
+            }
+            QPushButton:hover { background-color: #fca5a5; }
+        """)
+        btn_delete_prof.clicked.connect(
+            lambda checked, combo=self.menu_profile_combo, m=menu: self.on_delete_profile_clicked(combo, m),
+        )
+        prof_select_lyt.addWidget(btn_delete_prof)
+        main_layout.addLayout(prof_select_lyt)
+
+        # Profil Kaydetme Satırı
+        prof_save_lyt = QHBoxLayout()
+        prof_save_lyt.setSpacing(4)
+
+        self.menu_profile_input = QLineEdit()
+        self.menu_profile_input.setPlaceholderText("Yeni profil adı...")
+        self.menu_profile_input.setStyleSheet("font-size: 11px; padding: 2px 4px;")
+        prof_save_lyt.addWidget(self.menu_profile_input, 1)
+
+        btn_save_prof = QPushButton("💾")
+        btn_save_prof.setToolTip("Profili Kaydet")
+        btn_save_prof.setFixedSize(22, 22)
+        btn_save_prof.setStyleSheet("""
+            QPushButton {
+                background-color: #eff6ff;
+                border: 1px solid #bfdbfe;
+                border-radius: 4px;
+            }
+            QPushButton:hover { background-color: #bfdbfe; }
+        """)
+        btn_save_prof.clicked.connect(
+            lambda checked, inp=self.menu_profile_input, combo=self.menu_profile_combo, m=menu: self.on_save_profile_clicked(inp, combo, m),
+        )
+        prof_save_lyt.addWidget(btn_save_prof)
+        main_layout.addLayout(prof_save_lyt)
+
+        action = QWidgetAction(menu)
+        action.setDefaultWidget(main_widget)
+        menu.addAction(action)
 
         menu.exec(self.table_view.horizontalHeader().mapToGlobal(pos))
 
     def toggle_column_visibility(self, col_idx, visible):
         self.set_column_hidden(col_idx, not visible)
+
+    def filter_column_checkboxes(self, text):
+        """Arama kutusuna yazılan metne göre checkbox'ları filtreler."""
+        text = text.lower()
+        for _col_idx, cb in self.menu_checkboxes.items():
+            if text in cb.text().lower():
+                cb.show()
+            else:
+                cb.hide()
+
+    def on_profile_selected(self, name, menu):
+        """Profil seçildiğinde tabloya uygular ve menüyü kapatır."""
+        if not menu.isVisible():
+            return
+        self.load_profile(name)
+        menu.close()
+
+    def on_save_profile_clicked(self, name_input, combo, menu):
+        """Mevcut görünümü yeni isimle kaydeder ve menüyü kapatır."""
+        name = name_input.text().strip()
+        if not name or name == "Varsayılan":
+            return
+        self.save_column_profile(name)
+        name_input.clear()
+        menu.close()
+
+    def on_delete_profile_clicked(self, combo, menu):
+        """Seçili profili siler ve menüyü kapatır."""
+        name = combo.currentText()
+        if not name or name == "Varsayılan":
+            return
+        self.delete_column_profile(name)
+        menu.close()
+
+    def save_column_profile(self, name):
+        """Sütun durumlarını QSettings ile JSON olarak saklar."""
+        import json
+
+        from PyQt6.QtCore import QSettings
+        settings = QSettings("baynetteknik", "dbar_piton")
+        
+        header = self.table_view.horizontalHeader()
+        state = {}
+        for col_idx in self.headers_dict.keys():
+            state[str(col_idx)] = not header.isSectionHidden(col_idx)
+
+        profiles_json = settings.value("column_profiles", "{}", type=str)
+        try:
+            profiles = json.loads(profiles_json)
+        except Exception:
+            profiles = {}
+
+        profiles[name] = state
+        settings.setValue("column_profiles", json.dumps(profiles))
+        settings.sync()
+
+    def delete_column_profile(self, name):
+        """Belirtilen profili QSettings'ten siler."""
+        import json
+
+        from PyQt6.QtCore import QSettings
+        settings = QSettings("baynetteknik", "dbar_piton")
+        
+        profiles_json = settings.value("column_profiles", "{}", type=str)
+        try:
+            profiles = json.loads(profiles_json)
+        except Exception:
+            profiles = {}
+
+        if name in profiles:
+            del profiles[name]
+            settings.setValue("column_profiles", json.dumps(profiles))
+            settings.sync()
+
+    def load_column_profile_list(self) -> list[str]:
+        """Kayıtlı profillerin isimlerini döner."""
+        import json
+
+        from PyQt6.QtCore import QSettings
+        settings = QSettings("baynetteknik", "dbar_piton")
+        
+        profiles_json = settings.value("column_profiles", "{}", type=str)
+        try:
+            profiles = json.loads(profiles_json)
+            return list(profiles.keys())
+        except Exception:
+            return []
+
+    def load_profile(self, name):
+        """Belirtilen görünüm profilini tabloya yükler."""
+        if not name or name == "Varsayılan":
+            for col_idx in self.headers_dict.keys():
+                self.set_column_hidden(col_idx, False)
+            return
+
+        import json
+
+        from PyQt6.QtCore import QSettings
+        settings = QSettings("baynetteknik", "dbar_piton")
+        
+        profiles_json = settings.value("column_profiles", "{}", type=str)
+        try:
+            profiles = json.loads(profiles_json)
+            state = profiles.get(name)
+            if state:
+                for col_str, visible in state.items():
+                    col_idx = int(col_str)
+                    self.set_column_hidden(col_idx, not visible)
+        except Exception as e:
+            logger.error(f"Profile loading error: {e}")
