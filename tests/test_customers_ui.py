@@ -164,3 +164,71 @@ def test_filterable_table_view_column_profiles(qapp):
     table.delete_column_profile("TestProfile")
     profiles = table.load_column_profile_list()
     assert "TestProfile" not in profiles
+
+
+def test_filterable_table_view_column_moving(qapp):
+    """Tests that moving columns reorders filter line edits properly."""
+    from PyQt6.QtGui import QStandardItemModel
+
+    from src.desktop.ui.components.filterable_table import FilterableTableView
+    
+    headers = {0: ("ID", "id"), 1: ("Ad", "name"), 2: ("Soyad", "surname")}
+    table = FilterableTableView(headers)
+    
+    model = QStandardItemModel()
+    model.setHorizontalHeaderLabels(["ID", "Ad", "Soyad"])
+    table.table_view.setModel(model)
+    table.table_view.horizontalHeader().setSectionsMovable(True)
+    
+    # Initially visualIndex matches logicalIndex
+    assert table.table_view.horizontalHeader().visualIndex(0) == 0
+    assert table.table_view.horizontalHeader().visualIndex(1) == 1
+    
+    # Move section 0 to index 1 (ID moves after Ad)
+    table.table_view.horizontalHeader().moveSection(0, 1)
+    
+    # Verify visual index changed
+    assert table.table_view.horizontalHeader().visualIndex(0) == 1
+    assert table.table_view.horizontalHeader().visualIndex(1) == 0
+    
+    # Trigger sync
+    table.sync_filter_positions()
+    
+    # Verify layout item order changed (the first widget in layout is now for 'Ad')
+    first_widget = table.inputs_layout.itemAt(0).widget()
+    assert first_widget.placeholderText() == "Ad..."
+
+
+def test_view_settings_widget_integration(qapp):
+    """Tests the ViewSettingsWidget profile listing and deletion interface."""
+    from unittest.mock import patch
+
+    from src.desktop.ui.components.filterable_table import FilterableTableView
+    from src.desktop.ui.settings import ViewSettingsWidget
+    
+    # Save a temporary profile "SettingsTest"
+    headers = {0: ("ID", "id")}
+    table = FilterableTableView(headers)
+    table.save_column_profile("SettingsTest")
+    
+    widget = ViewSettingsWidget()
+    
+    # Check that "SettingsTest" is listed
+    items = [widget.profile_list.item(i).text() for i in range(widget.profile_list.count())]
+    assert "SettingsTest" in items
+    
+    # Select the item and delete it
+    for i in range(widget.profile_list.count()):
+        if widget.profile_list.item(i).text() == "SettingsTest":
+            widget.profile_list.setCurrentRow(i)
+            break
+            
+    with patch('PyQt6.QtWidgets.QMessageBox.information') as mock_info, \
+         patch('PyQt6.QtWidgets.QMessageBox.warning') as mock_warn:
+        widget.delete_selected_profile()
+        assert mock_info.called
+        assert not mock_warn.called
+    
+    # Verify removed
+    items = [widget.profile_list.item(i).text() for i in range(widget.profile_list.count())]
+    assert "SettingsTest" not in items

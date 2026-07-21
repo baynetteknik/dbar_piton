@@ -1134,6 +1134,8 @@ class MusteriYonetimiWidget(QWidget):
         self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.table.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
         self.table.horizontalHeader().setDefaultSectionSize(120)
+        self.table.setSortingEnabled(True)
+        self.table.horizontalHeader().setSectionsMovable(True)
         self.table.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.table.customContextMenuRequested.connect(self.show_table_context_menu)
         
@@ -1163,6 +1165,16 @@ class MusteriYonetimiWidget(QWidget):
                 border-right: 1px solid #cbd5e1;
                 border-bottom: 2px solid #cbd5e1;
                 font-weight: bold;
+            }
+            QHeaderView::up-arrow {
+                width: 10px;
+                height: 10px;
+                padding-right: 4px;
+            }
+            QHeaderView::down-arrow {
+                width: 10px;
+                height: 10px;
+                padding-right: 4px;
             }
         """)
         self.filterable_table.filter_changed.connect(self.on_table_filter_changed)

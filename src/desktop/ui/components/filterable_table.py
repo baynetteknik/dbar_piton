@@ -2,8 +2,12 @@ import logging
 
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtWidgets import (
+    QDialog,
     QHBoxLayout,
+    QLabel,
     QLineEdit,
+    QListWidget,
+    QMessageBox,
     QPushButton,
     QTableView,
     QVBoxLayout,
@@ -143,6 +147,13 @@ class FilterableTableView(QWidget):
         # Sütun genişlikleri ve kaydırma senkronizasyonu
         self.table_view.horizontalHeader().sectionResized.connect(self.sync_filter_widths)
         self.table_view.horizontalScrollBar().valueChanged.connect(self.sync_filter_scroll)
+        self.table_view.horizontalHeader().sectionMoved.connect(self.sync_filter_positions)
+
+        # En son kullanılan aktif profili otomatik yükle
+        from PyQt6.QtCore import QSettings, QTimer
+        settings = QSettings("baynetteknik", "dbar_piton")
+        active_profile = settings.value("active_column_profile", "Varsayılan", type=str)
+        QTimer.singleShot(0, lambda: self.load_profile(active_profile))
 
     def sync_filter_widths(self):
         """Tablo sütun genişliği değiştiğinde filtre kutularının genişliğini senkronize eder."""
@@ -165,6 +176,33 @@ class FilterableTableView(QWidget):
         """Yatay kaydırma yapıldığında scroll area'yı kaydır."""
         if hasattr(self, 'scroll_area'):
             self.scroll_area.horizontalScrollBar().setValue(val)
+
+    def sync_filter_positions(self, *args):
+        """Sütunların yerleri sürükle-bırak ile değiştirildiğinde filtre kutularının sırasını senkronize eder."""
+        header = self.table_view.horizontalHeader()
+        widgets_to_reorder = []
+        for col_idx in sorted(self.headers_dict.keys()):
+            le = self.filter_widgets.get(col_idx)
+            if le:
+                visual_idx = header.visualIndex(col_idx)
+                widgets_to_reorder.append((visual_idx, le))
+                
+        # Görsel sıraya göre küçükten büyüğe sırala
+        widgets_to_reorder.sort(key=lambda x: x[0])
+        
+        # Layout'tan kaldır ve tekrar görsel sırayla ekle
+        for _, le in widgets_to_reorder:
+            self.inputs_layout.removeWidget(le)
+            self.inputs_layout.addWidget(le)
+
+    def update_menu_checkboxes(self):
+        """Menüdeki checkbox durumlarını tablonun anlık sütun görünürlük durumlarına göre eşitler."""
+        if hasattr(self, 'menu_checkboxes') and self.menu_checkboxes:
+            header = self.table_view.horizontalHeader()
+            for col_idx, cb in self.menu_checkboxes.items():
+                cb.blockSignals(True)
+                cb.setChecked(not header.isSectionHidden(col_idx))
+                cb.blockSignals(False)
 
     def on_filter_text_changed(self, field_name, text):
         """Filtre girdilerinde değişim olduğunda veritabanını tetikler."""
@@ -317,6 +355,22 @@ class FilterableTableView(QWidget):
             lambda checked, combo=self.menu_profile_combo, m=menu: self.on_delete_profile_clicked(combo, m),
         )
         prof_select_lyt.addWidget(btn_delete_prof)
+
+        btn_manage_prof = QPushButton("⚙️")
+        btn_manage_prof.setToolTip("Görünüm Profillerini Yönet")
+        btn_manage_prof.setFixedSize(22, 22)
+        btn_manage_prof.setStyleSheet("""
+            QPushButton {
+                background-color: #f1f5f9;
+                border: 1px solid #cbd5e1;
+                border-radius: 4px;
+            }
+            QPushButton:hover { background-color: #e2e8f0; }
+        """)
+        btn_manage_prof.clicked.connect(
+            lambda checked, m=menu: self.on_manage_profiles_clicked(m),
+        )
+        prof_select_lyt.addWidget(btn_manage_prof)
         main_layout.addLayout(prof_select_lyt)
 
         # Profil Kaydetme Satırı
@@ -395,9 +449,16 @@ class FilterableTableView(QWidget):
         settings = QSettings("baynetteknik", "dbar_piton")
         
         header = self.table_view.horizontalHeader()
-        state = {}
+        visible_state = {}
+        position_state = {}
         for col_idx in self.headers_dict.keys():
-            state[str(col_idx)] = not header.isSectionHidden(col_idx)
+            visible_state[str(col_idx)] = not header.isSectionHidden(col_idx)
+            position_state[str(col_idx)] = header.visualIndex(col_idx)
+
+        state = {
+            "visible": visible_state,
+            "positions": position_state,
+        }
 
         profiles_json = settings.value("column_profiles", "{}", type=str)
         try:
@@ -407,6 +468,10 @@ class FilterableTableView(QWidget):
 
         profiles[name] = state
         settings.setValue("column_profiles", json.dumps(profiles))
+        settings.sync()
+
+        # Bu profili aktif profil olarak kaydet
+        settings.setValue("active_column_profile", name)
         settings.sync()
 
     def delete_column_profile(self, name):
@@ -443,11 +508,181 @@ class FilterableTableView(QWidget):
 
     def load_profile(self, name):
         """Belirtilen görünüm profilini tabloya yükler."""
+        from PyQt6.QtCore import QSettings
+        settings = QSettings("baynetteknik", "dbar_piton")
+        
+        # Aktif profili kaydet
+        settings.setValue("active_column_profile", name)
+        settings.sync()
+
+        header = self.table_view.horizontalHeader()
+
         if not name or name == "Varsayılan":
+            # 1. Varsayılan konumlara geri taşı
+            for original_idx in sorted(self.headers_dict.keys()):
+                current_visual_idx = header.visualIndex(original_idx)
+                header.moveSection(current_visual_idx, original_idx)
+            
+            # 2. Tüm sütunları göster
             for col_idx in self.headers_dict.keys():
                 self.set_column_hidden(col_idx, False)
+                
+            self.update_menu_checkboxes()
+            self.sync_filter_positions()
             return
 
+        import json
+        profiles_json = settings.value("column_profiles", "{}", type=str)
+        try:
+            profiles = json.loads(profiles_json)
+            state = profiles.get(name)
+            if state:
+                # Geriye dönük uyumluluk
+                if isinstance(state, dict) and "visible" in state:
+                    visible_state = state["visible"]
+                    position_state = state.get("positions", {})
+                else:
+                    visible_state = state
+                    position_state = {}
+
+                # 1. Pozisyonları uygula
+                if position_state:
+                    sorted_positions = sorted(
+                        [(int(col_str), int(v_idx)) for col_str, v_idx in position_state.items()],
+                        key=lambda x: x[1],
+                    )
+                    for col_idx, target_visual_idx in sorted_positions:
+                        current_visual_idx = header.visualIndex(col_idx)
+                        header.moveSection(current_visual_idx, target_visual_idx)
+
+                # 2. Görünürlükleri uygula
+                for col_str, visible in visible_state.items():
+                    col_idx = int(col_str)
+                    self.set_column_hidden(col_idx, not visible)
+
+                self.update_menu_checkboxes()
+                self.sync_filter_positions()
+        except Exception as e:
+            logger.error(f"Profile loading error: {e}")
+
+    def resizeEvent(self, event):  # noqa: N802
+        super().resizeEvent(event)
+        self.sync_filter_widths()
+
+    def on_manage_profiles_clicked(self, menu):
+        """Profil yönetimi popup penceresini açar."""
+        menu.close()
+        dlg = ColumnProfileManagerDialog(self)
+        dlg.exec()
+        
+        # En son aktif kalan profili (veya silindi ise varsayılanı) tabloya uygula
+        from PyQt6.QtCore import QSettings
+        settings = QSettings("baynetteknik", "dbar_piton")
+        active = settings.value("active_column_profile", "Varsayılan", type=str)
+        self.load_profile(active)
+
+
+
+
+
+class ColumnProfileManagerDialog(QDialog):
+    """Kayıtlı sütun görünümleri profillerinin listelendiği ve silindiği popup yönetim penceresi."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle(self.tr("Görünüm Profillerini Yönet"))
+        self.setFixedSize(320, 240)
+        self.init_ui()
+
+    def init_ui(self):
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(12, 12, 12, 12)
+        layout.setSpacing(8)
+
+        lbl = QLabel(self.tr("Kayıtlı Profiller"))
+        lbl.setStyleSheet("font-weight: bold; color: #475569;")
+        layout.addWidget(lbl)
+
+        self.list_widget = QListWidget()
+        self.list_widget.setStyleSheet("""
+            QListWidget {
+                border: 1px solid #cbd5e1;
+                border-radius: 6px;
+                background-color: white;
+                color: #334155;
+            }
+            QListWidget::item {
+                padding: 6px 10px;
+                border-bottom: 1px solid #f1f5f9;
+            }
+            QListWidget::item:selected {
+                background-color: #fee2e2;
+                color: #b91c1c;
+                font-weight: bold;
+            }
+        """)
+        layout.addWidget(self.list_widget)
+
+        btn_layout = QHBoxLayout()
+        btn_layout.setSpacing(8)
+
+        self.btn_delete = QPushButton(self.tr("❌ Seçili Profili Sil"))
+        self.btn_delete.setStyleSheet("""
+            QPushButton {
+                background-color: #fee2e2;
+                color: #b91c1c;
+                border: 1px solid #fca5a5;
+                border-radius: 6px;
+                padding: 6px 12px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #fca5a5;
+            }
+        """)
+        self.btn_delete.clicked.connect(self.delete_selected_profile)
+        btn_layout.addWidget(self.btn_delete, 1)
+
+        self.btn_close = QPushButton(self.tr("Kapat"))
+        self.btn_close.setStyleSheet("""
+            QPushButton {
+                background-color: #f1f5f9;
+                color: #475569;
+                border: 1px solid #cbd5e1;
+                border-radius: 6px;
+                padding: 6px 12px;
+            }
+            QPushButton:hover {
+                background-color: #e2e8f0;
+            }
+        """)
+        self.btn_close.clicked.connect(self.accept)
+        btn_layout.addWidget(self.btn_close)
+
+        layout.addLayout(btn_layout)
+        self.load_profiles()
+
+    def load_profiles(self):
+        self.list_widget.clear()
+        import json
+
+        from PyQt6.QtCore import QSettings
+        settings = QSettings("baynetteknik", "dbar_piton")
+        profiles_json = settings.value("column_profiles", "{}", type=str)
+        try:
+            profiles = json.loads(profiles_json)
+            for p_name in profiles.keys():
+                self.list_widget.addItem(p_name)
+        except Exception:
+            pass
+
+    def delete_selected_profile(self):
+        item = self.list_widget.currentItem()
+        if not item:
+            QMessageBox.warning(self, self.tr("Uyarı"), self.tr("Lütfen silmek istediğiniz profili seçin."))
+            return
+
+        name = item.text()
         import json
 
         from PyQt6.QtCore import QSettings
@@ -456,14 +691,16 @@ class FilterableTableView(QWidget):
         profiles_json = settings.value("column_profiles", "{}", type=str)
         try:
             profiles = json.loads(profiles_json)
-            state = profiles.get(name)
-            if state:
-                for col_str, visible in state.items():
-                    col_idx = int(col_str)
-                    self.set_column_hidden(col_idx, not visible)
+            if name in profiles:
+                del profiles[name]
+                settings.setValue("column_profiles", json.dumps(profiles))
+                
+                active = settings.value("active_column_profile", "Varsayılan", type=str)
+                if active == name:
+                    settings.setValue("active_column_profile", "Varsayılan")
+                
+                settings.sync()
+                self.load_profiles()
+                QMessageBox.information(self, self.tr("Başarılı"), f"'{name}' profili başarıyla silindi.")
         except Exception as e:
-            logger.error(f"Profile loading error: {e}")
-
-    def resizeEvent(self, event):  # noqa: N802
-        super().resizeEvent(event)
-        self.sync_filter_widths()
+            QMessageBox.critical(self, self.tr("Hata"), f"Profil silinirken hata: {e}")
