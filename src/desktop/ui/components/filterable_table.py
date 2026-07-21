@@ -436,3 +436,7 @@ class FilterableTableView(QWidget):
                     self.set_column_hidden(col_idx, not visible)
         except Exception as e:
             logger.error(f"Profile loading error: {e}")
+
+    def resizeEvent(self, event):  # noqa: N802
+        super().resizeEvent(event)
+        self.sync_filter_widths()

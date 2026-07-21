@@ -1160,6 +1160,7 @@ class MusteriYonetimiWidget(QWidget):
                 color: #475569;
                 padding: 8px;
                 border: none;
+                border-right: 1px solid #cbd5e1;
                 border-bottom: 2px solid #cbd5e1;
                 font-weight: bold;
             }
