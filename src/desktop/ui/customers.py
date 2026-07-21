@@ -1443,12 +1443,11 @@ class MusteriYonetimiWidget(QWidget):
             QMessageBox.warning(self, self.tr("Uyarı"), self.tr("Lütfen düzenlemek istediğiniz cari kartı seçin."))
             return
             
-        proxy_index = indexes[0]
-        source_index = self.table.proxy_model.mapToSource(proxy_index)
-        source_model = self.table.proxy_model.sourceModel()
-        cust_id_val = source_model.index(source_index.row(), 0).data()
+        index = indexes[0]
+        model = self.table.model()
+        cust_id_val = model.index(index.row(), 0).data()
         
-        item = source_model.item(source_index.row(), 0)
+        item = model.item(index.row(), 0)
         remote_id = item.data(Qt.ItemDataRole.UserRole + 1) if item else None
         
         if cust_id_val is not None:
@@ -1464,10 +1463,9 @@ class MusteriYonetimiWidget(QWidget):
             QMessageBox.warning(self, self.tr("Uyarı"), self.tr("Lütfen kopyalamak istediğiniz cariyi seçin."))
             return
             
-        proxy_index = indexes[0]
-        source_index = self.table.proxy_model.mapToSource(proxy_index)
-        source_model = self.table.proxy_model.sourceModel()
-        cust_id_val = source_model.index(source_index.row(), 0).data()
+        index = indexes[0]
+        model = self.table.model()
+        cust_id_val = model.index(index.row(), 0).data()
         if cust_id_val is not None:
             cust_id = int(cust_id_val)
             source_cust = self.db.query(Customer).filter(Customer.id == cust_id).first()
