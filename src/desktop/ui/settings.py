@@ -47,9 +47,9 @@ class SettingsWidget(QTabWidget):
         # Firma güncellendiğinde kullanıcı sekmesindeki firma yetkileri listesi tazelensin
         self.sites_tab.sites_updated.connect(self.users_tab.load_sites)
 
-        # 3. Görünüm Ayarları Sekmesi
+        # 3. Görünüm Profilleri Sekmesi
         self.view_settings_tab = ViewSettingsWidget()
-        self.addTab(self.view_settings_tab, "⚙️ Görünüm Ayarları")
+        self.addTab(self.view_settings_tab, "🎨 Görünüm Profilleri")
 
 
 class UserManagementWidget(QWidget):
@@ -426,9 +426,31 @@ class ViewSettingsWidget(QWidget):
         left_layout = QVBoxLayout(left_widget)
         left_layout.setContentsMargins(0, 0, 5, 0)
 
+        lbl_module = QLabel("Ekran / Modül Seçin:")
+        lbl_module.setStyleSheet("font-weight: bold; color: #475569; font-size: 12px;")
+        left_layout.addWidget(lbl_module)
+
+        self.module_combo = QComboBox()
+        self.module_combo.addItem("👥 Cariler / Müşteriler", "customers")
+        self.module_combo.addItem("🏢 Firma Tanımları", "sites")
+        self.module_combo.addItem("👥 Kullanıcı Tanımları", "users")
+        self.module_combo.addItem("📦 Ürünler / Stok", "products")
+        self.module_combo.setStyleSheet("""
+            QComboBox {
+                border: 1px solid #cbd5e1;
+                border-radius: 6px;
+                padding: 6px 10px;
+                background-color: white;
+                color: #334155;
+                font-weight: bold;
+            }
+        """)
+        self.module_combo.currentIndexChanged.connect(self.load_profiles)
+        left_layout.addWidget(self.module_combo)
+
         lbl_list = QLabel("Kayıtlı Sütun Görünümleri")
         lbl_list.setStyleSheet(
-            "font-weight: bold; color: #475569; font-size: 13px;",
+            "font-weight: bold; color: #475569; font-size: 12px; margin-top: 6px;",
         )
         left_layout.addWidget(lbl_list)
 
@@ -508,13 +530,18 @@ class ViewSettingsWidget(QWidget):
         main_layout.addWidget(splitter)
         self.load_profiles()
 
+    def get_current_profile_key(self) -> str:
+        key = self.module_combo.currentData()
+        return key or "customers"
+
     def load_profiles(self):
         self.profile_list.clear()
+        profile_key = self.get_current_profile_key()
         import json
 
         from PyQt6.QtCore import QSettings
         settings = QSettings("baynetteknik", "dbar_piton")
-        profiles_json = settings.value("column_profiles", "{}", type=str)
+        profiles_json = settings.value(f"column_profiles_{profile_key}", "{}", type=str)
         try:
             profiles = json.loads(profiles_json)
             for p_name in profiles.keys():
@@ -529,21 +556,22 @@ class ViewSettingsWidget(QWidget):
             return
 
         name = item.text()
+        profile_key = self.get_current_profile_key()
         import json
 
         from PyQt6.QtCore import QSettings
         settings = QSettings("baynetteknik", "dbar_piton")
         
-        profiles_json = settings.value("column_profiles", "{}", type=str)
+        profiles_json = settings.value(f"column_profiles_{profile_key}", "{}", type=str)
         try:
             profiles = json.loads(profiles_json)
             if name in profiles:
                 del profiles[name]
-                settings.setValue("column_profiles", json.dumps(profiles))
+                settings.setValue(f"column_profiles_{profile_key}", json.dumps(profiles))
                 
-                active = settings.value("active_column_profile", "Varsayılan", type=str)
+                active = settings.value(f"active_column_profile_{profile_key}", "Varsayılan", type=str)
                 if active == name:
-                    settings.setValue("active_column_profile", "Varsayılan")
+                    settings.setValue(f"active_column_profile_{profile_key}", "Varsayılan")
                 
                 settings.sync()
                 self.load_profiles()

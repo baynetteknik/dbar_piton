@@ -23,9 +23,10 @@ class FilterableTableView(QWidget):
     filter_changed = pyqtSignal(dict)  # Aktif filtre sözlüğünü yayar
     column_visibility_changed = pyqtSignal(int, bool)  # Sütun göster/gizle durumunu yayar (col_idx, visible)
 
-    def __init__(self, headers_dict, parent=None):
+    def __init__(self, headers_dict, profile_key="customers", parent=None):
         super().__init__(parent)
         self.headers_dict = headers_dict  # {col_idx: (label, field_name)}
+        self.profile_key = profile_key
         self.filters = {}
         self.filter_widgets = {}
 
@@ -337,7 +338,7 @@ class FilterableTableView(QWidget):
             
         from PyQt6.QtCore import QSettings
         settings = QSettings("baynetteknik", "dbar_piton")
-        active = settings.value("active_column_profile", "Varsayılan", type=str)
+        active = settings.value(f"active_column_profile_{self.profile_key}", "Varsayılan", type=str)
         idx = self.menu_profile_combo.findText(active)
         if idx >= 0:
             self.menu_profile_combo.blockSignals(True)
@@ -479,7 +480,7 @@ class FilterableTableView(QWidget):
 
         from PyQt6.QtCore import QSettings
         settings = QSettings("baynetteknik", "dbar_piton")
-        profiles_json = settings.value("column_profiles", "{}", type=str)
+        profiles_json = settings.value(f"column_profiles_{self.profile_key}", "{}", type=str)
         try:
             profiles = json.loads(profiles_json)
             if name in profiles:
@@ -527,18 +528,18 @@ class FilterableTableView(QWidget):
             "positions": position_state,
         }
 
-        profiles_json = settings.value("column_profiles", "{}", type=str)
+        profiles_json = settings.value(f"column_profiles_{self.profile_key}", "{}", type=str)
         try:
             profiles = json.loads(profiles_json)
         except Exception:
             profiles = {}
 
         profiles[name] = state
-        settings.setValue("column_profiles", json.dumps(profiles))
+        settings.setValue(f"column_profiles_{self.profile_key}", json.dumps(profiles))
         settings.sync()
 
         # Bu profili aktif profil olarak kaydet
-        settings.setValue("active_column_profile", name)
+        settings.setValue(f"active_column_profile_{self.profile_key}", name)
         settings.sync()
 
     def delete_column_profile(self, name):
@@ -548,7 +549,7 @@ class FilterableTableView(QWidget):
         from PyQt6.QtCore import QSettings
         settings = QSettings("baynetteknik", "dbar_piton")
         
-        profiles_json = settings.value("column_profiles", "{}", type=str)
+        profiles_json = settings.value(f"column_profiles_{self.profile_key}", "{}", type=str)
         try:
             profiles = json.loads(profiles_json)
         except Exception:
@@ -556,7 +557,7 @@ class FilterableTableView(QWidget):
 
         if name in profiles:
             del profiles[name]
-            settings.setValue("column_profiles", json.dumps(profiles))
+            settings.setValue(f"column_profiles_{self.profile_key}", json.dumps(profiles))
             settings.sync()
 
     def load_column_profile_list(self) -> list[str]:
@@ -566,8 +567,8 @@ class FilterableTableView(QWidget):
         from PyQt6.QtCore import QSettings
         settings = QSettings("baynetteknik", "dbar_piton")
         
-        profiles_json = settings.value("column_profiles", "{}", type=str)
-        active_profile = settings.value("active_column_profile", "Varsayılan", type=str)
+        profiles_json = settings.value(f"column_profiles_{self.profile_key}", "{}", type=str)
+        active_profile = settings.value(f"active_column_profile_{self.profile_key}", "Varsayılan", type=str)
         try:
             profiles = json.loads(profiles_json)
             p_list = list(profiles.keys())
@@ -584,7 +585,7 @@ class FilterableTableView(QWidget):
         settings = QSettings("baynetteknik", "dbar_piton")
         
         # Aktif profili kaydet
-        settings.setValue("active_column_profile", name)
+        settings.setValue(f"active_column_profile_{self.profile_key}", name)
         settings.sync()
 
         header = self.table_view.horizontalHeader()
@@ -604,7 +605,7 @@ class FilterableTableView(QWidget):
             return
 
         import json
-        profiles_json = settings.value("column_profiles", "{}", type=str)
+        profiles_json = settings.value(f"column_profiles_{self.profile_key}", "{}", type=str)
         try:
             profiles = json.loads(profiles_json)
             state = profiles.get(name)
@@ -644,13 +645,13 @@ class FilterableTableView(QWidget):
     def on_manage_profiles_clicked(self, menu):
         """Profil yönetimi popup penceresini açar."""
         menu.close()
-        dlg = ColumnProfileManagerDialog(self)
+        dlg = ColumnProfileManagerDialog(self, profile_key=self.profile_key)
         dlg.exec()
         
         # En son aktif kalan profili (veya silindi ise varsayılanı) tabloya uygula
         from PyQt6.QtCore import QSettings
         settings = QSettings("baynetteknik", "dbar_piton")
-        active = settings.value("active_column_profile", "Varsayılan", type=str)
+        active = settings.value(f"active_column_profile_{self.profile_key}", "Varsayılan", type=str)
         self.load_profile(active)
 
 
@@ -660,8 +661,9 @@ class FilterableTableView(QWidget):
 class ColumnProfileManagerDialog(QDialog):
     """Kayıtlı sütun görünümleri profillerinin listelendiği ve silindiği popup yönetim penceresi."""
 
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, profile_key="customers"):
         super().__init__(parent)
+        self.profile_key = profile_key
         self.setWindowTitle(self.tr("Görünüm Profillerini Yönet"))
         self.setFixedSize(320, 240)
         self.init_ui()
@@ -740,7 +742,7 @@ class ColumnProfileManagerDialog(QDialog):
 
         from PyQt6.QtCore import QSettings
         settings = QSettings("baynetteknik", "dbar_piton")
-        profiles_json = settings.value("column_profiles", "{}", type=str)
+        profiles_json = settings.value(f"column_profiles_{self.profile_key}", "{}", type=str)
         try:
             profiles = json.loads(profiles_json)
             for p_name in profiles.keys():
@@ -760,16 +762,16 @@ class ColumnProfileManagerDialog(QDialog):
         from PyQt6.QtCore import QSettings
         settings = QSettings("baynetteknik", "dbar_piton")
         
-        profiles_json = settings.value("column_profiles", "{}", type=str)
+        profiles_json = settings.value(f"column_profiles_{self.profile_key}", "{}", type=str)
         try:
             profiles = json.loads(profiles_json)
             if name in profiles:
                 del profiles[name]
-                settings.setValue("column_profiles", json.dumps(profiles))
+                settings.setValue(f"column_profiles_{self.profile_key}", json.dumps(profiles))
                 
-                active = settings.value("active_column_profile", "Varsayılan", type=str)
+                active = settings.value(f"active_column_profile_{self.profile_key}", "Varsayılan", type=str)
                 if active == name:
-                    settings.setValue("active_column_profile", "Varsayılan")
+                    settings.setValue(f"active_column_profile_{self.profile_key}", "Varsayılan")
                 
                 settings.sync()
                 self.load_profiles()

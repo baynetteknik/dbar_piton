@@ -1118,7 +1118,7 @@ class MusteriYonetimiWidget(QWidget):
         center_layout.addWidget(self.sync_status_panel)
 
         # Dinamik Filtrelenebilir Tablo (FilterableTableView)
-        self.filterable_table = FilterableTableView(headers_dict=self.headers_dict, parent=self)
+        self.filterable_table = FilterableTableView(headers_dict=self.headers_dict, profile_key="customers", parent=self)
         self.filterable_table.setObjectName("FilterableTable")
         self.table = self.filterable_table.table_view  # Geriye dönük uyumluluk için atama yapıyoruz
         

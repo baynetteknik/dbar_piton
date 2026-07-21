@@ -1,24 +1,34 @@
-import json
-import os
-from pathlib import Path
-from urllib.parse import urlparse
 import xml.etree.ElementTree as ET
-import requests
-from PyQt6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QComboBox,
-    QCheckBox, QPushButton, QListWidget, QListWidgetItem, QMessageBox,
-    QSplitter, QFrame, QDialog, QFormLayout
-)
-from PyQt6.QtCore import Qt, pyqtSignal
-from PyQt6.QtGui import QFont, QColor
-from PyQt6.QtWidgets import QGraphicsDropShadowEffect
+from urllib.parse import urlparse
 
-from src.core.models import Site
-from src.core.security.keyring_store import save_api_key, get_api_key, delete_api_key
-from src.adapters.dolibarr.dolibarr_client import DolibarrClient
+import requests
+from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtGui import QColor, QFont
+from PyQt6.QtWidgets import (
+    QCheckBox,
+    QComboBox,
+    QDialog,
+    QFormLayout,
+    QFrame,
+    QGraphicsDropShadowEffect,
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
+    QListWidget,
+    QListWidgetItem,
+    QMessageBox,
+    QPushButton,
+    QSplitter,
+    QVBoxLayout,
+    QWidget,
+)
+
 from src.adapters.dolibarr.dolibarr_adapter import DolibarrAdapter
-from src.adapters.woocommerce.woocommerce_client import WooCommerceClient
+from src.adapters.dolibarr.dolibarr_client import DolibarrClient
 from src.adapters.woocommerce.woocommerce_adapter import WooCommerceAdapter
+from src.adapters.woocommerce.woocommerce_client import WooCommerceClient
+from src.core.models import Site
+from src.core.security.keyring_store import delete_api_key, get_api_key, save_api_key
 
 
 def clean_and_build_api_url(raw_url: str, cms_type: str) -> str:
@@ -147,6 +157,7 @@ class SitesWidget(QWidget):
     def __init__(self, db_session):
         super().__init__()
         self.db = db_session
+        self.profile_key = "sites"
         self.selected_site_id = None
         self.init_ui()
 
@@ -180,7 +191,7 @@ class SitesWidget(QWidget):
         left_layout.setSpacing(10)
         
         # Yeni Ekle butonu Sol Tarafta EN ÜSTE alındı
-        self.add_new_btn = QPushButton("➕ Yeni Bağlantı Ekle")
+        self.add_new_btn = QPushButton("➕ Yeni Şirket / Bağlantı Ekle")
         self.add_new_btn.setStyleSheet("""
             QPushButton {
                 background-color: #10b981;
@@ -273,8 +284,8 @@ class SitesWidget(QWidget):
         form_frame.setObjectName("FormFrame")
         form_frame.setStyleSheet("""
             QFrame#FormFrame {
-                background-color: white;
-                border: 1px solid #e2e8f0;
+                background-color: #ffffff;
+                border: 1px solid #cbd5e1;
                 border-radius: 8px;
             }
         """)
@@ -284,9 +295,9 @@ class SitesWidget(QWidget):
         form_layout.setContentsMargins(20, 20, 20, 20)
         form_layout.setSpacing(14)
 
-        form_title = QLabel("Bağlantı Parametreleri")
+        form_title = QLabel("Şirket / Bağlantı Parametreleri")
         form_title.setFont(QFont("Segoe UI", 12, QFont.Weight.Bold))
-        form_title.setStyleSheet("color: #1e293b; margin-bottom: 4px;")
+        form_title.setStyleSheet("color: #0f172a; margin-bottom: 4px;")
         form_layout.addWidget(form_title)
 
         input_style = """
@@ -294,9 +305,10 @@ class SitesWidget(QWidget):
                 border: 1px solid #cbd5e1;
                 border-radius: 6px;
                 padding: 8px 12px;
-                background-color: white;
+                background-color: #f8fafc;
                 color: #0f172a;
                 font-size: 13px;
+                font-weight: 500;
             }
             QLineEdit:focus { border-color: #3b82f6; }
         """
@@ -345,6 +357,27 @@ class SitesWidget(QWidget):
         cms_group.addWidget(cms_lbl)
         cms_group.addWidget(self.cms_input)
         form_layout.addLayout(cms_group)
+
+        # Çalışma Düzeni (Modu)
+        mode_group = QVBoxLayout()
+        mode_lbl = QLabel("Çalışma Düzeni (Modu):")
+        mode_lbl.setStyleSheet("font-weight: bold; color: #475569; font-size: 12px;")
+        self.mode_input = QComboBox()
+        self.mode_input.addItem("Yerel Master (Local Master / Çevrimdışı Uyumlu)", "local_master")
+        self.mode_input.addItem("Doğrudan Online (Direct Online / Gerçek Zamanlı)", "direct_online")
+        self.mode_input.setStyleSheet("""
+            QComboBox {
+                border: 1px solid #cbd5e1;
+                border-radius: 6px;
+                padding: 8px;
+                background-color: white;
+                color: #0f172a;
+                font-size: 13px;
+            }
+        """)
+        mode_group.addWidget(mode_lbl)
+        mode_group.addWidget(self.mode_input)
+        form_layout.addLayout(mode_group)
 
         # API Anahtarı
         key_group = QVBoxLayout()
@@ -437,7 +470,7 @@ class SitesWidget(QWidget):
 
         help_desc = QLabel(
             "Dolibarr REST API eklentisini aktif ettiğinizde, sisteminiz otomatik olarak Swagger API ve Token adreslerini üretir. "
-            "Aşağıdaki linkler girmiş olduğunuz URL adresine göre otomatik olarak oluşturulmuştur:"
+            "Aşağıdaki linkler girmiş olduğunuz URL adresine göre otomatik olarak oluşturulmuştur:",
         )
         help_desc.setWordWrap(True)
         help_desc.setStyleSheet("color: #475569; font-size: 12px; line-height: 16px;")
@@ -547,13 +580,13 @@ class SitesWidget(QWidget):
         swagger_url = f"{base_api_root}/explorer/swagger.json?DOLAPIKEY={api_key}"
 
         self.lbl_token_link.setText(
-            f"🔑 <b>Jeton Alma URL:</b> <a href='{token_url}' style='color: #2563eb; text-decoration: none;'>{token_url}</a>"
+            f"🔑 <b>Jeton Alma URL:</b> <a href='{token_url}' style='color: #2563eb; text-decoration: none;'>{token_url}</a>",
         )
         self.lbl_explorer_link.setText(
-            f"🌐 <b>Swagger Explorer:</b> <a href='{explorer_url}' style='color: #2563eb; text-decoration: none;'>{explorer_url}</a>"
+            f"🌐 <b>Swagger Explorer:</b> <a href='{explorer_url}' style='color: #2563eb; text-decoration: none;'>{explorer_url}</a>",
         )
         self.lbl_swagger_link.setText(
-            f"📄 <b>Swagger JSON:</b> <a href='{swagger_url}' style='color: #2563eb; text-decoration: none;'>{swagger_url}</a>"
+            f"📄 <b>Swagger JSON:</b> <a href='{swagger_url}' style='color: #2563eb; text-decoration: none;'>{swagger_url}</a>",
         )
 
     def auto_fetch_token(self):
@@ -585,14 +618,14 @@ class SitesWidget(QWidget):
                 login_url = f"{url}/login"
                 params = {
                     "login": username,
-                    "password": password
+                    "password": password,
                 }
                 
                 # WAF ve Cloudflare engellerini aşmak için gerçek bir browser User-Agent'ı ekliyoruz!
                 headers = {
                     "Accept": "application/json",
                     "Content-Type": "application/json",
-                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
                 }
                 
                 response = requests.get(login_url, params=params, headers=headers, timeout=10, allow_redirects=True)
@@ -612,7 +645,7 @@ class SitesWidget(QWidget):
                             self, "Başarılı",
                             "API Jetonu (Token) Dolibarr'dan başarıyla çekildi ve alana yerleştirildi.\n\n"
                             "Bu site/bağlantı ayarlarını otomatik olarak kaydetmek istiyor musunuz?",
-                            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+                            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
                         )
                         if reply == QMessageBox.StandardButton.Yes:
                             self.save_site()
@@ -621,7 +654,7 @@ class SitesWidget(QWidget):
                             test_reply = QMessageBox.question(
                                 self, "Bağlantı Testi",
                                 "Bağlantı ayarları kaydedildi. Bağlantıyı şimdi test etmek ister misiniz?",
-                                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+                                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
                             )
                             if test_reply == QMessageBox.StandardButton.Yes:
                                 self.test_connection()
@@ -682,6 +715,11 @@ class SitesWidget(QWidget):
                 self.cms_input.setCurrentText(site.cms_type)
                 self.active_check.setChecked(site.is_active)
                 
+                # Çalışma modunu seç
+                mode_index = self.mode_input.findData(site.working_mode)
+                if mode_index != -1:
+                    self.mode_input.setCurrentIndex(mode_index)
+                
                 # API Key'i keyring'den çek
                 api_key = get_api_key(site.api_key_account)
                 self.api_key_input.setText(api_key or "")
@@ -701,8 +739,12 @@ class SitesWidget(QWidget):
         self.url_input.clear()
         self.api_key_input.clear()
         self.active_check.setChecked(True)
+        self.mode_input.setCurrentIndex(0)
         self.delete_btn.setEnabled(False)
+        
+        self.site_list.blockSignals(True)
         self.site_list.clearSelection()
+        self.site_list.blockSignals(False)
         self.conn_status_badge.setText("Bekleniyor 💤")
         self.conn_status_badge.setStyleSheet("""
             QLabel { background-color: #f1f5f9; color: #64748b; font-weight: bold; padding: 4px 10px; border-radius: 4px; font-size: 11px; }
@@ -774,16 +816,29 @@ class SitesWidget(QWidget):
         cms_type = self.cms_input.currentText()
         api_key = self.api_key_input.text().strip()
         is_active = self.active_check.isChecked()
+        working_mode = self.mode_input.currentData()
 
-        if not name or not url or not api_key:
-            QMessageBox.warning(self, "Uyarı", "Lütfen tüm alanları doldurun.")
-            return
+        # direct_online ise tüm alanlar zorunlu, local_master ise sadece name zorunlu.
+        if working_mode == "direct_online":
+            if not name or not url or not api_key:
+                QMessageBox.warning(self, "Uyarı", "Doğrudan Online çalışma modu için lütfen tüm alanları (URL ve API Anahtarı dahil) doldurun.")
+                return
+        else:
+            if not name:
+                QMessageBox.warning(self, "Uyarı", "Lütfen Şirket Adı alanını doldurun.")
+                return
+            # local_master modunda url ve api_key boş kalabilir
+            if not url:
+                url = ""
+            if not api_key:
+                api_key = ""
 
-        # Kaydetmeden önce URL'yi temizle
-        clean_url = clean_and_build_api_url(url, cms_type)
-        if clean_url != url:
-            self.url_input.setText(clean_url)
-            url = clean_url
+        # Kaydetmeden önce URL'yi temizle (varsa)
+        if url:
+            clean_url = clean_and_build_api_url(url, cms_type)
+            if clean_url != url:
+                self.url_input.setText(clean_url)
+                url = clean_url
 
         try:
             account_name = f"site_{name.lower().replace(' ', '_')}"
@@ -796,8 +851,10 @@ class SitesWidget(QWidget):
                     site.url = url
                     site.cms_type = cms_type
                     site.is_active = is_active
-                    # Keyring'deki hesabı güncelle
-                    save_api_key(site.api_key_account, api_key)
+                    site.working_mode = working_mode
+                    # Keyring'deki hesabı güncelle (eğer api_key varsa)
+                    if api_key:
+                        save_api_key(site.api_key_account, api_key)
             else:
                 # Yeni Ekleme
                 site = Site(
@@ -805,10 +862,12 @@ class SitesWidget(QWidget):
                     url=url,
                     cms_type=cms_type,
                     api_key_account=account_name,
-                    is_active=is_active
+                    is_active=is_active,
+                    working_mode=working_mode,
                 )
                 self.db.add(site)
-                save_api_key(account_name, api_key)
+                if api_key:
+                    save_api_key(account_name, api_key)
 
             self.db.commit()
             QMessageBox.information(self, "Başarılı", "Site ayarları kaydedildi.")
@@ -825,7 +884,7 @@ class SitesWidget(QWidget):
 
         reply = QMessageBox.question(
             self, "Onay", "Seçili siteyi silmek istediğinize emin misiniz?",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
         )
         
         if reply == QMessageBox.StandardButton.Yes:
