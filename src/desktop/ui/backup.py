@@ -1,23 +1,41 @@
-import os
-import gzip
-import tempfile
-import random
 import datetime
-import logging
+import gzip
 import json
+import logging
+import os
+import random
+import tempfile
 import zipfile
-from PyQt6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton,
-    QProgressBar, QComboBox, QMessageBox, QFormLayout, QGroupBox,
-    QFileDialog, QTableWidget, QTableWidgetItem, QHeaderView, QFrame, QTabWidget,
-    QGridLayout, QSplitter, QDialog, QMenu, QCheckBox
-)
-from PyQt6.QtCore import Qt, QTimer, pyqtSignal, QThreadPool, QRunnable, QObject
-from PyQt6.QtGui import QFont, QColor, QCursor, QAction
 
-from src.core.models import Site
+from PyQt6.QtCore import QObject, QRunnable, Qt, QThreadPool, QTimer, pyqtSignal
+from PyQt6.QtGui import QAction, QColor, QFont
+from PyQt6.QtWidgets import (
+    QCheckBox,
+    QComboBox,
+    QDialog,
+    QFileDialog,
+    QFormLayout,
+    QFrame,
+    QGroupBox,
+    QHBoxLayout,
+    QHeaderView,
+    QLabel,
+    QLineEdit,
+    QMenu,
+    QMessageBox,
+    QProgressBar,
+    QPushButton,
+    QSplitter,
+    QTableWidget,
+    QTableWidgetItem,
+    QTabWidget,
+    QVBoxLayout,
+    QWidget,
+)
+
 from src.core.backup.orchestrator import BackupOrchestrator
 from src.desktop.core.workers import BackupWorker
+from src.desktop.ui.components.filterable_table import FilterableTableView
 
 MOTOR_ACTIVE = True
 
@@ -200,7 +218,7 @@ class DolibarrInstallationSelectDialog(QDialog):
         self.install_combo.addItems([
             self.tr("Kurulum 1: Canlı ERP -> /var/www/dolibarr_live (Veritabanı: dolibarr_live_db)"),
             self.tr("Kurulum 2: Test ERP -> /var/www/dolibarr_test (Veritabanı: dolibarr_test_db)"),
-            self.tr("Kurulum 3: Arşiv Portal -> /var/www/dolibarr_archive (Veritabanı: dolibarr_archive_db)")
+            self.tr("Kurulum 3: Arşiv Portal -> /var/www/dolibarr_archive (Veritabanı: dolibarr_archive_db)"),
         ])
         self.install_combo.setStyleSheet("border: 1px solid #cbd5e1; border-radius: 6px; padding: 6px;")
         layout.addWidget(self.install_combo)
@@ -266,7 +284,7 @@ class DolibarrRestoreAssistantDialog(QDialog):
                 self.tr("Bu yedek tanımı sadece veritabanı yedeğini içermektedir. "
                         "Dolibarr'ın sorunsuz çalışabilmesi için hedef sunucuda aşağıdaki klasör "
                         "ve PHP yapısının önceden kurulmuş olması gerekmektedir.\n\n"
-                        "Geri yükleme tamamlandığında veritabanı içeriği bu kuruluma aktarılacaktır.")
+                        "Geri yükleme tamamlandığında veritabanı içeriği bu kuruluma aktarılacaktır."),
             )
             info_txt.setWordWrap(True)
             info_txt.setStyleSheet("color: #475569; font-size: 11px;")
@@ -279,7 +297,7 @@ class DolibarrRestoreAssistantDialog(QDialog):
             info_txt = QLabel(
                 self.tr("Bu işlem sırasında veritabanı ile birlikte sunucu üzerindeki "
                         "Web Sunucusu Kök Dizini ve Veri Klasörü içerikleri SSH/SFTP tüneli "
-                        "üzerinden otomatik olarak geri yüklenecektir.")
+                        "üzerinden otomatik olarak geri yüklenecektir."),
             )
             info_txt.setWordWrap(True)
             info_txt.setStyleSheet("color: #475569; font-size: 11px;")
@@ -364,7 +382,7 @@ class NewTaskDialog(QDialog):
             self.tr("Manuel Tetikleme"), 
             self.tr("Her Gün 00:00"), 
             self.tr("Her Pazartesi 02:00"), 
-            self.tr("Her Gün 23:00")
+            self.tr("Her Gün 23:00"),
         ])
         self.apply_combo_style(self.schedule_combo)
         
@@ -388,7 +406,7 @@ class NewTaskDialog(QDialog):
         self.dbar_backup_scope_combo = QComboBox()
         self.dbar_backup_scope_combo.addItems([
             self.tr("Sadece Veritabanı Yedeği Al"),
-            self.tr("Tam Yedek Al (Database + Sunucu Dizinleri - SFTP/SSH Gerekir)")
+            self.tr("Tam Yedek Al (Database + Sunucu Dizinleri - SFTP/SSH Gerekir)"),
         ])
         self.dbar_backup_scope_combo.currentTextChanged.connect(self.on_dbar_scope_changed)
         self.apply_combo_style(self.dbar_backup_scope_combo)
@@ -751,7 +769,7 @@ class NewTaskDialog(QDialog):
                         "- SFTP Bağlantısı: Kuruldu (Port: 22, Kullanıcı: iletkene)\n"
                         "- Web Sunucusu Kökü Yetki Kontrolü: /home/iletkene/baynetbilisim.tr dizini mevcut. (Okuma: OK, Yazma: OK)\n"
                         "- Veri Klasörü Yetki Kontrolü: /home/iletkene/dbarbynttrdata dizini mevcut. (Okuma: OK, Yazma: OK)\n\n"
-                        "Tüm gerekli Dolibarr sunucu klasörlerine erişim ve okuma/yazma yetkileri başarıyla doğrulandı.")
+                        "Tüm gerekli Dolibarr sunucu klasörlerine erişim ve okuma/yazma yetkileri başarıyla doğrulandı."),
             )
             
         QTimer.singleShot(1800, on_sftp_test_done)
@@ -796,7 +814,7 @@ class NewTaskDialog(QDialog):
             if task.get("sftp_pass", ""):
                 self.sftp_verified = True
                 self.lbl_sftp_status_info.setText(self.tr("✅ Doğrulandı: {0} (Port {1}, Kullanıcı: {2}) yetkileri geçerli.").format(
-                    task.get("sftp_host", "78.142.210.12"), task.get("sftp_port", "22"), task.get("sftp_user", "iletkene")
+                    task.get("sftp_host", "78.142.210.12"), task.get("sftp_port", "22"), task.get("sftp_user", "iletkene"),
                 ))
                 self.lbl_sftp_status_info.setStyleSheet("color: #16a34a; font-size: 11px; font-weight: bold; margin-top: 4px;")
             
@@ -878,7 +896,7 @@ class NewTaskDialog(QDialog):
                         "Web Sunucusu Kök Dizini: /home/iletkene/baynetbilisim.tr\n"
                         "Veri Dosyalarının Dizini: /home/iletkene/dbarbynttrdata\n"
                         "Yetkili Veritabanı (DB): iletkene_doli801 (phpMyAdmin ile senkronize)\n\n"
-                        "Web Kökü ve Veri Dizini yedek listesine başarıyla eşleşti.")
+                        "Web Kökü ve Veri Dizini yedek listesine başarıyla eşleşti."),
             )
                 
         QTimer.singleShot(1500, on_fetch_done)
@@ -929,7 +947,7 @@ class NewTaskDialog(QDialog):
             QMessageBox.warning(
                 self, 
                 self.tr("Yedekleme Çıkış Yolu Eksik"), 
-                self.tr("Kayıt Gerçekleşmedi! Lütfen geçerli bir Yedek Çıkış Yolu (Klasörü) seçiniz.")
+                self.tr("Kayıt Gerçekleşmedi! Lütfen geçerli bir Yedek Çıkış Yolu (Klasörü) seçiniz."),
             )
             return
             
@@ -940,7 +958,7 @@ class NewTaskDialog(QDialog):
                     self,
                     self.tr("SFTP Doğrulaması Yapılmadı"),
                     self.tr("SFTP bağlantı ve sunucu dizin yetkileri henüz test edilmedi. Görevi kaydetmeden önce SFTP bağlantı testi otomatik olarak yapılsın mı?"),
-                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
                 )
                 if question == QMessageBox.StandardButton.Yes:
                     self.auto_accept_on_verify = True
@@ -965,7 +983,7 @@ class NewTaskDialog(QDialog):
             "target_type": self.target_combo.currentText(),
             "schedule": self.schedule_combo.currentText(),
             "status": "active" if self.schedule_combo.currentText() != self.tr("Manuel Tetikleme") else "manual",
-            "history": self.task_data["history"] if self.mode == "edit" and self.task_data else []
+            "history": self.task_data["history"] if self.mode == "edit" and self.task_data else [],
         }
         
         if source == "Dolibarr":
@@ -995,7 +1013,7 @@ class NewTaskDialog(QDialog):
                 "instance_name": self.ms_instance.text().strip(),
                 "win_auth": self.ms_auth_combo.currentText(),
                 "dest_dir": self.ms_dest_dir.text().strip(),
-                "source_dir": "MSSQL Local Engine"
+                "source_dir": "MSSQL Local Engine",
             })
         elif source == "WooCommerce":
             task_data.update({
@@ -1005,7 +1023,7 @@ class NewTaskDialog(QDialog):
                 "db_user": self.woo_ck.text().strip(),
                 "db_pass": self.woo_cs.text().strip(),
                 "dest_dir": self.woo_dest_dir.text().strip(),
-                "source_dir": "WooCommerce REST Engine"
+                "source_dir": "WooCommerce REST Engine",
             })
         else:
             task_data.update({
@@ -1050,7 +1068,7 @@ class BackupWidget(QWidget):
         
         if os.path.exists(file_path):
             try:
-                with open(file_path, "r", encoding="utf-8") as f:
+                with open(file_path, encoding="utf-8") as f:
                     self.tasks_data = json.load(f)
                     return
             except Exception as e:
@@ -1074,8 +1092,8 @@ class BackupWidget(QWidget):
                 "dest_dir": "data/backups/dolibarr",
                 "history": [
                     ["H-901", "14.07.2026 02:00", "14.5 MB", "12 sn", self.tr("Başarılı")],
-                    ["H-900", "07.07.2026 02:00", "14.2 MB", "11 sn", self.tr("Başarılı")]
-                ]
+                    ["H-900", "07.07.2026 02:00", "14.2 MB", "11 sn", self.tr("Başarılı")],
+                ],
             },
             {
                 "id": "T-102",
@@ -1089,8 +1107,8 @@ class BackupWidget(QWidget):
                 "db_host": "localhost", "db_port": "3307", "db_name": "wp_db", "db_user": "wp_user", "db_pass": "wp_sifre",
                 "source_dir": "C:/wordpress/wp-content", "dest_dir": "data/backups/wp",
                 "history": [
-                    ["H-902", "14.07.2026 11:45", "142.8 MB", "45 sn", self.tr("Başarılı")]
-                ]
+                    ["H-902", "14.07.2026 11:45", "142.8 MB", "45 sn", self.tr("Başarılı")],
+                ],
             },
             {
                 "id": "T-103",
@@ -1105,8 +1123,8 @@ class BackupWidget(QWidget):
                 "source_dir": "C:/wordpress/wp-content", "dest_dir": "data/backups/wc",
                 "history": [
                     ["H-903", "14.07.2026 23:00", "2.1 MB", "5 sn", self.tr("Başarılı")],
-                    ["H-899", "13.07.2026 23:00", "2.0 MB", "6 sn", self.tr("Başarısız")]
-                ]
+                    ["H-899", "13.07.2026 23:00", "2.0 MB", "6 sn", self.tr("Başarısız")],
+                ],
             },
             {
                 "id": "T-104",
@@ -1120,9 +1138,9 @@ class BackupWidget(QWidget):
                 "db_host": "127.0.0.1", "db_port": "1433", "db_name": "mssql_master", "db_user": "sa", "db_pass": "SqlPass2026",
                 "instance_name": "SQLEXPRESS", "win_auth": self.tr("Hayır (SQL Server Auth)"), "dest_dir": "data/backups/mssql",
                 "history": [
-                    ["H-904", "15.07.2026 04:00", "112.5 MB", "34 sn", self.tr("Başarılı")]
-                ]
-            }
+                    ["H-904", "15.07.2026 04:00", "112.5 MB", "34 sn", self.tr("Başarılı")],
+                ],
+            },
         ]
         self.save_tasks_to_json()
 
@@ -1216,32 +1234,32 @@ class BackupWidget(QWidget):
         self.category_tabs.currentChanged.connect(self.on_category_changed)
         left_lyt.addWidget(self.category_tabs)
         
-        self.task_table = QTableWidget()
+        # Dinamik Grid Düzeni (FilterableTableView) Entegrasyonu
+        self.task_headers = {
+            0: (self.tr("Görev Adı"), "name"),
+            1: (self.tr("Hedef Türü"), "type"),
+            2: (self.tr("Zamanlama"), "schedule"),
+            3: (self.tr("Durum"), "status"),
+        }
+        self.filterable_table = FilterableTableView(
+            headers_dict=self.task_headers,
+            profile_key="tasks",
+            parent=self,
+        )
+        self.task_table = self.filterable_table.table_view
         self.task_table.setObjectName("TaskTable")
-        self.task_table.setColumnCount(4)
-        self.task_table.setHorizontalHeaderLabels([
-            self.tr("Görev Adı"), self.tr("Hedef Türü"), self.tr("Zamanlama"), self.tr("Durum")
-        ])
-        
         self.task_table.verticalHeader().setVisible(False)
-        self.task_table.horizontalHeader().setVisible(True)
         self.task_table.setShowGrid(False)
         self.task_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self.task_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.task_table.setAlternatingRowColors(True)
-        
+
         self.task_table.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.task_table.customContextMenuRequested.connect(self.show_task_context_menu)
         self.task_table.itemSelectionChanged.connect(self.on_task_selection_changed)
-        
-        header = self.task_table.horizontalHeader()
-        header.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
-        header.setSectionResizeMode(1, QHeaderView.ResizeMode.Interactive)
-        header.setSectionResizeMode(2, QHeaderView.ResizeMode.Interactive)
-        header.setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
-        
         self.task_table.clicked.connect(self.on_task_clicked)
-        left_lyt.addWidget(self.task_table, 1)
+
+        left_lyt.addWidget(self.filterable_table, 1)
         
         splitter.addWidget(left_panel)
         
@@ -1467,7 +1485,7 @@ class BackupWidget(QWidget):
             self, 
             self.tr("Görevi Sil"), 
             f"'{task['name']}' {self.tr('görev tanımını silmek istediğinize emin misiniz?')}",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
         )
         if confirm == QMessageBox.StandardButton.Yes:
             self.tasks_data.remove(task)
@@ -1600,7 +1618,7 @@ class BackupWidget(QWidget):
         self.history_table.setObjectName("HistoryTable")
         self.history_table.setColumnCount(5)
         self.history_table.setHorizontalHeaderLabels([
-            self.tr("İşlem ID"), self.tr("Tarih"), self.tr("Boyut"), self.tr("Süre"), self.tr("Durum")
+            self.tr("İşlem ID"), self.tr("Tarih"), self.tr("Boyut"), self.tr("Süre"), self.tr("Durum"),
         ])
         self.history_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         self.history_table.verticalHeader().setVisible(False)
@@ -1705,7 +1723,7 @@ class BackupWidget(QWidget):
             port=task.get("db_port"),
             name=task.get("db_name"),
             user=task.get("db_user"),
-            pwd=task.get("db_pass")
+            pwd=task.get("db_pass"),
         )
         worker.signals.finished.connect(self.on_connection_test_finished)
         self.threadpool.start(worker)
@@ -1771,11 +1789,11 @@ class BackupWidget(QWidget):
                         "db_host": task.get("db_host", "localhost"),
                         "db_name": task.get("db_name", "mock"),
                         "db_user": task.get("db_user", "root"),
-                        "db_pass": task.get("db_pass", "")
+                        "db_pass": task.get("db_pass", ""),
                     },
                     source_dir=task.get("source_dir", tmpdir),
                     backup_root=task.get("dest_dir", "data/backups"),
-                    retention_count=5
+                    retention_count=5,
                 )
                 
                 original_backup = orchestrator.db_service.backup_to_gzip
@@ -1843,7 +1861,7 @@ class BackupWidget(QWidget):
                             f"Task: {task['name']}\n"
                             f"Source: {task['source']}\n"
                             f"Backup Scope: {task.get('backup_scope', 'N/A')}\n"
-                            f"Database: {task.get('db_name')}\n"
+                            f"Database: {task.get('db_name')}\n",
                         )
                         
                         # Eğer Tam Yedek ise diske 1 KB yerine büyük boyutlu mock veri yaz (12-18 MB)
