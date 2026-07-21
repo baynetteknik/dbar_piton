@@ -91,3 +91,36 @@ def test_musteri_yonetimi_widget_pagination_margins(qapp, db_session):
     margins = widget.pagination_layout.contentsMargins()
     assert margins.left() == widget.left_panel.panel_width
     assert margins.right() == 0
+
+
+def test_musteri_yonetimi_widget_selection_and_proxy_model_fix(qapp, db_session):
+    """Verifies table selection behavior and get_selected_rows correctness after proxy model fix."""
+    from PyQt6.QtGui import QStandardItem
+    from PyQt6.QtWidgets import QAbstractItemView
+    
+    site = Site(
+        id=1,
+        name="Test Co",
+        cms_type="dolibarr",
+        working_mode="local_master",
+        url="http://test.url",
+        api_key_account="test-api-key",
+    )
+    db_session.add(site)
+    db_session.commit()
+
+    widget = MusteriYonetimiWidget(db_session, company_id=1)
+    
+    # Assert selection behavior is correct
+    assert widget.table.selectionBehavior() == QAbstractItemView.SelectionBehavior.SelectRows
+    assert widget.table.selectionMode() == QAbstractItemView.SelectionMode.ExtendedSelection
+
+    # Mock selection data and verify get_selected_rows
+    item_id = QStandardItem("123")
+    widget.customer_model.appendRow([item_id])
+
+    # Select the row
+    widget.table.selectRow(0)
+    
+    selected_ids = widget.get_selected_rows()
+    assert selected_ids == [123]

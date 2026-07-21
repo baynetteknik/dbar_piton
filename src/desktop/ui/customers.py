@@ -1130,6 +1130,9 @@ class MusteriYonetimiWidget(QWidget):
         self.table.verticalHeader().setVisible(False)
         self.table.setShowGrid(True)
         self.table.setAlternatingRowColors(True)
+        from PyQt6.QtWidgets import QAbstractItemView
+        self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self.table.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
         self.table.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.table.customContextMenuRequested.connect(self.show_table_context_menu)
         
@@ -1509,14 +1512,13 @@ class MusteriYonetimiWidget(QWidget):
             QMessageBox.warning(self, self.tr("Uyarı"), self.tr("Lütfen silmek istediğiniz cari kartı seçin."))
             return
             
-        proxy_index = indexes[0]
-        source_index = self.table.proxy_model.mapToSource(proxy_index)
-        source_model = self.table.proxy_model.sourceModel()
+        index = indexes[0]
+        model = self.table.model()
         
-        item = source_model.item(source_index.row(), 0)
+        item = model.item(index.row(), 0)
         remote_id = item.data(Qt.ItemDataRole.UserRole + 1) if item else None
         
-        cust_id_val = source_model.index(source_index.row(), 0).data()
+        cust_id_val = model.index(index.row(), 0).data()
         if cust_id_val is not None:
             cust_id = int(cust_id_val)
             reply = QMessageBox.question(
@@ -1608,10 +1610,9 @@ class MusteriYonetimiWidget(QWidget):
     def get_selected_rows(self) -> list[int]:
         indexes = self.table.selectionModel().selectedRows()
         ids = []
-        source_model = self.table.proxy_model.sourceModel()
+        model = self.table.model()
         for idx in indexes:
-            source_index = self.table.proxy_model.mapToSource(idx)
-            val = source_model.index(source_index.row(), 0).data()
+            val = model.index(idx.row(), 0).data()
             if val is not None:
                 try:
                     ids.append(int(val))
