@@ -8,7 +8,7 @@ import tempfile
 import zipfile
 
 from PyQt6.QtCore import QObject, QRunnable, Qt, QThreadPool, QTimer, pyqtSignal
-from PyQt6.QtGui import QAction, QColor, QFont
+from PyQt6.QtGui import QAction, QColor, QFont, QStandardItem, QStandardItemModel
 from PyQt6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -26,6 +26,7 @@ from PyQt6.QtWidgets import (
     QProgressBar,
     QPushButton,
     QSplitter,
+    QTableView,
     QTableWidget,
     QTableWidgetItem,
     QTabWidget,
@@ -1250,13 +1251,19 @@ class BackupWidget(QWidget):
         self.task_table.setObjectName("TaskTable")
         self.task_table.verticalHeader().setVisible(False)
         self.task_table.setShowGrid(False)
-        self.task_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
-        self.task_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        self.task_table.setSelectionBehavior(QTableView.SelectionBehavior.SelectRows)
+        self.task_table.setEditTriggers(QTableView.EditTrigger.NoEditTriggers)
         self.task_table.setAlternatingRowColors(True)
+
+        self.task_model = QStandardItemModel(self)
+        headers = [self.task_headers[i][0] for i in sorted(self.task_headers.keys())]
+        self.task_model.setHorizontalHeaderLabels(headers)
+        self.task_table.setModel(self.task_model)
 
         self.task_table.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.task_table.customContextMenuRequested.connect(self.show_task_context_menu)
-        self.task_table.itemSelectionChanged.connect(self.on_task_selection_changed)
+        if self.task_table.selectionModel():
+            self.task_table.selectionModel().selectionChanged.connect(self.on_task_selection_changed)
         self.task_table.clicked.connect(self.on_task_clicked)
 
         left_lyt.addWidget(self.filterable_table, 1)
@@ -1328,54 +1335,35 @@ class BackupWidget(QWidget):
     # SOL MASTER TABLO YÖNETİMİ & ARANMASI
     # ==========================================
     def refresh_task_list(self):
-        filtered_tasks = [t for t in self.tasks_data if t["type"] == self.selected_category]
-        self.task_table.setRowCount(len(filtered_tasks))
+        self.task_model.clear()
+        headers = [self.task_headers[i][0] for i in sorted(self.task_headers.keys())]
+        self.task_model.setHorizontalHeaderLabels(headers)
         
-        for row, task in enumerate(filtered_tasks):
-            icon_item = QTableWidgetItem(f"{task['emoji']}  {task['name']}")
+        filtered_tasks = [t for t in self.tasks_data if t["type"] == self.selected_category]
+        
+        for task in filtered_tasks:
+            icon_item = QStandardItem(f"{task['emoji']}  {task['name']}")
             icon_item.setFont(QFont("Segoe UI", 11, QFont.Weight.Bold))
             icon_item.setForeground(QColor("#1e293b"))
-            self.task_table.setItem(row, 0, icon_item)
             
-            target_item = QTableWidgetItem(task["target_type"])
+            target_item = QStandardItem(task["target_type"])
             target_item.setForeground(QColor("#475569"))
-            self.task_table.setItem(row, 1, target_item)
             
-            sched_item = QTableWidgetItem(task["schedule"])
+            sched_item = QStandardItem(task["schedule"])
             sched_item.setForeground(QColor("#64748b"))
-            self.task_table.setItem(row, 2, sched_item)
             
-            status_lbl = QLabel()
-            status_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            if task["status"] == "active":
-                status_lbl.setText(self.tr("🟢 AKTİF"))
-                status_lbl.setStyleSheet("""
-                    color: #065f46; 
-                    background-color: #d1fae5; 
-                    border: 1px solid #a7f3d0;
-                    border-radius: 8px;
-                    font-size: 10px; 
-                    font-weight: bold; 
-                    padding: 2px 8px;
-                    margin: 4px;
-                """)
-            else:
-                status_lbl.setText(self.tr("⚪ MANUEL"))
-                status_lbl.setStyleSheet("""
-                    color: #374151; 
-                    background-color: #f3f4f6; 
-                    border: 1px solid #e5e7eb;
-                    border-radius: 8px;
-                    font-size: 10px; 
-                    font-weight: bold; 
-                    padding: 2px 8px;
-                    margin: 4px;
-                """)
-            self.task_table.setCellWidget(row, 3, status_lbl)
+            status_text = self.tr("🟢 AKTİF") if task["status"] == "active" else self.tr("⚪ MANUEL")
+            status_item = QStandardItem(status_text)
+            status_item.setForeground(QColor("#065f46") if task["status"] == "active" else QColor("#374151"))
+
+            self.task_model.appendRow([icon_item, target_item, sched_item, status_item])
+
+        if self.task_table.selectionModel():
+            self.task_table.selectionModel().selectionChanged.connect(self.on_task_selection_changed)
 
     def select_first_task(self):
         first_visible_row = -1
-        for row in range(self.task_table.rowCount()):
+        for row in range(self.task_model.rowCount()):
             if not self.task_table.isRowHidden(row):
                 first_visible_row = row
                 break
@@ -1383,7 +1371,8 @@ class BackupWidget(QWidget):
         if first_visible_row != -1:
             self.task_table.selectRow(first_visible_row)
             filtered_tasks = [t for t in self.tasks_data if t["type"] == self.selected_category]
-            self.load_task_details(filtered_tasks[first_visible_row])
+            if first_visible_row < len(filtered_tasks):
+                self.load_task_details(filtered_tasks[first_visible_row])
         else:
             self.lbl_task_title.setText(self.tr("Kayıtlı Görev Bulunmamaktadır"))
             self.right_panel.setEnabled(False)
@@ -1402,10 +1391,10 @@ class BackupWidget(QWidget):
 
     def filter_task_list(self):
         search_txt = self.task_search_box.text().strip().lower()
-        for row in range(self.task_table.rowCount()):
+        for row in range(self.task_model.rowCount()):
             match = False
             for col in range(3):
-                item = self.task_table.item(row, col)
+                item = self.task_model.item(row, col)
                 if item and search_txt in item.text().lower():
                     match = True
                     break
@@ -1413,8 +1402,8 @@ class BackupWidget(QWidget):
             
         self.select_first_task()
 
-    def on_task_selection_changed(self):
-        has_selection = len(self.task_table.selectedItems()) > 0
+    def on_task_selection_changed(self, *args):
+        has_selection = bool(self.task_table.selectionModel() and self.task_table.selectionModel().hasSelection())
         self.btn_edit_task.setEnabled(has_selection)
         self.btn_delete_task.setEnabled(has_selection)
         self.btn_start_task.setEnabled(has_selection)
