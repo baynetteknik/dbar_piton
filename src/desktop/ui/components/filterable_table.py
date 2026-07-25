@@ -14,6 +14,11 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from src.desktop.managers.profile_manager import ProfileManager
+from src.desktop.models.profile_models import IndividualColumn, ViewProfile
+from src.desktop.ui.components.profile_style_delegate import ProfileStyleDelegate
+from src.desktop.ui.components.view_profile_bar import ViewProfileBar
+
 logger = logging.getLogger(__name__)
 
 
@@ -23,10 +28,19 @@ class FilterableTableView(QWidget):
     filter_changed = pyqtSignal(dict)  # Aktif filtre sözlüğünü yayar
     column_visibility_changed = pyqtSignal(int, bool)  # Sütun göster/gizle durumunu yayar (col_idx, visible)
 
-    def __init__(self, headers_dict, profile_key="customers", parent=None):
+    MANDATORY_COLUMNS = {"id", "cari_kodu", "ticari_unvan"}
+
+    def __init__(
+        self,
+        headers_dict,
+        profile_key="customers",
+        enable_profile_bar=True,
+        parent=None,
+    ):
         super().__init__(parent)
         self.headers_dict = headers_dict  # {col_idx: (label, field_name)}
         self.profile_key = profile_key
+        self.enable_profile_bar = enable_profile_bar
         self.filters = {}
         self.filter_widgets = {}
 
@@ -38,6 +52,13 @@ class FilterableTableView(QWidget):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
+
+        # 0. Görünüm Profili Araç Çubuğu (ViewProfileBar)
+        if self.enable_profile_bar:
+            self.profile_bar = ViewProfileBar(
+                profile_key=self.profile_key, table_view=self, parent=self
+            )
+            layout.addWidget(self.profile_bar)
 
         # 1. Filtre Çubuğu Paneli (artık QScrollArea içinde)
         self.filter_bar_container = QWidget()
@@ -145,16 +166,19 @@ class FilterableTableView(QWidget):
         """)
         layout.addWidget(self.table_view, 1)
 
+        # Style delegate for visual rules
+        self.style_delegate = ProfileStyleDelegate(self.table_view)
+        self.table_view.setItemDelegate(self.style_delegate)
+
         # Sütun genişlikleri ve kaydırma senkronizasyonu
         self.table_view.horizontalHeader().sectionResized.connect(self.sync_filter_widths)
         self.table_view.horizontalScrollBar().valueChanged.connect(self.sync_filter_scroll)
         self.table_view.horizontalHeader().sectionMoved.connect(self.sync_filter_positions)
 
         # En son kullanılan aktif profili otomatik yükle
-        from PyQt6.QtCore import QSettings, QTimer
-        settings = QSettings("baynetteknik", "dbar_piton")
-        active_profile = settings.value("active_column_profile", "Varsayılan", type=str)
-        QTimer.singleShot(0, lambda: self.load_profile(active_profile))
+        from PyQt6.QtCore import QTimer
+        pm = ProfileManager(profile_key=self.profile_key)
+        QTimer.singleShot(0, lambda: self.apply_view_profile(pm.get_active_profile()))
 
     def sync_filter_widths(self):
         """Tablo sütun genişliği değiştiğinde filtre kutularının genişliğini senkronize eder."""
@@ -179,7 +203,7 @@ class FilterableTableView(QWidget):
             self.scroll_area.horizontalScrollBar().setValue(val)
 
     def sync_filter_positions(self, *args):
-        """Sütunların yerleri sürükle-bırak ile değiştirildiğinde filtre kutularının sırasını senkronize eder."""
+        """Sütunaların yerleri sürükle-bırak ile değiştirildiğinde filtre kutularının sırasını senkronize eder."""
         header = self.table_view.horizontalHeader()
         widgets_to_reorder = []
         for col_idx in sorted(self.headers_dict.keys()):
@@ -221,9 +245,52 @@ class FilterableTableView(QWidget):
 
     def set_column_hidden(self, col_idx, hidden):
         """Sağ paneldeki Kolon Yönetimi checkbox'larına göre sütunları gizler."""
+        if hidden and col_idx in self.headers_dict:
+            _label, field_name = self.headers_dict[col_idx]
+            if field_name in self.MANDATORY_COLUMNS:
+                logger.warning(f"Zorunlu sütun '{field_name}' gizlenemez.")
+                return
         self.table_view.horizontalHeader().setSectionHidden(col_idx, hidden)
         self.sync_filter_widths()
         self.column_visibility_changed.emit(col_idx, not hidden)
+
+    def apply_view_profile(self, profile: ViewProfile):
+        """Applies a ViewProfile v2.0.0 instance to the table and style delegate."""
+        header = self.table_view.horizontalHeader()
+
+        # 1. Apply column visibilities and widths
+        for col_idx, (label, field_name) in self.headers_dict.items():
+            if field_name in self.MANDATORY_COLUMNS:
+                self.set_column_hidden(col_idx, False)
+            elif field_name in profile.column_settings.individual_columns:
+                indiv = profile.column_settings.individual_columns[field_name]
+                self.set_column_hidden(col_idx, not indiv.visible)
+                if indiv.width > 0:
+                    self.table_view.setColumnWidth(col_idx, indiv.width)
+
+        # 2. Apply Visual Rules to Delegate
+        field_map = {idx: field for idx, (lbl, field) in self.headers_dict.items()}
+        self.style_delegate.set_rules(profile.visual_rules, field_map)
+        self.table_view.viewport().update()
+
+        self.sync_filter_widths()
+        self.sync_filter_positions()
+
+    def capture_current_view_profile(self, profile_name: str) -> ViewProfile:
+        """Captures current table column states into a ViewProfile v2.0.0 object."""
+        header = self.table_view.horizontalHeader()
+        indiv_cols = {}
+        for col_idx, (label, field_name) in self.headers_dict.items():
+            vis = not header.isSectionHidden(col_idx)
+            w = self.table_view.columnWidth(col_idx)
+            v_idx = header.visualIndex(col_idx)
+            indiv_cols[field_name] = IndividualColumn(visible=vis, width=w, order=v_idx)
+
+        pm = ProfileManager(profile_key=self.profile_key)
+        existing = pm.load_profiles().get(profile_name, pm.create_default_profile())
+        existing.profile.name = profile_name
+        existing.column_settings.individual_columns = indiv_cols
+        return existing
 
     def show_header_context_menu(self, pos):
         """Tablo başlığına sağ tıklandığında iki sütunlu, arama ve profil kayıt özellikli menüyü açar."""
