@@ -1,5 +1,6 @@
 import hashlib
 import logging
+from typing import Any
 
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
@@ -404,10 +405,11 @@ class UserManagementWidget(QWidget):
 
 
 class ViewSettingsWidget(QWidget):
-    """Tablo sütun görünümleri ve gelecekteki koşullu renklendirme ayarlarının yönetildiği ayarlar sekmesi."""
+    """Tablo sütun görünümleri ve koşullu renklendirme kurallarının yönetildiği genel ayarlar sekmesi."""
 
     def __init__(self, parent=None):
         super().__init__(parent)
+        self.current_profiles: dict[str, Any] = {}
         self.init_ui()
 
     def init_ui(self):
@@ -432,6 +434,7 @@ class ViewSettingsWidget(QWidget):
 
         self.module_combo = QComboBox()
         self.module_combo.addItem("👥 Cariler / Müşteriler", "customers")
+        self.module_combo.addItem("💾 Görevler / Yedekleme", "backup")
         self.module_combo.addItem("🏢 Firma Tanımları", "sites")
         self.module_combo.addItem("👥 Kullanıcı Tanımları", "users")
         self.module_combo.addItem("📦 Ürünler / Stok", "products")
@@ -448,7 +451,7 @@ class ViewSettingsWidget(QWidget):
         self.module_combo.currentIndexChanged.connect(self.load_profiles)
         left_layout.addWidget(self.module_combo)
 
-        lbl_list = QLabel("Kayıtlı Sütun Görünümleri")
+        lbl_list = QLabel("Kayıtlı Görünüm Profilleri")
         lbl_list.setStyleSheet(
             "font-weight: bold; color: #475569; font-size: 12px; margin-top: 6px;",
         )
@@ -463,33 +466,45 @@ class ViewSettingsWidget(QWidget):
                 color: #334155;
             }
             QListWidget::item { padding: 8px 12px; border-bottom: 1px solid #f1f5f9; }
-            QListWidget::item:selected { background-color: #fee2e2; color: #b91c1c; font-weight: bold; }
+            QListWidget::item:selected { background-color: #eff6ff; color: #2563eb; font-weight: bold; }
         """)
+        self.profile_list.itemSelectionChanged.connect(self.on_profile_selected)
         left_layout.addWidget(self.profile_list)
 
-        self.btn_delete = QPushButton("🗑️ Seçili Görünümü Sil")
+        btn_action_layout = QHBoxLayout()
+
+        self.btn_set_active = QPushButton("⭐ Aktif Yap")
+        self.btn_set_active.setStyleSheet("""
+            QPushButton { background-color: #3b82f6; color: white; border-radius: 6px; padding: 6px 10px; font-weight: bold; }
+            QPushButton:hover { background-color: #2563eb; }
+        """)
+        self.btn_set_active.clicked.connect(self.set_selected_as_active)
+        btn_action_layout.addWidget(self.btn_set_active)
+
+        self.btn_delete = QPushButton("🗑️ Sil")
         self.btn_delete.setStyleSheet("""
-            QPushButton { background-color: #fee2e2; color: #b91c1c; border: 1px solid #fca5a5; border-radius: 6px; padding: 8px; font-weight: bold; }
+            QPushButton { background-color: #fee2e2; color: #b91c1c; border: 1px solid #fca5a5; border-radius: 6px; padding: 6px 10px; font-weight: bold; }
             QPushButton:hover { background-color: #fca5a5; }
         """)
         self.btn_delete.clicked.connect(self.delete_selected_profile)
-        left_layout.addWidget(self.btn_delete)
+        btn_action_layout.addWidget(self.btn_delete)
 
+        left_layout.addLayout(btn_action_layout)
         splitter.addWidget(left_widget)
 
-        # SAĞ: Koşullu Renklendirme ve Raporlama Ayarları (Placeholder)
+        # SAĞ: Profil Detayları ve Görsel Kurallar
         right_widget = QWidget()
         right_layout = QVBoxLayout(right_widget)
         right_layout.setContentsMargins(5, 0, 0, 0)
 
-        lbl_cond = QLabel("Koşullu Renklendirme & Gösterim Koşulları")
-        lbl_cond.setStyleSheet(
+        lbl_details = QLabel("Profil Detayları & Renklendirme Kuralları")
+        lbl_details.setStyleSheet(
             "font-weight: bold; color: #475569; font-size: 13px;",
         )
-        right_layout.addWidget(lbl_cond)
+        right_layout.addWidget(lbl_details)
 
-        self.cond_group = QGroupBox("Gelecekteki Geliştirmeler")
-        self.cond_group.setStyleSheet("""
+        self.details_group = QGroupBox("Profil Detayları")
+        self.details_group.setStyleSheet("""
             QGroupBox {
                 border: 1px solid #cbd5e1;
                 border-radius: 6px;
@@ -504,27 +519,30 @@ class ViewSettingsWidget(QWidget):
                 padding: 0 3px;
             }
         """)
-        cond_layout = QVBoxLayout(self.cond_group)
-        cond_layout.setSpacing(10)
+        details_layout = QVBoxLayout(self.details_group)
+        details_layout.setSpacing(10)
 
-        # Örnek pasif ayar kutuları
-        cb_debt = QCheckBox("Borçlu olan cari kartları listede kırmızı renkle göster (Gelecek Özellik)")
-        cb_debt.setEnabled(False)
-        cond_layout.addWidget(cb_debt)
+        self.lbl_profile_info = QLabel("Lütfen sol taraftan bir profil seçiniz.")
+        self.lbl_profile_info.setStyleSheet("color: #334155; font-size: 12px;")
+        details_layout.addWidget(self.lbl_profile_info)
 
-        cb_alert = QCheckBox("Bakiye limiti aşan cariler için uyarı simgesi koy (Gelecek Özellik)")
-        cb_alert.setEnabled(False)
-        cond_layout.addWidget(cb_alert)
+        lbl_rules_title = QLabel("Aktif Görsel Kurallar:")
+        lbl_rules_title.setStyleSheet("font-weight: bold; color: #475569; margin-top: 6px;")
+        details_layout.addWidget(lbl_rules_title)
 
-        lbl_desc = QLabel(
-            "Buraya daha sonra Borç/Alacak durumlarına göre satır renklerini düzenleme,\n"
-            "koşullu uyarı kuralları ekleme ve genel liste rapor ayarları yerleştirilecektir.",
-        )
-        lbl_desc.setStyleSheet("color: #64748b; font-style: italic; font-size: 11px;")
-        cond_layout.addWidget(lbl_desc)
-        cond_layout.addStretch()
+        self.rules_list = QListWidget()
+        self.rules_list.setStyleSheet("""
+            QListWidget {
+                border: 1px solid #cbd5e1;
+                border-radius: 4px;
+                background-color: white;
+                color: #334155;
+            }
+            QListWidget::item { padding: 6px; border-bottom: 1px solid #f1f5f9; }
+        """)
+        details_layout.addWidget(self.rules_list)
 
-        right_layout.addWidget(self.cond_group)
+        right_layout.addWidget(self.details_group)
         splitter.addWidget(right_widget)
 
         main_layout.addWidget(splitter)
@@ -532,22 +550,77 @@ class ViewSettingsWidget(QWidget):
 
     def get_current_profile_key(self) -> str:
         key = self.module_combo.currentData()
-        return key or "customers"
+        return str(key or "customers")
 
     def load_profiles(self):
         self.profile_list.clear()
         profile_key = self.get_current_profile_key()
-        import json
 
-        from PyQt6.QtCore import QSettings
-        settings = QSettings("baynetteknik", "dbar_piton")
-        profiles_json = settings.value(f"column_profiles_{profile_key}", "{}", type=str)
-        try:
-            profiles = json.loads(profiles_json)
-            for p_name in profiles.keys():
-                self.profile_list.addItem(p_name)
-        except Exception:
-            pass
+        from src.desktop.managers.profile_manager import ProfileManager
+        pm = ProfileManager(profile_key=profile_key)
+        self.current_profiles = pm.load_profiles()
+        active_name = pm.get_active_profile_name()
+
+        for name in self.current_profiles.keys():
+            item_text = f"⭐ {name} (Aktif)" if name == active_name else name
+            item = QListWidgetItem(item_text)
+            if name == active_name:
+                item.setFont(self.font())
+            self.profile_list.addItem(item)
+
+        if self.profile_list.count() > 0:
+            self.profile_list.setCurrentRow(0)
+
+    def on_profile_selected(self):
+        item = self.profile_list.currentItem()
+        if not item:
+            self.lbl_profile_info.setText("Lütfen sol taraftan bir profil seçiniz.")
+            self.rules_list.clear()
+            return
+
+        raw_name = item.text().replace("⭐ ", "").replace(" (Aktif)", "")
+        profile = self.current_profiles.get(raw_name)
+        if not profile:
+            return
+
+        info_text = (
+            f"<b>Profil Adı:</b> {profile.profile.name}<br>"
+            f"<b>Sürüm:</b> {profile.version}<br>"
+            f"<b>Tip:</b> {'Sistem Varsayılanı' if profile.profile.profile_type == 'system_default' else 'Kullanıcı Tanımlı'}<br>"
+            f"<b>Dondurulmuş Sütunlar:</b> {', '.join(profile.column_settings.frozen_columns.columns) or 'Yok'}"
+        )
+        self.lbl_profile_info.setText(info_text)
+
+        self.rules_list.clear()
+        if profile.visual_rules:
+            for rule in profile.visual_rules:
+                r_text = f"{rule.style.icon or '🎨'} {rule.name} (Öncelik: {rule.priority}) - {rule.condition.field} {rule.condition.operator} {rule.condition.value}"
+                r_item = QListWidgetItem(r_text)
+                if rule.style.background_color:
+                    from PyQt6.QtGui import QColor
+                    r_item.setBackground(QColor(rule.style.background_color))
+                if rule.style.text_color:
+                    from PyQt6.QtGui import QColor
+                    r_item.setForeground(QColor(rule.style.text_color))
+                self.rules_list.addItem(r_item)
+        else:
+            self.rules_list.addItem(QListWidgetItem("Bu profile ait özel görsel kural bulunmuyor."))
+
+    def set_selected_as_active(self):
+        item = self.profile_list.currentItem()
+        if not item:
+            QMessageBox.warning(self, "Uyarı", "Lütfen aktif yapmak istediğiniz profili seçin.")
+            return
+
+        raw_name = item.text().replace("⭐ ", "").replace(" (Aktif)", "")
+        profile_key = self.get_current_profile_key()
+
+        from src.desktop.managers.profile_manager import ProfileManager
+        pm = ProfileManager(profile_key=profile_key)
+        pm.set_active_profile_name(raw_name)
+
+        QMessageBox.information(self, "Başarılı", f"'{raw_name}' profili aktif görünüm olarak ayarlandı.")
+        self.load_profiles()
 
     def delete_selected_profile(self):
         item = self.profile_list.currentItem()
@@ -555,26 +628,21 @@ class ViewSettingsWidget(QWidget):
             QMessageBox.warning(self, "Uyarı", "Lütfen silmek istediğiniz profili seçin.")
             return
 
-        name = item.text()
-        profile_key = self.get_current_profile_key()
-        import json
+        raw_name = item.text().replace("⭐ ", "").replace(" (Aktif)", "")
+        if raw_name == "Varsayılan":
+            QMessageBox.warning(self, "Uyarı", "Varsayılan sistem profili silinemez.")
+            return
 
-        from PyQt6.QtCore import QSettings
-        settings = QSettings("baynetteknik", "dbar_piton")
-        
-        profiles_json = settings.value(f"column_profiles_{profile_key}", "{}", type=str)
-        try:
-            profiles = json.loads(profiles_json)
-            if name in profiles:
-                del profiles[name]
-                settings.setValue(f"column_profiles_{profile_key}", json.dumps(profiles))
-                
-                active = settings.value(f"active_column_profile_{profile_key}", "Varsayılan", type=str)
-                if active == name:
-                    settings.setValue(f"active_column_profile_{profile_key}", "Varsayılan")
-                
-                settings.sync()
+        confirm = QMessageBox.question(
+            self,
+            "Profil Sil",
+            f"'{raw_name}' profilini silmek istediğinizden emin misiniz?",
+        )
+        if confirm == QMessageBox.StandardButton.Yes:
+            profile_key = self.get_current_profile_key()
+            from src.desktop.managers.profile_manager import ProfileManager
+            pm = ProfileManager(profile_key=profile_key)
+            if pm.delete_profile(raw_name):
+                QMessageBox.information(self, "Başarılı", f"'{raw_name}' profili başarıyla silindi.")
                 self.load_profiles()
-                QMessageBox.information(self, "Başarılı", f"'{name}' profili başarıyla silindi.")
-        except Exception as e:
-            QMessageBox.critical(self, "Hata", f"Profil silinirken hata: {e}")
+
