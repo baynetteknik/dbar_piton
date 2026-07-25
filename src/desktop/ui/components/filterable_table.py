@@ -34,7 +34,7 @@ class FilterableTableView(QWidget):
         self,
         headers_dict,
         profile_key="customers",
-        enable_profile_bar=True,
+        enable_profile_bar=False,
         parent=None,
     ):
         super().__init__(parent)
@@ -56,7 +56,7 @@ class FilterableTableView(QWidget):
         # 0. Görünüm Profili Araç Çubuğu (ViewProfileBar)
         if self.enable_profile_bar:
             self.profile_bar = ViewProfileBar(
-                profile_key=self.profile_key, table_view=self, parent=self
+                profile_key=self.profile_key, table_view=self, parent=self,
             )
             layout.addWidget(self.profile_bar)
 
@@ -256,10 +256,8 @@ class FilterableTableView(QWidget):
 
     def apply_view_profile(self, profile: ViewProfile):
         """Applies a ViewProfile v2.0.0 instance to the table and style delegate."""
-        header = self.table_view.horizontalHeader()
-
         # 1. Apply column visibilities and widths
-        for col_idx, (label, field_name) in self.headers_dict.items():
+        for col_idx, (_label, field_name) in self.headers_dict.items():
             if field_name in self.MANDATORY_COLUMNS:
                 self.set_column_hidden(col_idx, False)
             elif field_name in profile.column_settings.individual_columns:
@@ -269,7 +267,7 @@ class FilterableTableView(QWidget):
                     self.table_view.setColumnWidth(col_idx, indiv.width)
 
         # 2. Apply Visual Rules to Delegate
-        field_map = {idx: field for idx, (lbl, field) in self.headers_dict.items()}
+        field_map = {idx: field for idx, (_lbl, field) in self.headers_dict.items()}
         self.style_delegate.set_rules(profile.visual_rules, field_map)
         self.table_view.viewport().update()
 
@@ -280,7 +278,7 @@ class FilterableTableView(QWidget):
         """Captures current table column states into a ViewProfile v2.0.0 object."""
         header = self.table_view.horizontalHeader()
         indiv_cols = {}
-        for col_idx, (label, field_name) in self.headers_dict.items():
+        for col_idx, (_label, field_name) in self.headers_dict.items():
             vis = not header.isSectionHidden(col_idx)
             w = self.table_view.columnWidth(col_idx)
             v_idx = header.visualIndex(col_idx)

@@ -4,7 +4,6 @@ import pytest
 from PyQt6.QtGui import QStandardItemModel
 from PyQt6.QtWidgets import QApplication
 
-from src.desktop.models.profile_models import ViewProfile
 from src.desktop.ui.components.filterable_table import FilterableTableView
 from src.desktop.ui.components.view_profile_bar import ViewProfileBar
 
@@ -47,7 +46,9 @@ def test_view_profile_bar_initialization(qapp):
         0: ("ID", "id"),
         1: ("Cari Kodu", "cari_kodu"),
     }
-    table = FilterableTableView(headers_dict=headers, profile_key="test_bar")
+    table = FilterableTableView(
+        headers_dict=headers, profile_key="test_bar", enable_profile_bar=True,
+    )
 
     assert hasattr(table, "profile_bar")
     assert isinstance(table.profile_bar, ViewProfileBar)

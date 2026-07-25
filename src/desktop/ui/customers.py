@@ -1118,7 +1118,12 @@ class MusteriYonetimiWidget(QWidget):
         center_layout.addWidget(self.sync_status_panel)
 
         # Dinamik Filtrelenebilir Tablo (FilterableTableView)
-        self.filterable_table = FilterableTableView(headers_dict=self.headers_dict, profile_key="customers", parent=self)
+        self.filterable_table = FilterableTableView(
+            headers_dict=self.headers_dict,
+            profile_key="customers",
+            enable_profile_bar=False,
+            parent=self,
+        )
         self.filterable_table.setObjectName("FilterableTable")
         self.table = self.filterable_table.table_view  # Geriye dönük uyumluluk için atama yapıyoruz
         
@@ -1407,6 +1412,11 @@ class MusteriYonetimiWidget(QWidget):
         self.left_panel.pinned_changed.connect(self.update_pagination_margins)
         self.right_panel.opened_changed.connect(self.update_pagination_margins)
         self.right_panel.pinned_changed.connect(self.update_pagination_margins)
+
+        # Ctrl+F Kısayolu Entegrasyonu
+        from PyQt6.QtGui import QKeySequence, QShortcut
+        self.shortcut_search = QShortcut(QKeySequence("Ctrl+F"), self)
+        self.shortcut_search.activated.connect(self.trigger_quick_search)
 
         # Konumlandırmaları Overlay modda ilklendir
         self.left_panel.close_panel()
@@ -1898,6 +1908,12 @@ class MusteriYonetimiWidget(QWidget):
         except Exception as e:
             QMessageBox.critical(self, self.tr("Hata"), f"Müşteriler listelenemedi: {e}")
 
+    def trigger_quick_search(self):
+        if not self.left_panel.is_open:
+            self.left_panel.open_panel()
+        self.search_box.setFocus()
+        self.search_box.selectAll()
+
     def show_table_context_menu(self, pos):
         """Tablodaki satırlara sağ tıklandığında düzenleme ve yönetim kısayol menüsünü açar."""
         from PyQt6.QtGui import QAction
@@ -1931,6 +1947,11 @@ class MusteriYonetimiWidget(QWidget):
             action_delete = QAction("❌ Sil", self)
             action_delete.triggered.connect(self.delete_customer)
             menu.addAction(action_delete)
+
+        action_search = QAction("🔍 Hızlı Ara (Ctrl+F)", self)
+        action_search.triggered.connect(self.trigger_quick_search)
+        menu.addSeparator()
+        menu.addAction(action_search)
 
         menu.exec(self.table.viewport().mapToGlobal(pos))
 
