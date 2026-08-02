@@ -1,16 +1,15 @@
 import argparse
-import sys
-import structlog
-from sqlalchemy.orm import Session
 
-from src.core.database import DatabaseManager
-from src.core.models import Site, Product, Order
-from src.core.security.keyring_store import get_api_key
-from src.adapters.dolibarr.dolibarr_client import DolibarrClient
+import structlog
+
 from src.adapters.dolibarr.dolibarr_adapter import DolibarrAdapter
-from src.adapters.woocommerce.woocommerce_client import WooCommerceClient
+from src.adapters.dolibarr.dolibarr_client import DolibarrClient
+from src.adapters.mappers import map_remote_to_order, map_remote_to_product
 from src.adapters.woocommerce.woocommerce_adapter import WooCommerceAdapter
-from src.adapters.mappers import map_remote_to_product, map_remote_to_order
+from src.adapters.woocommerce.woocommerce_client import WooCommerceClient
+from src.core.database import DatabaseManager
+from src.core.models import Order, Product, Site
+from src.core.security.keyring_store import get_api_key
 from src.core.sync.pull_engine import PullEngine
 
 logger = structlog.get_logger()
@@ -46,7 +45,7 @@ def run_sync(site_id: int | None, all_sites: bool, resource: str):
             elif site.cms_type == "woocommerce":
                 if ":" not in api_key:
                     logger.error("sync_cli_invalid_wc_api_key_format", site_name=site.name)
-                    print(f"Hata: WooCommerce API anahtarı 'consumer_key:consumer_secret' formatında olmalıdır.")
+                    print("Hata: WooCommerce API anahtarı 'consumer_key:consumer_secret' formatında olmalıdır.")
                     continue
                 ck, cs = api_key.split(":", 1)
                 client = WooCommerceClient(base_url=site.url, consumer_key=ck, consumer_secret=cs)
@@ -63,14 +62,14 @@ def run_sync(site_id: int | None, all_sites: bool, resource: str):
                     "fetch_products",
                     Product,
                     map_remote_to_product,
-                    "Ürünler"
+                    "Ürünler",
                 ))
             if resource in ("orders", "all"):
                 resources_to_sync.append((
                     "fetch_orders",
                     Order,
                     map_remote_to_order,
-                    "Siparişler"
+                    "Siparişler",
                 ))
 
             for fetch_method_name, model_class, mapper_func, resource_label in resources_to_sync:
@@ -81,7 +80,7 @@ def run_sync(site_id: int | None, all_sites: bool, resource: str):
                         fetch_method_name=fetch_method_name,
                         model_class=model_class,
                         mapper_func=mapper_func,
-                        site_id=site.id
+                        site_id=site.id,
                     )
                     print(f"  ✔ {resource_label} tamamlandı: {added} yeni eklendi, {updated} güncellendi.")
                 except Exception as e:
@@ -101,7 +100,7 @@ def main():
         "--resource", 
         choices=["products", "orders", "all"], 
         default="all", 
-        help="Senkronize edilecek kaynak tipi (varsayılan: all)"
+        help="Senkronize edilecek kaynak tipi (varsayılan: all)",
     )
     
     args = parser.parse_args()

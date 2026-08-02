@@ -1,19 +1,24 @@
-import structlog
-import pybreaker
-from sqlalchemy.orm import Session
-from sqlalchemy import case
 from datetime import datetime
 from typing import Any
 
-from src.core.models import ChangeLog, Product, Order, Site, Customer
-from src.core.security.keyring_store import get_api_key
-from src.adapters.dolibarr.dolibarr_client import DolibarrClient
-from src.adapters.dolibarr.dolibarr_adapter import DolibarrAdapter
-from src.adapters.woocommerce.woocommerce_client import WooCommerceClient
-from src.adapters.woocommerce.woocommerce_adapter import WooCommerceAdapter
-from src.adapters.mappers import map_remote_to_product, map_remote_to_order, map_remote_to_customer, parse_datetime
-
+import pybreaker
+import structlog
+from sqlalchemy import case
+from sqlalchemy.orm import Session
 from tenacity import Retrying, stop_after_attempt, wait_exponential
+
+from src.adapters.dolibarr.dolibarr_adapter import DolibarrAdapter
+from src.adapters.dolibarr.dolibarr_client import DolibarrClient
+from src.adapters.mappers import (
+    map_remote_to_customer,
+    map_remote_to_order,
+    map_remote_to_product,
+    parse_datetime,
+)
+from src.adapters.woocommerce.woocommerce_adapter import WooCommerceAdapter
+from src.adapters.woocommerce.woocommerce_client import WooCommerceClient
+from src.core.models import ChangeLog, Customer, Order, Product, Site
+from src.core.security.keyring_store import get_api_key
 
 logger = structlog.get_logger()
 
@@ -43,7 +48,7 @@ class PushEngine:
             for attempt in Retrying(
                 stop=stop_after_attempt(3),
                 wait=wait_exponential(multiplier=1, min=1, max=4),
-                reraise=True
+                reraise=True,
             ):
                 with attempt:
                     return func(*args, **kwargs)
@@ -69,7 +74,7 @@ class PushEngine:
             res = self._execute_api_call_with_retry_and_breaker(
                 site_id,
                 adapter.push_product,
-                product_data
+                product_data,
             )
 
             if isinstance(res, dict) and "id" in res:
@@ -82,7 +87,7 @@ class PushEngine:
                     site_id,
                     adapter.update_order_status,
                     local_obj.remote_id,
-                    local_obj.status
+                    local_obj.status,
                 )
         elif model_class == Customer:
             customer_data = {
@@ -97,7 +102,7 @@ class PushEngine:
                     "options_special_code_1": local_obj.special_code_1,
                     "options_special_code_2": local_obj.special_code_2,
                     "options_special_code_3": local_obj.special_code_3,
-                }
+                },
             }
             if local_obj.remote_id:
                 customer_data["id"] = local_obj.remote_id
@@ -106,7 +111,7 @@ class PushEngine:
             res = self._execute_api_call_with_retry_and_breaker(
                 site_id,
                 adapter.push_customer,
-                customer_data
+                customer_data,
             )
             
             if isinstance(res, dict) and "id" in res:
@@ -143,20 +148,20 @@ class PushEngine:
                 self._execute_api_call_with_retry_and_breaker(
                     site.id,
                     adapter.delete_product,
-                    local_obj.remote_id
+                    local_obj.remote_id,
                 )
             elif changelog.entity_type == "order" and local_obj.remote_id:
                 self._execute_api_call_with_retry_and_breaker(
                     site.id,
                     adapter.update_order_status,
                     local_obj.remote_id,
-                    "Canceled"
+                    "Canceled",
                 )
             elif changelog.entity_type == "customer" and local_obj.remote_id:
                 self._execute_api_call_with_retry_and_breaker(
                     site.id,
                     adapter.delete_customer,
-                    local_obj.remote_id
+                    local_obj.remote_id,
                 )
             changelog.status = "SUCCESS"
             self.db.add(changelog)
@@ -182,7 +187,7 @@ class PushEngine:
         remote_obj = self._execute_api_call_with_retry_and_breaker(
             site.id,
             fetch_by_id_method,
-            local_obj.remote_id
+            local_obj.remote_id,
         )
 
         if not remote_obj:
@@ -241,7 +246,7 @@ class PushEngine:
             .filter(ChangeLog.status == "PENDING_PUSH")
             .order_by(
                 case((ChangeLog.entity_type == "order", 0), else_=1),
-                ChangeLog.created_at.asc()
+                ChangeLog.created_at.asc(),
             )
             .all()
         )
@@ -314,7 +319,7 @@ class PushEngine:
                 logger.warning(
                     "sync_push_circuit_breaker_open",
                     site_id=site_id,
-                    changelog_id=changelog.id
+                    changelog_id=changelog.id,
                 )
                 # Devre açık olduğu için PENDING_PUSH durumunda bırakarak sonraki sync döngüsünü bekleriz
                 continue
@@ -322,7 +327,7 @@ class PushEngine:
                 logger.error(
                     "sync_push_changelog_failed",
                     changelog_id=changelog.id,
-                    error=str(push_err)
+                    error=str(push_err),
                 )
                 self.db.rollback()
                 

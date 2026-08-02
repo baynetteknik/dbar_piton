@@ -1,10 +1,17 @@
 import json
 from pathlib import Path
-from PyQt6.QtWidgets import (
-    QDialog, QVBoxLayout, QHBoxLayout, QLineEdit, QListWidget, QListWidgetItem,
-    QPushButton, QLabel
-)
+
 from PyQt6.QtCore import Qt
+from PyQt6.QtWidgets import (
+    QDialog,
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
+    QListWidget,
+    QListWidgetItem,
+    QPushButton,
+    QVBoxLayout,
+)
 
 
 class ColumnManagerDialog(QDialog):

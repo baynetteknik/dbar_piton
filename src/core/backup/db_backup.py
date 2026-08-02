@@ -162,7 +162,7 @@ class DatabaseBackupService:
                 "-S", f"{self.host},{self.port}" if self.port else self.host,
                 "-U", self.user,
                 "-P", self.password,
-                "-Q", sql_query
+                "-Q", sql_query,
             ]
             
             logger.info("mssql_attempting_sqlcmd", command=" ".join(cmd))
@@ -255,7 +255,7 @@ class DatabaseBackupService:
             f"--port={self.port}",
             f"--user={self.user}",
             f"--password={self.password}",
-            self.database
+            self.database,
         ]
         
         try:
@@ -264,7 +264,7 @@ class DatabaseBackupService:
                 cmd,
                 stdin=subprocess.PIPE,
                 stderr=subprocess.PIPE,
-                shell=use_shell
+                shell=use_shell,
             )
             
             with gzip.open(archive_path, "rb") as f_in:
@@ -321,7 +321,7 @@ class DatabaseBackupService:
                 "-S", f"{self.host},{self.port}" if self.port else self.host,
                 "-U", self.user,
                 "-P", self.password,
-                "-Q", sql_query
+                "-Q", sql_query,
             ]
             res = subprocess.run(cmd, capture_output=True, text=True, shell=os.name == "nt")
             if res.returncode == 0:

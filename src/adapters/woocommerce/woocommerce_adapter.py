@@ -32,7 +32,7 @@ class WooCommerceAdapter(BaseCMSAdapter):
         raw_products = self.client.get_products(
             per_page=per_page,
             page=page,
-            modified_after=modified_after
+            modified_after=modified_after,
         )
 
         for item in raw_products:
@@ -67,7 +67,7 @@ class WooCommerceAdapter(BaseCMSAdapter):
         raw_orders = self.client.get_orders(
             per_page=per_page,
             page=page,
-            modified_after=modified_after
+            modified_after=modified_after,
         )
 
         for item in raw_orders:

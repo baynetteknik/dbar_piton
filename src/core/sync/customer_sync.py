@@ -1,15 +1,15 @@
 import json
 import logging
 import time
-from datetime import datetime
-from typing import Any, Callable
+from collections.abc import Callable
+
+import requests
 from sqlalchemy import text
 from sqlalchemy.orm import Session
-import requests
 
-from src.core.models import Customer, UndoPoint, UndoLog, ChangeLog, Site
-from src.adapters.dolibarr.dolibarr_client import DolibarrClient
 from src.adapters.dolibarr.dolibarr_adapter import DolibarrAdapter
+from src.adapters.dolibarr.dolibarr_client import DolibarrClient
+from src.core.models import ChangeLog, Customer, Site, UndoLog, UndoPoint
 
 logger = logging.getLogger(__name__)
 
@@ -69,7 +69,7 @@ class CustomerSyncEngine:
         conflict_strategy: str = "ignore",  # "ignore" veya "overwrite"
         log_callback: Callable[[str], None] = None,
         progress_callback: Callable[[int, int], None] = None,
-        site_id: int = 1
+        site_id: int = 1,
     ) -> int:
         """Belirtilen Dolibarr ERP sitemiz üzerinden carileri çekerek yerel veritabanı ile senkronize eder."""
         self.site_id = site_id
@@ -99,7 +99,7 @@ class CustomerSyncEngine:
         # 1. Geri Alma Noktası oluştur
         undo_point = UndoPoint(
             operation_name="PULL_CUSTOMERS",
-            description=f"Dolibarr'dan Cari Çekme. Site: {site.name if site else 'Mock'} | Çakışma: {conflict_strategy.upper()}"
+            description=f"Dolibarr'dan Cari Çekme. Site: {site.name if site else 'Mock'} | Çakışma: {conflict_strategy.upper()}",
         )
         self.db.add(undo_point)
         self.db.flush()
@@ -123,7 +123,7 @@ class CustomerSyncEngine:
                     "limit": limit,
                     "page": page,
                     "sortfield": "t.rowid",
-                    "sortorder": "ASC"
+                    "sortorder": "ASC",
                 }
                 
                 try:
@@ -160,7 +160,7 @@ class CustomerSyncEngine:
                     # Çakışma kontrolü
                     existing = self.db.query(Customer).filter(
                         (Customer.remote_id == remote_id) |
-                        ((Customer.customer_code == code) & (Customer.customer_code != None))
+                        ((Customer.customer_code == code) & (Customer.customer_code != None)),
                     ).first()
                     
                     if existing:
@@ -187,7 +187,7 @@ class CustomerSyncEngine:
                                 "tax_number": existing.tax_number,
                                 "customer_code": existing.customer_code,
                                 "status": existing.status,
-                                "remote_id": existing.remote_id
+                                "remote_id": existing.remote_id,
                             }
                             
                             undo_log = UndoLog(
@@ -195,7 +195,7 @@ class CustomerSyncEngine:
                                 table_name="customers",
                                 record_id=existing.id,
                                 action="update",
-                                old_data=json.dumps(old_data, ensure_ascii=False)
+                                old_data=json.dumps(old_data, ensure_ascii=False),
                             )
                             self.db.add(undo_log)
                             
@@ -240,7 +240,7 @@ class CustomerSyncEngine:
                             tax_office=tax_office,
                             tax_number=tax_number,
                             customer_code=code,
-                            status=1
+                            status=1,
                         )
                         self.db.add(new_cust)
                         self.db.flush()
@@ -250,7 +250,7 @@ class CustomerSyncEngine:
                             table_name="customers",
                             record_id=new_cust.id,
                             action="insert",
-                            old_data=None
+                            old_data=None,
                         )
                         self.db.add(undo_log)
                         
@@ -266,7 +266,7 @@ class CustomerSyncEngine:
                 page += 1
                 
             self.db.commit()
-            log(f"\n🎉 Senkronizasyon Tamamlandı!")
+            log("\n🎉 Senkronizasyon Tamamlandı!")
             log(f"Toplam Çekilen: {pulled_count} | Eklenen: {added_count} | Güncellenen: {updated_count} | Atlanan: {ignored_count}")
             return undo_point.id
             
@@ -285,7 +285,7 @@ class CustomerSyncEngine:
         log_callback: Callable[[str], None] = None,
         progress_callback: Callable[[int, int], None] = None,
         site_id: int = 1,
-        selected_ids: list[int] = None
+        selected_ids: list[int] = None,
     ) -> int:
         """Yerel yeni/güncellenmiş veya seçili carileri belirtilen Dolibarr ERP sistemine push eder."""
         self.site_id = site_id
@@ -320,14 +320,14 @@ class CustomerSyncEngine:
         if selected_ids:
             customers_to_push = self.db.query(Customer).filter(
                 Customer.id.in_(selected_ids),
-                Customer.is_deleted == False
+                Customer.is_deleted == False,
             ).all()
             log(f"ℹ️ Seçilen {len(customers_to_push)} adet cari gönderiliyor...")
         else:
             # ChangeLog tablosunda bekleyen PENDING_PUSH durumundaki carileri al
             pending_changes = self.db.query(ChangeLog).filter(
                 ChangeLog.entity_type == "customer",
-                ChangeLog.status == "PENDING_PUSH"
+                ChangeLog.status == "PENDING_PUSH",
             ).all()
             
             if not pending_changes:
@@ -335,7 +335,7 @@ class CustomerSyncEngine:
                 # Eğer bekleyen log yoksa, veritabanındaki remote_id'si boş olan tüm yerel carileri gönderelim!
                 customers_to_push = self.db.query(Customer).filter(
                     Customer.remote_id == None,
-                    Customer.is_deleted == False
+                    Customer.is_deleted == False,
                 ).all()
             else:
                 cust_ids = [c.entity_id for c in pending_changes]
@@ -360,7 +360,7 @@ class CustomerSyncEngine:
                     change = self.db.query(ChangeLog).filter(
                         ChangeLog.entity_type == "customer",
                         ChangeLog.entity_id == customer.id,
-                        ChangeLog.status == "PENDING_PUSH"
+                        ChangeLog.status == "PENDING_PUSH",
                     ).first()
                     if change:
                         change.status = "SUCCESS"
@@ -392,7 +392,7 @@ class CustomerSyncEngine:
                 "name": customer.fullname,
                 "client": client_status,
                 "fournisseur": fournisseur_status,
-                "status": 1  # Dolibarr listelerinde varsayılan olarak görünmesi için her zaman Aktif (1) gönderelim
+                "status": 1,  # Dolibarr listelerinde varsayılan olarak görünmesi için her zaman Aktif (1) gönderelim
             }
 
             # Sadece dolu olan alanları Dolibarr REST API'sine gönder
@@ -476,7 +476,7 @@ class CustomerSyncEngine:
                 change = self.db.query(ChangeLog).filter(
                     ChangeLog.entity_type == "customer",
                     ChangeLog.entity_id == customer.id,
-                    ChangeLog.status == "PENDING_PUSH"
+                    ChangeLog.status == "PENDING_PUSH",
                 ).first()
                 if change:
                     change.status = "SUCCESS"
@@ -491,7 +491,7 @@ class CustomerSyncEngine:
                 
                 # Eğer sunucu hatası alındıysa veya açık çakışma hata mesajı geldiyse
                 if is_code_conflict_msg or (is_http_err and e.response.status_code in (400, 500)):
-                    log(f"⚠️ Sunucu hatası veya çakışma şüphesi algılandı. Dolibarr sunucusundan cari eşleştiriliyor...")
+                    log("⚠️ Sunucu hatası veya çakışma şüphesi algılandı. Dolibarr sunucusundan cari eşleştiriliyor...")
                     found_remote_id = None
                     
                     # A. Cari kodu ile eşleşen var mı arayalım
@@ -526,7 +526,7 @@ class CustomerSyncEngine:
                             change = self.db.query(ChangeLog).filter(
                                 ChangeLog.entity_type == "customer",
                                 ChangeLog.entity_id == customer.id,
-                                ChangeLog.status == "PENDING_PUSH"
+                                ChangeLog.status == "PENDING_PUSH",
                             ).first()
                             if change:
                                 change.status = "SUCCESS"
@@ -536,7 +536,7 @@ class CustomerSyncEngine:
 
                 # 🛑 Kendi Kendini Onarma Katmanı 2: Kod maskesi hatası veya diğer kod kaynaklı reddedilmeler (Bypass)
                 if is_bad_syntax_msg or (is_http_err and e.response.status_code in (400, 500) and "code_client" in tp_payload):
-                    log(f"⚠️ Cari kod formatı veya sunucu uyumsuzluğu. Cari kod gönderimi kapatılarak otomatik atama deneniyor...")
+                    log("⚠️ Cari kod formatı veya sunucu uyumsuzluğu. Cari kod gönderimi kapatılarak otomatik atama deneniyor...")
                     temp_payload = tp_payload.copy()
                     if "code_client" in temp_payload:
                         del temp_payload["code_client"]
@@ -564,7 +564,7 @@ class CustomerSyncEngine:
                             change = self.db.query(ChangeLog).filter(
                                 ChangeLog.entity_type == "customer",
                                 ChangeLog.entity_id == customer.id,
-                                ChangeLog.status == "PENDING_PUSH"
+                                ChangeLog.status == "PENDING_PUSH",
                             ).first()
                             if change:
                                 change.status = "SUCCESS"

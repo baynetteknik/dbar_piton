@@ -1,0 +1,196 @@
+{
+    "app_name": "Multi-CMS Plus",
+    "app_subtitle": "Multi-Platform Integrated Management and Backup Platform",
+    
+    "menu": {
+        "dashboard": "📊 DASHBOARD",
+        "customers": "👥 CUSTOMERS",
+        "products": "📦 INVENTORY",
+        "backup": "🔄 BACKUP",
+        "system": "⚙️ SYSTEM",
+        "Ana Panel": "Main Panel",
+        "Bildirimler": "Notifications",
+        "Müşteriler & Cariler": "Customers & Cards",
+        "Cari Analiz": "Customer Analysis",
+        "Ürün Yönetimi": "Product Management",
+        "Fiyat Politikaları": "Price Policies",
+        "Görevler": "Tasks",
+        "Pazaryeri Bağlantıları": "Marketplace Connections",
+        "Genel Ayarlar": "General Settings",
+        "İşlem Günlükleri": "Operation Logs"
+    },
+    
+    "common": {
+        "search": "🔍 Search... (Ctrl+K)",
+        "pull": "🔄 Pull from Remote System",
+        "push": "🚀 Push to Remote System",
+        "save": "💾 Save",
+        "cancel": "✖ Cancel",
+        "close": "🚪 Close",
+        "delete": "❌ Delete",
+        "edit": "✏️ Edit",
+        "copy": "📋 Copy",
+        "import": "📥 Import",
+        "export": "📤 Export",
+        "add_new": "➕ Add New",
+        "filter": "Filter",
+        "all": "All",
+        "status": "Status",
+        "active": "Active",
+        "passive": "Passive",
+        "yes": "Yes",
+        "no": "No",
+        "ok": "OK",
+        "warning": "Warning",
+        "error": "Error",
+        "success": "Success",
+        "info": "Info",
+        "confirm": "Confirm",
+        "loading": "Loading...",
+        "no_data": "No data found",
+        "total": "Total",
+        "page": "Page",
+        "of": "of",
+        "rows": "rows",
+        "columns": "Columns",
+        "settings": "Settings",
+        "language": "Language",
+        "turkish": "Turkish",
+        "english": "English",
+        "german": "German",
+        "russian": "Russian",
+        "french": "French",
+        "ukrainian": "Ukrainian"
+    },
+    
+    "dashboard": {
+        "welcome": "Welcome",
+        "quick_access": "Quick Access",
+        "favorite_screens": "⭐ Favorite Screens",
+        "favorite_reports": "📊 Favorite Reports",
+        "module_catalog": "🎛️ Module Catalog (Right-click to add/remove favorites)",
+        "add_to_favorites": "⭐ Add to Favorites",
+        "remove_from_favorites": "❌ Remove from Favorites"
+    },
+    
+    "customers": {
+        "title": "👥 Customer Cards and Management",
+        "new_customer": "➕ Add New Customer Card",
+        "edit_customer": "Edit Customer Card",
+        "customer_code": "Customer Code",
+        "company_name": "Company Name",
+        "authorized_person": "Authorized Person",
+        "nickname": "Nickname",
+        "group": "Group",
+        "sub_group": "Sub Group",
+        "phone": "Phone",
+        "email": "Email",
+        "address": "Address",
+        "city": "City",
+        "district": "District",
+        "country": "Country",
+        "tax_office": "Tax Office",
+        "tax_number": "Tax Number",
+        "tc_number": "ID Number",
+        "efatura_status": "E-Invoice Status",
+        "efatura_mailbox": "Mailbox",
+        "notes": "Notes",
+        "record_date": "Record Date",
+        "photo": "Customer Photo",
+        "change_photo": "📷 Change Photo",
+        "remove_photo": "🗑️ Remove Photo",
+        "groups": {
+            "ALICI": "BUYER",
+            "SATICI": "SELLER",
+            "ALICI_SATICI": "BUYER / SELLER",
+            "POTANSIYEL": "POTENTIAL"
+        },
+        "sub_groups": {
+            "OZEL": "SPECIAL",
+            "PERAKENDE": "RETAIL",
+            "TOPTAN": "WHOLESALE"
+        },
+        "sync": {
+            "pull": "🔄 Pull",
+            "push": "🚀 Push",
+            "sync_log": "Show Logs",
+            "in_progress": "Dolibarr sync in progress...",
+            "completed": "Sync completed successfully!",
+            "failed": "Sync failed:",
+            "cancelled": "Sync cancelled by user",
+            "offline_warning": "No internet connection - Changes queued"
+        },
+        "conflict": {
+            "title": "Conflict / Match Management (If Record Exists):",
+            "ignore": "🟡 Do Nothing (Skip / Keep Local Record)",
+            "overwrite": "🟢 Change (Overwrite / Update with Remote Data)"
+        },
+        "messages": {
+            "created": "New customer card created successfully.",
+            "updated": "Customer card updated successfully.",
+            "copied": "Customer card copied.",
+            "deleted": "Customer card deleted.",
+            "bulk_deleted": "Selected customer cards deleted successfully.",
+            "status_changed": "Selected customers status changed successfully.",
+            "imported": "Customer import completed successfully.",
+            "exported": "Customer list exported successfully.",
+            "select_to_edit": "Please select the customer card to edit.",
+            "select_to_copy": "Please select the customer to copy.",
+            "select_to_delete": "Please select the customer card to delete.",
+            "select_to_toggle": "Please select customers to change status.",
+            "confirm_delete": "Are you sure you want to delete the selected customer card?",
+            "confirm_bulk_delete": "Are you sure you want to delete {count} selected customer cards?",
+            "name_required": "Please fill in the Company Name field.",
+            "save_failed": "Failed to save customer card: {error}"
+        }
+    },
+    
+    "products": {
+        "title": "Product Data Management (DataGrid)",
+        "sku": "Stock Code (SKU)",
+        "name": "Product Name",
+        "description": "Description",
+        "category": "Category",
+        "price": "Reference Price",
+        "stock": "Stock",
+        "custom_code": "Custom Code",
+        "image": "Product Image",
+        "add_product": "➕ Add New Product",
+        "edit_product": "Product Detail Card",
+        "no_category": "Uncategorized",
+        "no_image": "No Image",
+        "select_image": "Select Image...",
+        "remove_image": "Remove Image",
+        "messages": {
+            "sku_name_required": "Stock code (SKU) and Product Name are required.",
+            "numeric_required": "Price and Stock must be numeric.",
+            "save_failed": "Error during save: {error}",
+            "exported": "Product list exported successfully.",
+            "export_failed": "Export error: {error}"
+        }
+    },
+    
+    "sync": {
+        "pull_started": "{type} sync started in background...",
+        "pull_completed": "{type} sync completed successfully. Processed: {added} new, {updated} updates.",
+        "pull_failed": "{type} sync failed: {error}",
+        "sync_error": "Sync error occurred: {error}"
+    },
+    
+    "settings": {
+        "title": "General Settings",
+        "preferences": "Application Preferences",
+        "language": "Interface Language:"
+    },
+    
+    "footer": {
+        "company": "🏢 Multi-CMS Management Platform",
+        "offline": "🔴 Offline Mode",
+        "online": "🟢 Online",
+        "pending_sync": "{count} operations waiting for internet connection"
+    },
+    
+    "placeholder": {
+        "module_coming_soon": "This module will be activated in the next phase according to the Phase plan."
+    }
+}

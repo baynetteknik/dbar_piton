@@ -3,11 +3,13 @@ from typing import Any
 
 from sqlalchemy import (
     Boolean,
+    Column,
     DateTime,
     Float,
     ForeignKey,
     Integer,
     String,
+    Table,
     Text,
     event,
     inspect,
@@ -458,6 +460,31 @@ class UndoLog(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
     undo_point: Mapped["UndoPoint"] = relationship("UndoPoint", back_populates="logs")
+
+
+user_site_association = Table(
+    "user_site_associations",
+    Base.metadata,
+    Column("user_id", Integer, ForeignKey("users.id", ondelete="CASCADE"), primary_key=True),
+    Column("site_id", Integer, ForeignKey("sites.id", ondelete="CASCADE"), primary_key=True),
+)
+
+
+class User(BaseModel):
+    """Represents a local system user for authentication and authorization."""
+    __tablename__ = "users"
+
+    username: Mapped[str] = mapped_column(String(100), unique=True, index=True, nullable=False)
+    password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
+    role: Mapped[str] = mapped_column(String(50), default="user")  # 'admin' or 'user'
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+
+    # Relationships
+    allowed_sites: Mapped[list["Site"]] = relationship(
+        "Site",
+        secondary=user_site_association,
+        backref="authorized_users",
+    )
 
 
 event.listen(Product, "after_insert", _record_insert)

@@ -24,26 +24,25 @@ def main():
     }
     apply_stylesheet(app, theme='light_teal.xml', extra=extra)
 
-    login = LoginWindow()
+    db_manager = DatabaseManager()
+    db_session = db_manager.get_db()
+
+    login = LoginWindow(db_session=db_session)
     login.show()
 
     main_window_container: list = []
 
     def on_login_success(config: dict):
-        db_manager = DatabaseManager()
-        db_session = db_manager.get_db()
-
         window = MainWindow(db_session)
         window.show()
-        main_window_container.append((window, db_session))
+        main_window_container.append(window)
 
     login.login_success.connect(on_login_success)
 
     try:
         sys.exit(app.exec())
     finally:
-        for _window, db_session in main_window_container:
-            db_session.close()
+        db_session.close()
 
 
 if __name__ == "__main__":

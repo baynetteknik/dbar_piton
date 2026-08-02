@@ -1,15 +1,14 @@
 import datetime
 import logging
 
-from PyQt6.QtCore import Qt, QTimer, pyqtSignal
+from PyQt6.QtCore import QDate, Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import QAction, QColor, QCursor, QFont, QKeySequence, QShortcut
 from PyQt6.QtWidgets import (
     QComboBox,
-    QFormLayout,
+    QDateEdit,
     QFrame,
     QGraphicsDropShadowEffect,
     QGridLayout,
-    QGroupBox,
     QHBoxLayout,
     QLabel,
     QLineEdit,
@@ -23,12 +22,15 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from src.core.updater import CURRENT_VERSION, AutoUpdater
+from src.core.models import Site
 from src.desktop.ui.backup import BackupWidget
+from src.desktop.ui.components.text_selection_helper import init_global_text_selection
 from src.desktop.ui.customers import MusteriYonetimiWidget
 from src.desktop.ui.resources import ResourcesWidget
-from src.desktop.ui.sites import SitesWidget
+from src.desktop.ui.settings import SettingsWidget
 from src.desktop.ui.toast import ToastNotification
+
+logger = logging.getLogger(__name__)
 
 
 class QtLogHandler(logging.Handler):
@@ -224,83 +226,6 @@ class PlaceholderWidget(QWidget):
         layout.addWidget(desc)
 
 
-class SettingsWidget(QWidget):
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(30, 30, 30, 30)
-
-        title = QLabel(self.tr("Genel Ayarlar"))
-        title.setFont(QFont("Segoe UI", 16, QFont.Weight.Bold))
-        title.setStyleSheet("color: #2c3e50; margin-bottom: 20px;")
-        layout.addWidget(title)
-
-        # Dil ayarları
-        lang_group = QGroupBox(self.tr("Uygulama Tercihleri"))
-        lang_group.setFont(QFont("Segoe UI", 10, QFont.Weight.Bold))
-        lang_layout = QFormLayout(lang_group)
-
-        self.lang_combo = QComboBox()
-        self.lang_combo.addItem("Türkçe (TR)", "tr")
-        self.lang_combo.addItem("English (EN)", "en")
-
-        lang_layout.addRow(self.tr("Arayüz Dili:"), self.lang_combo)
-        layout.addWidget(lang_group)
-
-        # Güncelleme grubu
-        update_group = QGroupBox(self.tr("Güncelleme"))
-        update_group.setFont(QFont("Segoe UI", 10, QFont.Weight.Bold))
-        update_layout = QFormLayout(update_group)
-
-        self.version_lbl = QLabel(CURRENT_VERSION)
-        self.version_lbl.setStyleSheet("color: #64748b; font-weight: bold;")
-        update_layout.addRow(self.tr("Mevcut Sürüm:"), self.version_lbl)
-
-        self.update_status_lbl = QLabel(self.tr("Kontrol edilmedi"))
-        self.update_status_lbl.setStyleSheet("color: #94a3b8;")
-        update_layout.addRow(self.tr("Durum:"), self.update_status_lbl)
-
-        btn_layout = QHBoxLayout()
-        self.check_update_btn = QPushButton(self.tr("Güncellemeleri Kontrol Et"))
-        self.check_update_btn.setStyleSheet("""
-            QPushButton {
-                background-color: #3b82f6;
-                color: white;
-                border: none;
-                border-radius: 6px;
-                padding: 8px 16px;
-                font-weight: bold;
-            }
-            QPushButton:hover { background-color: #2563eb; }
-        """)
-        self.check_update_btn.clicked.connect(self._check_updates)
-        btn_layout.addWidget(self.check_update_btn)
-        btn_layout.addStretch()
-        update_layout.addRow(btn_layout)
-
-        layout.addWidget(update_group)
-        layout.addStretch()
-
-    def _check_updates(self):
-        """Güncelleme kontrolü yapar."""
-        self.update_status_lbl.setText(self.tr("Kontrol ediliyor..."))
-        self.update_status_lbl.setStyleSheet("color: #3b82f6;")
-        self.check_update_btn.setEnabled(False)
-
-        updater = AutoUpdater()
-        update = updater.check_for_updates()
-
-        if update:
-            self.update_status_lbl.setText(
-                self.tr("Yeni sürüm mevcut: {}").format(update.version),
-            )
-            self.update_status_lbl.setStyleSheet("color: #10b981; font-weight: bold;")
-        else:
-            self.update_status_lbl.setText(self.tr("Uygulama güncel"))
-            self.update_status_lbl.setStyleSheet("color: #10b981;")
-
-        self.check_update_btn.setEnabled(True)
-
 
 class MainWindow(QMainWindow):
     """DIA/Hızlı Erişim tasarımına sadık, zengin sekmeli ve favori yönetimli modern ana pencere."""
@@ -312,16 +237,27 @@ class MainWindow(QMainWindow):
         self.db = db_session
         self.active_popup = None
         self.favoriler = [self.tr("Ürün Yönetimi"), self.tr("Görevler")]
+        init_global_text_selection()
         
         self.menu_structure = {
             self.tr("📊 GÖSTERGE"): ([self.tr("Ana Panel"), self.tr("Bildirimler")], "📊"),
             self.tr("👥 CARİ"): ([self.tr("Müşteriler & Cariler"), self.tr("Cari Analiz")], "👥"),
             self.tr("📦 STOK"): ([self.tr("Ürün Yönetimi"), self.tr("Fiyat Politikaları")], "📦"),
-            self.tr("🔄 YEDEKLEME"): ([self.tr("Görevler"), self.tr("Pazaryeri Bağlantıları")], "🔄"),
+            self.tr("🔄 YEDEKLEME"): ([self.tr("Görevler")], "🔄"),
             self.tr("⚙️ SİSTEM"): ([self.tr("Genel Ayarlar"), self.tr("İşlem Günlükleri")], "⚙️"),
         }
         
         self.init_ui()
+
+    def load_global_sites_header(self):
+        if hasattr(self, 'cmb_top_site'):
+            self.cmb_top_site.clear()
+            try:
+                sites = self.db.query(Site).filter(Site.is_active == True, Site.is_deleted == False).all()
+                for site in sites:
+                    self.cmb_top_site.addItem(f"🏢 {site.name}", site.id)
+            except Exception as e:
+                logger.error(f"Üst menü firma listesi yüklenemedi: {e}")
 
     def init_ui(self):
         self.setWindowTitle(self.tr("Multi-Mecra Entegre Yönetim ve Yedekleme Platformu"))
@@ -346,9 +282,9 @@ class MainWindow(QMainWindow):
         header_layout.setContentsMargins(20, 0, 20, 0)
         header_layout.setSpacing(20)
         
-        logo = QLabel(self.tr("🏢 Multi-CMS Plus"))
-        logo.setStyleSheet("font-size: 20px; font-weight: 800; color: #ffffff; font-family: 'Segoe UI';")
-        header_layout.addWidget(logo)
+        self.logo = QLabel(self.tr("🏢 Multi-CMS Plus"))
+        self.logo.setStyleSheet("font-size: 20px; font-weight: 800; color: #ffffff; font-family: 'Segoe UI';")
+        header_layout.addWidget(self.logo)
         
         header_layout.addStretch()
         
@@ -430,9 +366,65 @@ class MainWindow(QMainWindow):
             menu_layout.addWidget(btn)
             
         menu_layout.addStretch()
-        grid_title_menu = QLabel(self.tr("🎛️ Modül Kataloğu (Favorilere eklemek/çıkarmak için sağ tıklayın)"))
-        grid_title_menu.setStyleSheet("color: #94a3b8; font-size: 11px; font-weight: 700; font-family: 'Segoe UI';")
-        menu_layout.addWidget(grid_title_menu)
+
+        top_selectors_layout = QHBoxLayout()
+        top_selectors_layout.setSpacing(8)
+
+        lbl_top_site = QLabel(self.tr("Firma:"))
+        lbl_top_site.setStyleSheet("color: #94a3b8; font-weight: bold; font-size: 11px;")
+        self.cmb_top_site = QComboBox()
+        self.cmb_top_site.setMinimumWidth(160)
+        self.cmb_top_site.setStyleSheet("""
+            QComboBox {
+                background-color: #0f172a;
+                color: #f8fafc;
+                border: 1px solid #334155;
+                border-radius: 4px;
+                padding: 3px 8px;
+                font-size: 11px;
+                font-weight: bold;
+            }
+        """)
+        self.load_global_sites_header()
+
+        lbl_top_depot = QLabel(self.tr("Depo:"))
+        lbl_top_depot.setStyleSheet("color: #94a3b8; font-weight: bold; font-size: 11px;")
+        self.cmb_top_depot = QComboBox()
+        self.cmb_top_depot.addItem(self.tr("10-MERKEZ DEPO"), 10)
+        self.cmb_top_depot.setStyleSheet("""
+            QComboBox {
+                background-color: #0f172a;
+                color: #f8fafc;
+                border: 1px solid #334155;
+                border-radius: 4px;
+                padding: 3px 8px;
+                font-size: 11px;
+            }
+        """)
+
+        lbl_top_date = QLabel(self.tr("Tarih:"))
+        lbl_top_date.setStyleSheet("color: #94a3b8; font-weight: bold; font-size: 11px;")
+        self.date_top_header = QDateEdit(QDate.currentDate())
+        self.date_top_header.setCalendarPopup(True)
+        self.date_top_header.setStyleSheet("""
+            QDateEdit {
+                background-color: #0f172a;
+                color: #f8fafc;
+                border: 1px solid #334155;
+                border-radius: 4px;
+                padding: 3px 6px;
+                font-size: 11px;
+            }
+        """)
+
+        top_selectors_layout.addWidget(lbl_top_site)
+        top_selectors_layout.addWidget(self.cmb_top_site)
+        top_selectors_layout.addWidget(lbl_top_depot)
+        top_selectors_layout.addWidget(self.cmb_top_depot)
+        top_selectors_layout.addWidget(lbl_top_date)
+        top_selectors_layout.addWidget(self.date_top_header)
+
+        menu_layout.addLayout(top_selectors_layout)
         main_layout.addWidget(self.menu_bar)
 
         # ==========================================
@@ -642,14 +634,11 @@ class MainWindow(QMainWindow):
         company_id = self.company_combo.currentData()
         
         if menu_name == self.tr("Görevler"):
-            new_widget = BackupWidget(self.db, company_id)
+            new_widget = BackupWidget(self.db)
         elif menu_name == self.tr("Ürün Yönetimi"):
             new_widget = ResourcesWidget(self.db, company_id)
-        elif menu_name == self.tr("Pazaryeri Bağlantıları"):
-            new_widget = SitesWidget(self.db)
         elif menu_name == self.tr("Genel Ayarlar"):
-            from src.desktop.ui.settings import SettingsWidget
-            new_widget = SettingsWidget()
+            new_widget = SettingsWidget(self.db)
         elif menu_name == self.tr("Müşteriler & Cariler"):
             new_widget = MusteriYonetimiWidget(self.db, company_id)
             new_widget.toast_requested.connect(self.show_toast)
@@ -672,6 +661,10 @@ class MainWindow(QMainWindow):
         if index == -1:
             self.tab_widget.setVisible(False)
             self.dashboard_container.setVisible(True)
+            self.logo.setText(self.tr("🏢 Multi-CMS Plus"))
+        else:
+            tab_text = self.tab_widget.tabText(index)
+            self.logo.setText(f"🏢 Multi-CMS Plus | {tab_text}")
 
     # Favori Yönetimi
     def favoriye_ekle(self, menu_name):

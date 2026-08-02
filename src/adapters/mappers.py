@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Any
 
-from src.core.models import Order, Product, Customer
+from src.core.models import Customer, Order, Product
 
 
 def parse_datetime(val: Any) -> datetime | None:

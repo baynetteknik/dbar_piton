@@ -1021,6 +1021,25 @@ class MusteriYonetimiWidget(QWidget):
                 color: #0f172a;
                 font-size: 12px;
             }
+            QComboBox QAbstractItemView {
+                border: 1px solid #94a3b8;
+                background-color: #ffffff;
+                color: #0f172a;
+                outline: none;
+                padding: 2px 0px;
+            }
+            QComboBox QAbstractItemView::item {
+                min-height: 26px;
+                padding: 4px 10px;
+                background-color: #ffffff;
+                color: #0f172a;
+                border-radius: 0px;
+            }
+            QComboBox QAbstractItemView::item:hover,
+            QComboBox QAbstractItemView::item:selected {
+                background-color: #2563eb;
+                color: #ffffff;
+            }
         """
 
         # Grubu Filtresi

@@ -1,15 +1,33 @@
 import os
-from PyQt6.QtWidgets import (
-    QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton,
-    QTableWidget, QTableWidgetItem, QHeaderView, QCheckBox, QSpinBox,
-    QGroupBox, QRadioButton, QFileDialog, QMessageBox, QComboBox
-)
+
 from PyQt6.QtCore import Qt
-from PyQt6.QtGui import QFont, QColor
+from PyQt6.QtGui import QColor, QFont
+from PyQt6.QtWidgets import (
+    QCheckBox,
+    QComboBox,
+    QDialog,
+    QFileDialog,
+    QGroupBox,
+    QHBoxLayout,
+    QHeaderView,
+    QLabel,
+    QLineEdit,
+    QMessageBox,
+    QPushButton,
+    QRadioButton,
+    QSpinBox,
+    QTableWidget,
+    QTableWidgetItem,
+    QVBoxLayout,
+)
 
 from src.core.importer import (
-    CUSTOMER_FIELDS, PRODUCT_FIELDS, find_best_match,
-    generate_template_file, import_excel_data, read_excel_or_ods
+    CUSTOMER_FIELDS,
+    PRODUCT_FIELDS,
+    find_best_match,
+    generate_template_file,
+    import_excel_data,
+    read_excel_or_ods,
 )
 from src.core.models import Site
 
@@ -260,7 +278,7 @@ class ExcelImportDialog(QDialog):
         """Excel veya ODS dökümanı seçmek için dosya penceresini açar."""
         file_path, _ = QFileDialog.getOpenFileName(
             self, "Excel/ODS Dosyası Seç", "",
-            "Excel / OpenOffice Tabloları (*.xlsx *.xls *.ods)"
+            "Excel / OpenOffice Tabloları (*.xlsx *.xls *.ods)",
         )
         if file_path:
             self.path_input.setText(file_path)
@@ -269,7 +287,7 @@ class ExcelImportDialog(QDialog):
         """Boş bir şablon indirmek için dosya kaydetme penceresi açar ve şablonu üretir."""
         file_path, _ = QFileDialog.getSaveFileName(
             self, "Şablon Dosyasını Kaydet", "sablon.xlsx",
-            "Excel Dosyası (*.xlsx)"
+            "Excel Dosyası (*.xlsx)",
         )
         if file_path:
             try:
@@ -414,7 +432,7 @@ class ExcelImportDialog(QDialog):
                 conflict_not_exist=conflict_not_exist,
                 site_id=site_id,
                 sheet_index=self.spin_sheet.value(),
-                has_headers=self.chk_headers.isChecked()
+                has_headers=self.chk_headers.isChecked(),
             )
             
             # Sonuç dökümü

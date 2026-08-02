@@ -290,6 +290,12 @@ class FilterableTableView(QWidget):
         existing.column_settings.individual_columns = indiv_cols
         return existing
 
+    def open_column_manager_dialog(self):
+        """Opens DIA column & view profile configuration menu."""
+        header_view = self.table_view.horizontalHeader()
+        pos = header_view.rect().center()
+        self.show_header_context_menu(pos)
+
     def show_header_context_menu(self, pos):
         """Tablo başlığına sağ tıklandığında iki sütunlu, arama ve profil kayıt özellikli menüyü açar."""
         from PyQt6.QtWidgets import (

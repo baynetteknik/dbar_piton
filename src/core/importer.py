@@ -1,12 +1,12 @@
 import difflib
 import os
 from typing import Any
+
 import openpyxl
 import pandas as pd
 from sqlalchemy.orm import Session
 
-from src.core.models import Customer, Product, ChangeLog
-
+from src.core.models import ChangeLog, Customer, Product
 
 # ==========================================
 # ALAN TANIMLARI VE ÇEVİRİ SÖZLÜKLERİ
@@ -206,7 +206,7 @@ def read_excel_or_ods(file_path: str, sheet_index: int = 1, has_headers: bool = 
             "letter": letter,
             "header": header_text,
             "display": display_text,
-            "index": col_idx
+            "index": col_idx,
         })
         
     return columns_info, df_data
@@ -222,7 +222,7 @@ def import_excel_data(
     conflict_not_exist: str,  # "insert" veya "skip"
     site_id: int | None = None,
     sheet_index: int = 1,
-    has_headers: bool = True
+    has_headers: bool = True,
 ) -> tuple[int, int, int]:  # (added_count, updated_count, skipped_count)
     """Excel/ODS dosyasını okuyarak veritabanına aktarımı gerçekleştirir ve ChangeLog üretir."""
     columns_info, df = read_excel_or_ods(file_path, sheet_index, has_headers)
@@ -280,7 +280,7 @@ def import_excel_data(
                             entity_id=existing_cust.id,
                             action="update",
                             status="PENDING_PUSH",
-                            retry_count=0
+                            retry_count=0,
                         )
                         db.add(changelog)
                     updated_count += 1
@@ -315,7 +315,7 @@ def import_excel_data(
                             entity_id=new_cust.id,
                             action="create",
                             status="PENDING_PUSH",
-                            retry_count=0
+                            retry_count=0,
                         )
                         db.add(changelog)
                     added_count += 1
@@ -384,7 +384,7 @@ def import_excel_data(
                             entity_id=existing_prod.id,
                             action="update",
                             status="PENDING_PUSH",
-                            retry_count=0
+                            retry_count=0,
                         )
                         db.add(changelog)
                     updated_count += 1
@@ -415,7 +415,7 @@ def import_excel_data(
                             entity_id=new_prod.id,
                             action="create",
                             status="PENDING_PUSH",
-                            retry_count=0
+                            retry_count=0,
                         )
                         db.add(changelog)
                     added_count += 1

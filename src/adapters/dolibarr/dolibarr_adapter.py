@@ -1,5 +1,4 @@
 from typing import Any
-from datetime import datetime
 
 from src.adapters.base import BaseCMSAdapter
 from src.adapters.dolibarr.dolibarr_client import DolibarrClient
@@ -45,7 +44,7 @@ class DolibarrAdapter(BaseCMSAdapter):
         raw_products = self.client.get_products(
             limit=per_page,
             page=dolibarr_page,
-            modified_after=ts_filter
+            modified_after=ts_filter,
         )
 
         # Her kayda site_id ve cms_type enjekte eder.
@@ -91,7 +90,7 @@ class DolibarrAdapter(BaseCMSAdapter):
         raw_orders = self.client.get_orders(
             limit=per_page,
             page=dolibarr_page,
-            modified_after=ts_filter
+            modified_after=ts_filter,
         )
 
         # Her kayda site_id ve cms_type enjekte eder.
@@ -162,7 +161,7 @@ class DolibarrAdapter(BaseCMSAdapter):
         raw_customers = self.client.get_thirdparties(
             limit=per_page,
             page=dolibarr_page,
-            modified_after=ts_filter
+            modified_after=ts_filter,
         )
 
         for item in raw_customers:

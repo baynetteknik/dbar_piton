@@ -65,7 +65,36 @@ class DatabaseManager:
         # Otomatik tablo oluşturma (Alembic dışı yerel çalıştırma ve testler için)
         Base.metadata.create_all(self.engine)
         self._ensure_compatibility_columns()
+        self._ensure_default_admin()
         logger.info("Database schemas ensured and initialized.")
+
+    def _ensure_default_admin(self):
+        """Veritabanında hiç kullanıcı yoksa varsayılan admin kullanıcısını oluşturur."""
+        import hashlib
+
+        from src.core.models import User
+        
+        session = self.SessionLocal()
+        try:
+            user_count = session.query(User).count()
+            if user_count == 0:
+                salt = "multi_cms_salt_key"
+                password_hash = hashlib.sha256(("admin" + salt).encode("utf-8")).hexdigest()
+                
+                default_admin = User(
+                    username="admin",
+                    password_hash=password_hash,
+                    role="admin",
+                    is_active=True,
+                )
+                session.add(default_admin)
+                session.commit()
+                logger.info("Default admin user created: admin / admin")
+        except Exception as e:
+            session.rollback()
+            logger.warning(f"Could not create default admin user: {e}")
+        finally:
+            session.close()
 
     def _ensure_compatibility_columns(self):
         """Eski veritabanlarında yeni şema sütunlarının varlığını kontrol eder ve eksikse ALTER TABLE ile ekler."""
@@ -80,7 +109,7 @@ class DatabaseManager:
                 "custom_code": "ALTER TABLE products ADD COLUMN custom_code VARCHAR(100)",
                 "base_price": "ALTER TABLE products ADD COLUMN base_price FLOAT DEFAULT 0.0",
                 "image_path": "ALTER TABLE products ADD COLUMN image_path VARCHAR(255)",
-                "price": "ALTER TABLE products ADD COLUMN price FLOAT DEFAULT 0.0"
+                "price": "ALTER TABLE products ADD COLUMN price FLOAT DEFAULT 0.0",
             }
             
             for col, sql in prod_adds.items():
@@ -102,7 +131,7 @@ class DatabaseManager:
                 "marketplace": "ALTER TABLE orders ADD COLUMN marketplace VARCHAR(50)",
                 "total": "ALTER TABLE orders ADD COLUMN total FLOAT DEFAULT 0.0",
                 "raw_status": "ALTER TABLE orders ADD COLUMN raw_status VARCHAR(50)",
-                "order_date": "ALTER TABLE orders ADD COLUMN order_date DATETIME"
+                "order_date": "ALTER TABLE orders ADD COLUMN order_date DATETIME",
             }
             
             for col, sql in ord_adds.items():

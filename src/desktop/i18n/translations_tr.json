@@ -1,0 +1,196 @@
+{
+    "app_name": "Multi-CMS Plus",
+    "app_subtitle": "Multi-Mecra Entegre Yönetim ve Yedekleme Platformu",
+    
+    "menu": {
+        "dashboard": "📊 GÖSTERGE",
+        "customers": "👥 CARİ",
+        "products": "📦 STOK",
+        "backup": "🔄 YEDEKLEME",
+        "system": "⚙️ SİSTEM",
+        "Ana Panel": "Ana Panel",
+        "Bildirimler": "Bildirimler",
+        "Müşteriler & Cariler": "Müşteriler & Cariler",
+        "Cari Analiz": "Cari Analiz",
+        "Ürün Yönetimi": "Ürün Yönetimi",
+        "Fiyat Politikaları": "Fiyat Politikaları",
+        "Görevler": "Görevler",
+        "Pazaryeri Bağlantıları": "Pazaryeri Bağlantıları",
+        "Genel Ayarlar": "Genel Ayarlar",
+        "İşlem Günlükleri": "İşlem Günlükleri"
+    },
+    
+    "common": {
+        "search": "🔍 Arama yap... (Ctrl+K)",
+        "pull": "🔄 Uzak Sistemden Çek (Pull)",
+        "push": "🚀 Uzak Sisteme Gönder (Push)",
+        "save": "💾 Kaydet",
+        "cancel": "✖ Vazgeç",
+        "close": "🚪 Kapat",
+        "delete": "❌ Sil",
+        "edit": "✏️ Değiştir",
+        "copy": "📋 Kopyala",
+        "import": "📥 İçe Aktar",
+        "export": "📤 Dışa Aktar",
+        "add_new": "➕ Yeni Ekle",
+        "filter": "Filtrele",
+        "all": "Tümü",
+        "status": "Durum",
+        "active": "Aktif",
+        "passive": "Pasif",
+        "yes": "Evet",
+        "no": "Hayır",
+        "ok": "Tamam",
+        "warning": "Uyarı",
+        "error": "Hata",
+        "success": "Başarılı",
+        "info": "Bilgi",
+        "confirm": "Onay",
+        "loading": "Yükleniyor...",
+        "no_data": "Veri bulunamadı",
+        "total": "Toplam",
+        "page": "Sayfa",
+        "of": "/",
+        "rows": "satır",
+        "columns": "Sütunlar",
+        "settings": "Ayarlar",
+        "language": "Dil",
+        "turkish": "Türkçe",
+        "english": "İngilizce",
+        "german": "Almanca",
+        "russian": "Rusça",
+        "french": "Fransızca",
+        "ukrainian": "Ukraynaca"
+    },
+    
+    "dashboard": {
+        "welcome": "Hoş Geldiniz",
+        "quick_access": "Hızlı Erişim",
+        "favorite_screens": "⭐ Favori Ekranlar",
+        "favorite_reports": "📊 Favori Raporlar",
+        "module_catalog": "🎛️ Modül Kataloğu (Favorilere eklemek/çıkarmak için sağ tıklayın)",
+        "add_to_favorites": "⭐ Favorilere Ekle",
+        "remove_from_favorites": "❌ Favorilerden Çıkar"
+    },
+    
+    "customers": {
+        "title": "👥 Cari Kartlar ve Müşteri Yönetimi",
+        "new_customer": "➕ Yeni Cari Kart Ekle",
+        "edit_customer": "Cari Kart Düzenle",
+        "customer_code": "Cari Kodu",
+        "company_name": "Ticari Ünvan",
+        "authorized_person": "Yetkili Kişi",
+        "nickname": "Kısa Rumuz",
+        "group": "Grubu",
+        "sub_group": "Ara Grubu",
+        "phone": "Telefon",
+        "email": "E-Posta",
+        "address": "Adres",
+        "city": "Şehir",
+        "district": "İlçe",
+        "country": "Ülke",
+        "tax_office": "Vergi Dairesi",
+        "tax_number": "Vergi Numarası",
+        "tc_number": "T.C. Kimlik No",
+        "efatura_status": "E-Fatura Durumu",
+        "efatura_mailbox": "Posta Kutusu",
+        "notes": "Notlar",
+        "record_date": "Kayıt Tarihi",
+        "photo": "Cari Fotoğrafı",
+        "change_photo": "📷 Resmi Değiştir",
+        "remove_photo": "🗑️ Resmi Sil",
+        "groups": {
+            "ALICI": "ALICI",
+            "SATICI": "SATICI",
+            "ALICI_SATICI": "ALICI / SATICI",
+            "POTANSIYEL": "POTANSİYEL"
+        },
+        "sub_groups": {
+            "OZEL": "ÖZEL",
+            "PERAKENDE": "PERAKENDE",
+            "TOPTAN": "TOPTAN"
+        },
+        "sync": {
+            "pull": "🔄 Çek (Pull)",
+            "push": "🚀 Gönder (Push)",
+            "sync_log": "Logları Göster",
+            "in_progress": "Arka planda Dolibarr senkronizasyonu devam ediyor...",
+            "completed": "Senkronizasyon başarıyla tamamlandı!",
+            "failed": "Senkronizasyon başarısız:",
+            "cancelled": "Senkronizasyon kullanıcı tarafından durduruldu",
+            "offline_warning": "İnternet bağlantısı yok - Değişiklikler kuyruğa alındı"
+        },
+        "conflict": {
+            "title": "Çakışma / Eşleşme Yönetimi (Kayıt Zaten Varsa):",
+            "ignore": "🟡 Bir Şey Yapma (Atla / Yerel Kaydı Koru)",
+            "overwrite": "🟢 Değiştir (Üzerine Yaz / Uzak Veriyle Güncelle)"
+        },
+        "messages": {
+            "created": "Yeni cari kart başarıyla oluşturuldu.",
+            "updated": "Cari kart başarıyla güncellendi.",
+            "copied": "Cari kart kopyalandı.",
+            "deleted": "Cari kart silindi.",
+            "bulk_deleted": "Seçilen cari kartlar başarıyla silindi.",
+            "status_changed": "Seçilen carilerin durumları başarıyla değiştirildi.",
+            "imported": "Cari aktarım işlemi başarıyla tamamlandı.",
+            "exported": "Cari listesi başarıyla dışa aktarıldı.",
+            "select_to_edit": "Lütfen düzenlemek istediğiniz cari kartı seçin.",
+            "select_to_copy": "Lütfen kopyalamak istediğiniz cariyi seçin.",
+            "select_to_delete": "Lütfen silmek istediğiniz cari kartı seçin.",
+            "select_to_toggle": "Lütfen durumunu değiştirmek istediğiniz carileri seçin.",
+            "confirm_delete": "Seçili cari kartı silmek istediğinize emin misiniz?",
+            "confirm_bulk_delete": "Seçilen {count} adet cari kartı silmek istediğinize emin misiniz?",
+            "name_required": "Lütfen Ticari Ünvan alanını doldurun.",
+            "save_failed": "Cari kart kaydedilemedi: {error}"
+        }
+    },
+    
+    "products": {
+        "title": "Ürün Veri Yönetimi (DataGrid)",
+        "sku": "Stok Kodu (SKU)",
+        "name": "Ürün Adı",
+        "description": "Açıklama",
+        "category": "Kategori",
+        "price": "Referans Fiyat",
+        "stock": "Stok",
+        "custom_code": "Özel Kod",
+        "image": "Ürün Resmi",
+        "add_product": "➕ Yeni Ürün Ekle",
+        "edit_product": "Ürün Detay Kartı",
+        "no_category": "Kategorisiz",
+        "no_image": "Resim Yok",
+        "select_image": "Resim Seç...",
+        "remove_image": "Resmi Kaldır",
+        "messages": {
+            "sku_name_required": "Stok kodu (SKU) ve Ürün Adı zorunludur.",
+            "numeric_required": "Fiyat ve Stok sayısal olmalıdır.",
+            "save_failed": "Kayıt sırasında hata oluştu: {error}",
+            "exported": "Ürün listesi başarıyla dışa aktarıldı.",
+            "export_failed": "Dışa aktarım hatası: {error}"
+        }
+    },
+    
+    "sync": {
+        "pull_started": "{type} senkronizasyonu arka planda başlatıldı...",
+        "pull_completed": "{type} senkronizasyonu başarıyla tamamlandı. İşlenen: {added} yeni, {updated} güncelleme.",
+        "pull_failed": "{type} senkronizasyonu başarısız: {error}",
+        "sync_error": "Senkronizasyon sırasında hata oluştu: {error}"
+    },
+    
+    "settings": {
+        "title": "Genel Ayarlar",
+        "preferences": "Uygulama Tercihleri",
+        "language": "Arayüz Dili:"
+    },
+    
+    "footer": {
+        "company": "🏢 Multi-CMS Management Platform",
+        "offline": "🔴 Çevrimdışı Mod",
+        "online": "🟢 Çevrimiçi",
+        "pending_sync": "{count} işlem internet bağlantısı bekliyor"
+    },
+    
+    "placeholder": {
+        "module_coming_soon": "Bu modül Faz planına göre bir sonraki aşamada aktif edilecektir."
+    }
+}

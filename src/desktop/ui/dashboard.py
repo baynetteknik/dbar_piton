@@ -1,8 +1,17 @@
-from PyQt6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QFrame, QLabel, QPushButton, QListWidget, QListWidgetItem
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QFont
+from PyQt6.QtWidgets import (
+    QFrame,
+    QHBoxLayout,
+    QLabel,
+    QListWidget,
+    QListWidgetItem,
+    QPushButton,
+    QVBoxLayout,
+    QWidget,
+)
 
-from src.core.models import Site, Product, Order, SyncLog
+from src.core.models import Order, Product, Site, SyncLog
 
 
 class DashboardWidget(QWidget):

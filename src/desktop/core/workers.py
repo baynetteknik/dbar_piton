@@ -1,5 +1,5 @@
-from PyQt6.QtCore import QRunnable, QObject, pyqtSignal
 import structlog
+from PyQt6.QtCore import QObject, QRunnable, pyqtSignal
 
 logger = structlog.get_logger()
 
@@ -60,7 +60,7 @@ class BackupWorker(QRunnable):
         try:
             backup_folder = self.orchestrator.run_full_backup(
                 db_progress_cb=db_cb,
-                file_progress_cb=file_cb
+                file_progress_cb=file_cb,
             )
             if backup_folder:
                 self.signals.finished.emit(str(backup_folder))
@@ -99,7 +99,7 @@ class MigrationWorker(QRunnable):
             success = self.service.upload_file_via_sftp(
                 local_file=self.local_file,
                 remote_dir=self.remote_dir,
-                progress_callback=sftp_cb
+                progress_callback=sftp_cb,
             )
             
             # 2. Bağlantıyı kapat
