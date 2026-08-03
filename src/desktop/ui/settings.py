@@ -32,6 +32,7 @@ from src.desktop.ui.components.text_selection_helper import (
     is_global_text_selection_enabled,
     set_global_text_selection_enabled,
 )
+from src.desktop.ui.components.git_tracker_widget import GitTrackerWidget
 from src.desktop.ui.sites import SitesWidget
 
 logger = logging.getLogger(__name__)
@@ -60,6 +61,10 @@ class SettingsWidget(QTabWidget):
         # 3. Görünüm Profilleri Sekmesi
         self.view_settings_tab = ViewSettingsWidget()
         self.addTab(self.view_settings_tab, "🎨 Görünüm Profilleri")
+
+        # 4. Git & Görev Takibi Sekmesi
+        self.git_tracker_tab = GitTrackerWidget()
+        self.addTab(self.git_tracker_tab, "📊 Sürüm & Git Takibi")
 
         # Üst Sağ Köşe: Tüm Yazıları Seçilebilir / Kopyalanabilir Yap Onay Kutusu
         corner_widget = QWidget()

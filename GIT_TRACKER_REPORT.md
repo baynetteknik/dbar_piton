@@ -1,5 +1,5 @@
 # 📊 Git & Görev Takip Raporu (git_tracker.db)
-**Son Güncelleme Zamanı:** 2026-08-04 00:03:03
+**Son Güncelleme Zamanı:** 2026-08-04 00:03:25
 
 ## 🚀 Yapılan ve Yapılacak İşler (Görev Durumları)
 | ID | Kategori | Görev / Özellik | Açıklama | Durum | İlgili Branch |
@@ -19,6 +19,7 @@
 ## 📦 Git Commit ve Push Geçmişi (En Son Gönderilenler)
 | Commit Hash | Tarih | Dal (Branch) | Commit Mesajı | Gönderim Durumu |
 |---|---|---|---|---|
+| `187a2d9` | 2026-08-04 00:03:11 +0300 | `feat/teklif-ve-erp-entegrasyonu` | feat(tracker): git commit/push ve gorev takibi icin git_tracker.db altyapisi eklendi | 🟢 Pushed |
 | `c57e776` | 2026-08-03 23:56:49 +0300 | `feat/teklif-ve-erp-entegrasyonu` | feat(erp-teklif-ui): teklif yonetimi, erp adaptorleri (logo, zirve, akinsoft) ve gorunum profilleri eklendi | 🟢 Pushed |
 | `21f1590` | 2026-08-02 19:15:12 +0300 | `feat/teklif-ve-erp-entegrasyonu` | fix(ui): stok detay ve uygulama genelindeki QComboBox drop-down menu stilleri duzeltildi | 🟢 Pushed |
 | `3578039` | 2026-07-25 20:00:52 +0300 | `feat/teklif-ve-erp-entegrasyonu` | fix: MÃ¼ÅŸteriler & Cari ekranÄ±nÄ±n Ã¼stÃ¼ndeki GÃ¶rÃ¼nÃ¼m Profili Ã§ubuÄŸu kaldÄ±rÄ±ldÄ± | 🟢 Pushed |
@@ -33,7 +34,6 @@
 | `bd2d762` | 2026-07-21 18:09:58 +0300 | `feat/teklif-ve-erp-entegrasyonu` | feat: Sutun surukleme, siralama ok ikonlari, profil yukleme hata duzeltmeleri ve Genel Ayarlar sekmesi entegrasyonu | 🟢 Pushed |
 | `6bd3765` | 2026-07-21 17:53:10 +0300 | `feat/teklif-ve-erp-entegrasyonu` | feat: Filtre alani QScrollArea entegrasyonu ile kusursuz yatay kaydirma senkronizasyonu saglandi | 🟢 Pushed |
 | `0c95f7b` | 2026-07-21 17:17:38 +0300 | `feat/teklif-ve-erp-entegrasyonu` | fix: Tablo sutun cizgileri gorunur kilindi ve resizeEvent ile filtre genislik senkronizasyonu saglandi | 🟢 Pushed |
-| `f3b2bed` | 2026-07-21 16:10:09 +0300 | `feat/teklif-ve-erp-entegrasyonu` | feat: Cari kopyalamaya onay diyaloÄŸu eklendi, iki sÃ¼tunlu sÃ¼tun menÃ¼sÃ¼, sÃ¼tun arama ve gÃ¶rÃ¼nÃ¼m kaydetme entegre edildi | 🟢 Pushed |
 
 ---
 *Bu rapor `git_tracker.db` SQLite veritabanı verilerinden otomatik üretilmiştir.*
