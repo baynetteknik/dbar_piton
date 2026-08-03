@@ -215,16 +215,19 @@ def test_view_settings_widget_integration(qapp):
     
     # Check that "SettingsTest" is listed
     items = [widget.profile_list.item(i).text() for i in range(widget.profile_list.count())]
-    assert "SettingsTest" in items
+    assert any("SettingsTest" in item for item in items)
     
     # Select the item and delete it
     for i in range(widget.profile_list.count()):
-        if widget.profile_list.item(i).text() == "SettingsTest":
+        if "SettingsTest" in widget.profile_list.item(i).text():
             widget.profile_list.setCurrentRow(i)
+            widget.table.selectRow(i)
             break
             
+    from PyQt6.QtWidgets import QMessageBox
     with patch('PyQt6.QtWidgets.QMessageBox.information') as mock_info, \
-         patch('PyQt6.QtWidgets.QMessageBox.warning') as mock_warn:
+         patch('PyQt6.QtWidgets.QMessageBox.warning') as mock_warn, \
+         patch('PyQt6.QtWidgets.QMessageBox.question', return_value=QMessageBox.StandardButton.Yes):
         widget.delete_selected_profile()
         assert mock_info.called
         assert not mock_warn.called

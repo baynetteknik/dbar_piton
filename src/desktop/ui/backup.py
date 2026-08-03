@@ -1246,7 +1246,7 @@ class BackupWidget(QWidget):
 
         self.filterable_table = FilterableTableView(
             headers_dict=self.headers_dict,
-            profile_key="backup",
+            profile_key="backup_tasks",
             parent=self,
         )
         self.task_table = self.filterable_table.table_view
@@ -1428,6 +1428,10 @@ class BackupWidget(QWidget):
 
     def switch_category(self, category: str):
         self.selected_category = category
+        new_profile_key = "backup_tasks" if category == "Backup" else "restore_tasks"
+        if hasattr(self, "filterable_table"):
+            self.filterable_table.set_profile_key(new_profile_key)
+
         if category == "Backup":
             self.btn_cat_backup.setStyleSheet("""
                 background-color: #005fb8;

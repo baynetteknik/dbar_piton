@@ -241,6 +241,57 @@ class OrderItem(Base):
     product: Mapped["Product"] = relationship("Product", back_populates="order_items")
 
 
+class Quotation(BaseModel):
+    """Represents sales proposals, quotations, and official order definitions."""
+    __tablename__ = "quotations"
+
+    quotation_number: Mapped[str] = mapped_column(String(100), unique=True, index=True, nullable=False)
+    title: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    quotation_type: Mapped[str] = mapped_column(String(50), default="Quotation")  # Quotation or Order
+
+    customer_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("customers.id", ondelete="SET NULL"), nullable=True)
+    customer_name_free: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    tax_office_free: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    tax_number_free: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    phone_free: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    email_free: Mapped[str | None] = mapped_column(String(150), nullable=True)
+
+    status: Mapped[str] = mapped_column(String(50), default="draft")  # draft, sent, accepted, rejected, converted
+    currency: Mapped[str] = mapped_column(String(10), default="TRY")
+    valid_until: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    issue_date: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+    subtotal: Mapped[float] = mapped_column(Float, default=0.0)
+    vat_total: Mapped[float] = mapped_column(Float, default=0.0)
+    discount_total: Mapped[float] = mapped_column(Float, default=0.0)
+    grand_total: Mapped[float] = mapped_column(Float, default=0.0)
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    customer: Mapped["Customer | None"] = relationship("Customer")
+    items: Mapped[list["QuotationItem"]] = relationship("QuotationItem", back_populates="quotation", cascade="all, delete-orphan")
+
+
+class QuotationItem(Base):
+    """Line items for a quotation or order."""
+    __tablename__ = "quotation_items"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    quotation_id: Mapped[int] = mapped_column(Integer, ForeignKey("quotations.id", ondelete="CASCADE"), nullable=False)
+    product_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("products.id", ondelete="SET NULL"), nullable=True)
+
+    product_name_free: Mapped[str] = mapped_column(String(255), nullable=False)
+    product_code_free: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    unit: Mapped[str] = mapped_column(String(50), default="Adet")
+    quantity: Mapped[float] = mapped_column(Float, default=1.0)
+    unit_price: Mapped[float] = mapped_column(Float, default=0.0)
+    vat_rate: Mapped[float] = mapped_column(Float, default=20.0)
+    discount_rate: Mapped[float] = mapped_column(Float, default=0.0)
+    total_price: Mapped[float] = mapped_column(Float, default=0.0)
+
+    quotation: Mapped["Quotation"] = relationship("Quotation", back_populates="items")
+    product: Mapped["Product | None"] = relationship("Product")
+
+
 class CategoryMapping(Base):
     """Matches local categories with third party remote marketplace categories."""
     __tablename__ = "category_mappings"

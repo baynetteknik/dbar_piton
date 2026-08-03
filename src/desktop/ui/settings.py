@@ -934,7 +934,8 @@ class ViewSettingsWidget(QWidget):
 
         self.module_combo = QComboBox()
         self.module_combo.addItem("👥 Cariler / Müşteriler", "customers")
-        self.module_combo.addItem("💾 Görevler / Yedekleme", "backup")
+        self.module_combo.addItem("💾 Yedekleme Tanımları", "backup_tasks")
+        self.module_combo.addItem("🔄 Geri Yükleme Tanımları", "restore_tasks")
         self.module_combo.addItem("🏢 Firma Tanımları", "sites")
         self.module_combo.addItem("👥 Kullanıcı Tanımları", "users")
         self.module_combo.addItem("📦 Ürünler / Stok", "products")
@@ -1048,12 +1049,17 @@ class ViewSettingsWidget(QWidget):
         self.btn_delete.setStyleSheet(self.dia_btn_style("#ef4444", "#dc2626"))
         self.btn_delete.clicked.connect(self.delete_selected_profile)
 
+        self.btn_reset_all = QPushButton("💥 Tüm Görünüm Tanımlarını Sil")
+        self.btn_reset_all.setStyleSheet(self.dia_btn_style("#dc2626", "#b91c1c"))
+        self.btn_reset_all.clicked.connect(self.reset_all_profiles)
+
         self.btn_refresh = QPushButton("🔄 Yenile")
         self.btn_refresh.setStyleSheet(self.dia_btn_style("#64748b", "#475569"))
         self.btn_refresh.clicked.connect(self.load_profiles)
 
         action_bar_lyt.addWidget(self.btn_set_active)
         action_bar_lyt.addWidget(self.btn_delete)
+        action_bar_lyt.addWidget(self.btn_reset_all)
         action_bar_lyt.addWidget(self.btn_refresh)
         action_bar_lyt.addStretch()
 
@@ -1095,8 +1101,13 @@ class ViewSettingsWidget(QWidget):
         btn_r_del.setStyleSheet(self.toolbar_btn_style("#ef4444", "#ffffff"))
         btn_r_del.clicked.connect(self.delete_selected_profile)
 
+        btn_r_reset = QPushButton("💥 Tüm Görünüm Tanımlarını Sil")
+        btn_r_reset.setStyleSheet(self.toolbar_btn_style("#dc2626", "#ffffff"))
+        btn_r_reset.clicked.connect(self.reset_all_profiles)
+
         grp_prof_lyt.addWidget(btn_r_active)
         grp_prof_lyt.addWidget(btn_r_del)
+        grp_prof_lyt.addWidget(btn_r_reset)
         right_lyt.addWidget(grp_prof)
 
         grp_view = QFrame()
@@ -1252,6 +1263,25 @@ class ViewSettingsWidget(QWidget):
             if pm.delete_profile(raw_name):
                 QMessageBox.information(self, "Başarılı", f"'{raw_name}' profili başarıyla silindi.")
                 self.load_profiles()
+
+    def reset_all_profiles(self):
+        """Asks confirmation and resets all view profile settings to factory defaults."""
+        confirm = QMessageBox.question(
+            self,
+            "Tüm Görünüm Tanımlarını Sil",
+            "Tüm özel görünüm profillerini ve ayarlarını silerek fabrika ayarlarına (Varsayılan) dönmek istediğinizden emin misiniz?\n\nBu işlem geri alınamaz.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if confirm == QMessageBox.StandardButton.Yes:
+            from src.desktop.managers.profile_manager import ProfileManager
+            ProfileManager.reset_all_profiles_to_factory_defaults()
+            QMessageBox.information(
+                self,
+                "Başarılı",
+                "Tüm görünüm tanımları başarıyla silindi ve sistem fabrika ayarlarına döndürüldü.",
+            )
+            self.load_profiles()
 
     def show_table_context_menu(self, pos):
         menu = QMenu(self)

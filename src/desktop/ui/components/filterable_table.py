@@ -243,34 +243,72 @@ class FilterableTableView(QWidget):
             le.blockSignals(False)
         self.filter_changed.emit(self.filters)
 
+    def get_mandatory_columns(self) -> set[str]:
+        """Returns mandatory column field names for this table."""
+        table_fields = {field for _label, field in self.headers_dict.values()}
+        mandatory = self.MANDATORY_COLUMNS.intersection(table_fields)
+        if not mandatory and 0 in self.headers_dict:
+            mandatory = {self.headers_dict[0][1]}
+        return mandatory
+
     def set_column_hidden(self, col_idx, hidden):
         """Sağ paneldeki Kolon Yönetimi checkbox'larına göre sütunları gizler."""
         if hidden and col_idx in self.headers_dict:
             _label, field_name = self.headers_dict[col_idx]
-            if field_name in self.MANDATORY_COLUMNS:
+            if field_name in self.get_mandatory_columns():
                 logger.warning(f"Zorunlu sütun '{field_name}' gizlenemez.")
                 return
         self.table_view.horizontalHeader().setSectionHidden(col_idx, hidden)
         self.sync_filter_widths()
         self.column_visibility_changed.emit(col_idx, not hidden)
 
+    def set_profile_key(self, new_key: str):
+        """Sets a new profile_key and applies the active profile."""
+        self.profile_key = new_key
+        if hasattr(self, "profile_bar") and self.profile_bar:
+            self.profile_bar.set_profile_key(new_key)
+        else:
+            pm = ProfileManager(profile_key=self.profile_key)
+            self.apply_view_profile(pm.get_active_profile())
+
     def apply_view_profile(self, profile: ViewProfile):
         """Applies a ViewProfile v2.0.0 instance to the table and style delegate."""
-        # 1. Apply column visibilities and widths
+        header = self.table_view.horizontalHeader()
+        mandatory_cols = self.get_mandatory_columns()
+
+        # 1. Apply column positions (orders)
+        target_positions = []
         for col_idx, (_label, field_name) in self.headers_dict.items():
-            if field_name in self.MANDATORY_COLUMNS:
+            if field_name in profile.column_settings.individual_columns:
+                target_v_idx = profile.column_settings.individual_columns[field_name].order
+            else:
+                target_v_idx = col_idx
+            target_positions.append((col_idx, target_v_idx))
+
+        sorted_positions = sorted(target_positions, key=lambda x: x[1])
+        for target_v_idx, (col_idx, _) in enumerate(sorted_positions):
+            current_v_idx = header.visualIndex(col_idx)
+            if current_v_idx != target_v_idx:
+                header.moveSection(current_v_idx, target_v_idx)
+
+        # 2. Apply column visibilities and widths
+        for col_idx, (_label, field_name) in self.headers_dict.items():
+            if field_name in mandatory_cols:
                 self.set_column_hidden(col_idx, False)
             elif field_name in profile.column_settings.individual_columns:
                 indiv = profile.column_settings.individual_columns[field_name]
                 self.set_column_hidden(col_idx, not indiv.visible)
                 if indiv.width > 0:
                     self.table_view.setColumnWidth(col_idx, indiv.width)
+            else:
+                self.set_column_hidden(col_idx, False)
 
-        # 2. Apply Visual Rules to Delegate
+        # 3. Apply Visual Rules to Delegate
         field_map = {idx: field for idx, (_lbl, field) in self.headers_dict.items()}
         self.style_delegate.set_rules(profile.visual_rules, field_map)
         self.table_view.viewport().update()
 
+        self.update_menu_checkboxes()
         self.sync_filter_widths()
         self.sync_filter_positions()
 
@@ -400,16 +438,15 @@ class FilterableTableView(QWidget):
 
         self.menu_profile_combo = QComboBox()
         self.menu_profile_combo.setStyleSheet("font-size: 11px; padding: 2px 4px;")
-        self.menu_profile_combo.addItem("Varsayılan")
-        
+
         # Kayıtlı profilleri yükle (En son aktif profil en üsttedir)
         profiles = self.load_column_profile_list()
         for p in profiles:
-            self.menu_profile_combo.addItem(p)
-            
-        from PyQt6.QtCore import QSettings
-        settings = QSettings("baynetteknik", "dbar_piton")
-        active = settings.value(f"active_column_profile_{self.profile_key}", "Varsayılan", type=str)
+            if self.menu_profile_combo.findText(p) < 0:
+                self.menu_profile_combo.addItem(p)
+
+        pm = ProfileManager(profile_key=self.profile_key)
+        active = pm.get_active_profile_name()
         idx = self.menu_profile_combo.findText(active)
         if idx >= 0:
             self.menu_profile_combo.blockSignals(True)
@@ -581,133 +618,40 @@ class FilterableTableView(QWidget):
         self.close_menu_if_needed(menu)
 
     def save_column_profile(self, name):
-        """Sütun durumlarını QSettings ile JSON olarak saklar."""
-        import json
-
-        from PyQt6.QtCore import QSettings
-        settings = QSettings("baynetteknik", "dbar_piton")
-        
-        header = self.table_view.horizontalHeader()
-        visible_state = {}
-        position_state = {}
-        for col_idx in self.headers_dict.keys():
-            visible_state[str(col_idx)] = not header.isSectionHidden(col_idx)
-            position_state[str(col_idx)] = header.visualIndex(col_idx)
-
-        state = {
-            "visible": visible_state,
-            "positions": position_state,
-        }
-
-        profiles_json = settings.value(f"column_profiles_{self.profile_key}", "{}", type=str)
-        try:
-            profiles = json.loads(profiles_json)
-        except Exception:
-            profiles = {}
-
-        profiles[name] = state
-        settings.setValue(f"column_profiles_{self.profile_key}", json.dumps(profiles))
-        settings.sync()
-
-        # Bu profili aktif profil olarak kaydet
-        settings.setValue(f"active_column_profile_{self.profile_key}", name)
-        settings.sync()
+        """Sütun durumlarını ProfileManager (v2.0.0) ile saklar."""
+        pm = ProfileManager(profile_key=self.profile_key)
+        profile = self.capture_current_view_profile(profile_name=name)
+        pm.save_profile(profile)
+        pm.set_active_profile_name(name)
+        if hasattr(self, "profile_bar") and self.profile_bar:
+            self.profile_bar.reload_profiles()
 
     def delete_column_profile(self, name):
-        """Belirtilen profili QSettings'ten siler."""
-        import json
-
-        from PyQt6.QtCore import QSettings
-        settings = QSettings("baynetteknik", "dbar_piton")
-        
-        profiles_json = settings.value(f"column_profiles_{self.profile_key}", "{}", type=str)
-        try:
-            profiles = json.loads(profiles_json)
-        except Exception:
-            profiles = {}
-
-        if name in profiles:
-            del profiles[name]
-            settings.setValue(f"column_profiles_{self.profile_key}", json.dumps(profiles))
-            settings.sync()
+        """Belirtilen profili ProfileManager'dan siler."""
+        pm = ProfileManager(profile_key=self.profile_key)
+        pm.delete_profile(name)
+        if hasattr(self, "profile_bar") and self.profile_bar:
+            self.profile_bar.reload_profiles()
 
     def load_column_profile_list(self) -> list[str]:
         """Kayıtlı profillerin isimlerini döner (En son aktif profil ilk sıradadır)."""
-        import json
-
-        from PyQt6.QtCore import QSettings
-        settings = QSettings("baynetteknik", "dbar_piton")
-        
-        profiles_json = settings.value(f"column_profiles_{self.profile_key}", "{}", type=str)
-        active_profile = settings.value(f"active_column_profile_{self.profile_key}", "Varsayılan", type=str)
-        try:
-            profiles = json.loads(profiles_json)
-            p_list = list(profiles.keys())
-            if active_profile in p_list:
-                p_list.remove(active_profile)
-                p_list.insert(0, active_profile)
-            return p_list
-        except Exception:
-            return []
+        pm = ProfileManager(profile_key=self.profile_key)
+        profiles = pm.load_profiles()
+        active_profile = pm.get_active_profile_name()
+        p_list = list(profiles.keys())
+        if active_profile in p_list:
+            p_list.remove(active_profile)
+            p_list.insert(0, active_profile)
+        return p_list
 
     def load_profile(self, name):
         """Belirtilen görünüm profilini tabloya yükler."""
-        from PyQt6.QtCore import QSettings
-        settings = QSettings("baynetteknik", "dbar_piton")
-        
-        # Aktif profili kaydet
-        settings.setValue(f"active_column_profile_{self.profile_key}", name)
-        settings.sync()
-
-        header = self.table_view.horizontalHeader()
-
-        if not name or name == "Varsayılan":
-            # 1. Varsayılan konumlara geri taşı
-            for original_idx in sorted(self.headers_dict.keys()):
-                current_visual_idx = header.visualIndex(original_idx)
-                header.moveSection(current_visual_idx, original_idx)
-            
-            # 2. Tüm sütunları göster
-            for col_idx in self.headers_dict.keys():
-                self.set_column_hidden(col_idx, False)
-                
-            self.update_menu_checkboxes()
-            self.sync_filter_positions()
-            return
-
-        import json
-        profiles_json = settings.value(f"column_profiles_{self.profile_key}", "{}", type=str)
-        try:
-            profiles = json.loads(profiles_json)
-            state = profiles.get(name)
-            if state:
-                # Geriye dönük uyumluluk
-                if isinstance(state, dict) and "visible" in state:
-                    visible_state = state["visible"]
-                    position_state = state.get("positions", {})
-                else:
-                    visible_state = state
-                    position_state = {}
-
-                # 1. Pozisyonları uygula
-                if position_state:
-                    sorted_positions = sorted(
-                        [(int(col_str), int(v_idx)) for col_str, v_idx in position_state.items()],
-                        key=lambda x: x[1],
-                    )
-                    for col_idx, target_visual_idx in sorted_positions:
-                        current_visual_idx = header.visualIndex(col_idx)
-                        header.moveSection(current_visual_idx, target_visual_idx)
-
-                # 2. Görünürlükleri uygula
-                for col_str, visible in visible_state.items():
-                    col_idx = int(col_str)
-                    self.set_column_hidden(col_idx, not visible)
-
-                self.update_menu_checkboxes()
-                self.sync_filter_positions()
-        except Exception as e:
-            logger.error(f"Profile loading error: {e}")
+        pm = ProfileManager(profile_key=self.profile_key)
+        pm.set_active_profile_name(name)
+        profile = pm.get_active_profile()
+        self.apply_view_profile(profile)
+        if hasattr(self, "profile_bar") and self.profile_bar:
+            self.profile_bar.reload_profiles()
 
     def resizeEvent(self, event):  # noqa: N802
         super().resizeEvent(event)
@@ -716,13 +660,13 @@ class FilterableTableView(QWidget):
     def on_manage_profiles_clicked(self, menu):
         """Profil yönetimi popup penceresini açar."""
         menu.close()
-        dlg = ColumnProfileManagerDialog(self, profile_key=self.profile_key)
+        pm = ProfileManager(profile_key=self.profile_key)
+        from src.desktop.ui.dialogs.profile_manager_dialog import ProfileManagerDialog
+        dlg = ProfileManagerDialog(profile_manager=pm, parent=self)
         dlg.exec()
         
-        # En son aktif kalan profili (veya silindi ise varsayılanı) tabloya uygula
-        from PyQt6.QtCore import QSettings
-        settings = QSettings("baynetteknik", "dbar_piton")
-        active = settings.value(f"active_column_profile_{self.profile_key}", "Varsayılan", type=str)
+        # En son aktif kalan profili tabloya uygula
+        active = pm.get_active_profile_name()
         self.load_profile(active)
 
 

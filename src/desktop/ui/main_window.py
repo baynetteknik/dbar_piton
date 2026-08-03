@@ -243,6 +243,7 @@ class MainWindow(QMainWindow):
             self.tr("📊 GÖSTERGE"): ([self.tr("Ana Panel"), self.tr("Bildirimler")], "📊"),
             self.tr("👥 CARİ"): ([self.tr("Müşteriler & Cariler"), self.tr("Cari Analiz")], "👥"),
             self.tr("📦 STOK"): ([self.tr("Ürün Yönetimi"), self.tr("Fiyat Politikaları")], "📦"),
+            self.tr("📄 TEKLİF & SİPARİŞ"): ([self.tr("Teklif Yönetimi"), self.tr("Sipariş Yönetimi")], "📄"),
             self.tr("🔄 YEDEKLEME"): ([self.tr("Görevler")], "🔄"),
             self.tr("⚙️ SİSTEM"): ([self.tr("Genel Ayarlar"), self.tr("İşlem Günlükleri")], "⚙️"),
         }
@@ -642,6 +643,12 @@ class MainWindow(QMainWindow):
         elif menu_name == self.tr("Müşteriler & Cariler"):
             new_widget = MusteriYonetimiWidget(self.db, company_id)
             new_widget.toast_requested.connect(self.show_toast)
+        elif menu_name in (self.tr("Teklif Yönetimi"), self.tr("Teklifler")):
+            from src.desktop.ui.quotations import QuotationsWidget
+            new_widget = QuotationsWidget(self.db)
+        elif menu_name in (self.tr("Sipariş Yönetimi"), self.tr("Siparişler")):
+            from src.desktop.ui.quotations import OrdersWidget
+            new_widget = OrdersWidget(self.db)
         else:
             new_widget = PlaceholderWidget(f"{menu_name} {self.tr('Modülü')}")
             

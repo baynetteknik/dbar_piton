@@ -13,6 +13,7 @@ from src.desktop.models.profile_models import (
     ColumnGroup,
     ColumnSettings,
     FrozenColumns,
+    IndividualColumn,
     ProfileMetadata,
     SummaryBarSettings,
     SummaryField,
@@ -65,10 +66,20 @@ class ProfileManager:
         # Ensure default templates exist if list is empty
         if "Varsayılan" not in result:
             result["Varsayılan"] = self.create_default_profile()
-        if "Borçlu Müşteriler" not in result:
+        if self.profile_key == "customers" and "Borçlu Müşteriler" not in result:
             result["Borçlu Müşteriler"] = self.create_debtors_profile()
 
         return result
+
+    @classmethod
+    def reset_all_profiles_to_factory_defaults(cls) -> None:
+        """Clears all saved view profiles and settings across all modules from QSettings."""
+        settings = QSettings(cls.ORGANIZATION_NAME, cls.APPLICATION_NAME)
+        all_keys = list(settings.allKeys())
+        for key in all_keys:
+            if "view_profile" in key.lower() or "column_profile" in key.lower():
+                settings.remove(key)
+        settings.sync()
 
     def save_profile(self, profile: ViewProfile) -> None:
         """Saves or updates a ViewProfile in QSettings."""
@@ -117,12 +128,25 @@ class ProfileManager:
 
     def create_default_profile(self) -> ViewProfile:
         """Creates the default system ViewProfile."""
+        if self.profile_key in ("backup_tasks", "restore_tasks", "backup", "restore"):
+            core_cols = ["id", "name", "source", "target_type", "schedule", "status"]
+        elif self.profile_key in ("quotations", "orders"):
+            core_cols = ["id", "quotation_number", "title", "customer_name", "grand_total", "currency", "status", "issue_date"]
+        elif self.profile_key == "sites":
+            core_cols = ["id", "code", "name", "url", "status"]
+        elif self.profile_key == "products":
+            core_cols = ["id", "code", "name", "price", "stock", "unit"]
+        elif self.profile_key == "users":
+            core_cols = ["id", "username", "full_name", "role", "email", "status"]
+        else:
+            core_cols = ["id", "cari_kodu", "ticari_unvan", "vergi_dairesi", "vergi_no"]
+
         core_group = ColumnGroup(
             id="group_core",
             name="Temel Bilgiler",
             is_collapsible=True,
             is_collapsed=False,
-            columns=["id", "cari_kodu", "ticari_unvan", "vergi_dairesi", "vergi_no"],
+            columns=core_cols,
             is_locked=True,
         )
         cc_group1 = ColumnGroup(
@@ -132,6 +156,11 @@ class ProfileManager:
             is_collapsed=True,
             columns=[f"ozel_kod_{i}" for i in range(1, 21)],
         )
+
+        indiv_cols = {
+            col: IndividualColumn(visible=True, width=150, order=idx)
+            for idx, col in enumerate(core_cols)
+        }
 
         vc_balance = VirtualColumn(
             id="vc_balance",
@@ -177,7 +206,8 @@ class ProfileManager:
             ),
             column_settings=ColumnSettings(
                 groups=[core_group, cc_group1],
-                frozen_columns=FrozenColumns(count=2, columns=["id", "cari_kodu"]),
+                individual_columns=indiv_cols,
+                frozen_columns=FrozenColumns(count=2, columns=core_cols[:2]),
             ),
             virtual_columns=[vc_balance],
             summary_bar=summary_bar,

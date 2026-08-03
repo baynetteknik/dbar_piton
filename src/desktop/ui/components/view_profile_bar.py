@@ -141,6 +141,15 @@ class ViewProfileBar(QWidget):
         layout.addStretch(1)
         self.reload_profiles()
 
+    def set_profile_key(self, new_key: str):
+        """Updates the profile_key dynamically and reloads profiles."""
+        self.profile_key = new_key
+        self.profile_manager = ProfileManager(profile_key=self.profile_key)
+        self.reload_profiles()
+        if self.table_view:
+            p = self.profile_manager.get_active_profile()
+            self.table_view.apply_view_profile(p)
+
     def reload_profiles(self):
         """Reloads profile list from ProfileManager."""
         self.combo_profiles.blockSignals(True)
