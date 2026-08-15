@@ -1,11 +1,9 @@
 """Quotations and Orders DIA-Style 3-Panel Management Widgets."""
 
 import logging
-import os
-from typing import Any
 
 from PyQt6.QtCore import Qt, pyqtSignal
-from PyQt6.QtGui import QAction, QColor, QFont, QStandardItem, QStandardItemModel
+from PyQt6.QtGui import QAction, QFont, QStandardItem, QStandardItemModel
 from PyQt6.QtWidgets import (
     QComboBox,
     QFileDialog,
@@ -26,32 +24,32 @@ from sqlalchemy import select
 from src.core.models import Quotation
 from src.desktop.services.excel_exporter import ExcelExporter
 from src.desktop.services.quotation_service import QuotationService
+from src.desktop.ui.components.dia_3_panel_base import DIA3PanelBaseWidget
 from src.desktop.ui.components.edge_panel import EdgeTriggeredPanel
 from src.desktop.ui.components.filterable_table import FilterableTableView
+from src.desktop.ui.components.layout_hint_helper import register_layout_hint
 from src.desktop.ui.dialogs.quotation_edit_dialog import QuotationEditDialog
 
 logger = logging.getLogger(__name__)
 
 
-class BaseQuotationOrderWidget(QWidget):
+class BaseQuotationOrderWidget(DIA3PanelBaseWidget):
     """Base class for DIA-style 3-Panel Quotations and Orders management widgets."""
 
     status_message = pyqtSignal(str)
 
     def __init__(self, db_session=None, quotation_type: str = "Quotation", profile_key: str = "quotations"):
-        super().__init__()
-        self.db = db_session
         self.quotation_type = quotation_type
-        self.profile_key = profile_key
-        self.service = QuotationService(self.db)
+        self.service = QuotationService(db_session)
 
-        # Pagination & Filtering
-        self.current_page = 1
-        self.per_page = 25
-        self.total_records = 0
-
+        module_label = "Teklif Yönetimi" if quotation_type == "Quotation" else "Sipariş Yönetimi"
+        super().__init__(
+            db_session=db_session,
+            profile_key=profile_key,
+            module_name=module_label,
+        )
         self.setObjectName("QuotationCanvas")
-        self.init_ui()
+        register_layout_hint(self, module_label, "Teklif / Sipariş Ana Ekranı")
 
     def toolbar_btn_style(self, bg_color="#ffffff", text_color="#1e293b"):
         return f"""
@@ -74,10 +72,13 @@ class BaseQuotationOrderWidget(QWidget):
         main_layout.setContentsMargins(5, 5, 5, 5)
         main_layout.setSpacing(5)
 
+        module_label = "Teklif Yönetimi" if getattr(self, "quotation_type", "") == "Quotation" else "Sipariş Yönetimi"
+
         # ----------------------------------------------------
         # 1. SOL PANEL (EdgeTriggeredPanel) - ARAMA VE FİLTRE
         # ----------------------------------------------------
         self.left_panel = EdgeTriggeredPanel(side="left", parent=self)
+        register_layout_hint(self.left_panel, module_label, "Sol Filtre Paneli")
 
         filter_frame = QFrame()
         filter_frame.setStyleSheet("background-color: transparent; border: none;")
@@ -118,6 +119,7 @@ class BaseQuotationOrderWidget(QWidget):
         # 2. ORTA PANEL: TABLO VE SAYFALAMA
         # ----------------------------------------------------
         center_container = QWidget()
+        register_layout_hint(center_container, module_label, "Orta Tablo Paneli")
         center_layout = QVBoxLayout(center_container)
         center_layout.setContentsMargins(0, 0, 0, 0)
         center_layout.setSpacing(4)
@@ -195,6 +197,7 @@ class BaseQuotationOrderWidget(QWidget):
         # 3. SAĞ PANEL (EdgeTriggeredPanel) - EYLEMLER VE TOOLBAR
         # ----------------------------------------------------
         self.right_panel = EdgeTriggeredPanel(side="right", parent=self)
+        register_layout_hint(self.right_panel, module_label, "Sağ Hızlı Eylemler Paneli")
 
         right_scroll = QScrollArea()
         right_scroll.setWidgetResizable(True)
@@ -341,7 +344,7 @@ class BaseQuotationOrderWidget(QWidget):
             stmt = stmt.where(
                 (Quotation.title.ilike(f"%{search_txt}%")) |
                 (Quotation.quotation_number.ilike(f"%{search_txt}%")) |
-                (Quotation.customer_name_free.ilike(f"%{search_txt}%"))
+                (Quotation.customer_name_free.ilike(f"%{search_txt}%")),
             )
 
         st_filter = self.cmb_status.currentText()

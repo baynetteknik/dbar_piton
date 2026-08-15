@@ -1,5 +1,5 @@
 # 📊 Git & Görev Takip Raporu (git_tracker.db)
-**Son Güncelleme Zamanı:** 2026-08-04 00:03:25
+**Son Güncelleme Zamanı:** 2026-08-04 00:08:41
 
 ## 🚀 Yapılan ve Yapılacak İşler (Görev Durumları)
 | ID | Kategori | Görev / Özellik | Açıklama | Durum | İlgili Branch |
@@ -19,6 +19,7 @@
 ## 📦 Git Commit ve Push Geçmişi (En Son Gönderilenler)
 | Commit Hash | Tarih | Dal (Branch) | Commit Mesajı | Gönderim Durumu |
 |---|---|---|---|---|
+| `8aabf49` | 2026-08-04 00:08:30 +0300 | `feat/teklif-ve-erp-entegrasyonu` | feat(ui): genel ayarlar ekranina 'Surum & Git Takibi' sekmesi (GitTrackerWidget) eklendi | 🟢 Pushed |
 | `187a2d9` | 2026-08-04 00:03:11 +0300 | `feat/teklif-ve-erp-entegrasyonu` | feat(tracker): git commit/push ve gorev takibi icin git_tracker.db altyapisi eklendi | 🟢 Pushed |
 | `c57e776` | 2026-08-03 23:56:49 +0300 | `feat/teklif-ve-erp-entegrasyonu` | feat(erp-teklif-ui): teklif yonetimi, erp adaptorleri (logo, zirve, akinsoft) ve gorunum profilleri eklendi | 🟢 Pushed |
 | `21f1590` | 2026-08-02 19:15:12 +0300 | `feat/teklif-ve-erp-entegrasyonu` | fix(ui): stok detay ve uygulama genelindeki QComboBox drop-down menu stilleri duzeltildi | 🟢 Pushed |
@@ -33,7 +34,6 @@
 | `76596f1` | 2026-07-21 21:08:33 +0300 | `feat/teklif-ve-erp-entegrasyonu` | feat: Profil butonlarina simgeler eklendi, en son aktif profil ust siraya alindi ve ayni isimle kayitta onay sorulmasi saglandi | 🟢 Pushed |
 | `bd2d762` | 2026-07-21 18:09:58 +0300 | `feat/teklif-ve-erp-entegrasyonu` | feat: Sutun surukleme, siralama ok ikonlari, profil yukleme hata duzeltmeleri ve Genel Ayarlar sekmesi entegrasyonu | 🟢 Pushed |
 | `6bd3765` | 2026-07-21 17:53:10 +0300 | `feat/teklif-ve-erp-entegrasyonu` | feat: Filtre alani QScrollArea entegrasyonu ile kusursuz yatay kaydirma senkronizasyonu saglandi | 🟢 Pushed |
-| `0c95f7b` | 2026-07-21 17:17:38 +0300 | `feat/teklif-ve-erp-entegrasyonu` | fix: Tablo sutun cizgileri gorunur kilindi ve resizeEvent ile filtre genislik senkronizasyonu saglandi | 🟢 Pushed |
 
 ---
 *Bu rapor `git_tracker.db` SQLite veritabanı verilerinden otomatik üretilmiştir.*

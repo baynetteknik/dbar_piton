@@ -28,11 +28,16 @@ from PyQt6.QtWidgets import (
 from src.core.models import Site, User
 from src.desktop.ui.components.edge_panel import EdgeTriggeredPanel
 from src.desktop.ui.components.filterable_table import FilterableTableView
+from src.desktop.ui.components.git_tracker_widget import GitTrackerWidget
+from src.desktop.ui.components.layout_hint_helper import (
+    is_layout_hints_enabled,
+    register_layout_hint,
+    set_layout_hints_enabled,
+)
 from src.desktop.ui.components.text_selection_helper import (
     is_global_text_selection_enabled,
     set_global_text_selection_enabled,
 )
-from src.desktop.ui.components.git_tracker_widget import GitTrackerWidget
 from src.desktop.ui.sites import SitesWidget
 
 logger = logging.getLogger(__name__)
@@ -45,15 +50,18 @@ class SettingsWidget(QTabWidget):
         super().__init__(parent)
         self.db = db_session
         self.init_ui()
+        register_layout_hint(self, "Ayarlar", "Genel Ayarlar Sekmeli Panel")
 
     def init_ui(self):
         # 1. Firma Tanımları Sekmesi
         self.sites_tab = SitesWidget(self.db)
         self.addTab(self.sites_tab, "🏢 Firma Tanımları")
+        register_layout_hint(self.sites_tab, "Ayarlar", "Firma Tanımları Sekmesi")
 
         # 2. Kullanıcı Tanımları Sekmesi
         self.users_tab = UserManagementWidget(self.db)
         self.addTab(self.users_tab, "👥 Kullanıcı Tanımları")
+        register_layout_hint(self.users_tab, "Ayarlar", "Kullanıcı Tanımları Sekmesi")
 
         # Firma güncellendiğinde kullanıcı sekmesindeki firma yetkileri listesi tazelensin
         self.sites_tab.sites_updated.connect(self.users_tab.load_sites)
@@ -61,15 +69,24 @@ class SettingsWidget(QTabWidget):
         # 3. Görünüm Profilleri Sekmesi
         self.view_settings_tab = ViewSettingsWidget()
         self.addTab(self.view_settings_tab, "🎨 Görünüm Profilleri")
+        register_layout_hint(self.view_settings_tab, "Ayarlar", "Görünüm Profilleri Sekmesi")
 
         # 4. Git & Görev Takibi Sekmesi
         self.git_tracker_tab = GitTrackerWidget()
         self.addTab(self.git_tracker_tab, "📊 Sürüm & Git Takibi")
+        register_layout_hint(self.git_tracker_tab, "Ayarlar", "Sürüm & Git Takibi Sekmesi")
 
-        # Üst Sağ Köşe: Tüm Yazıları Seçilebilir / Kopyalanabilir Yap Onay Kutusu
+        # Üst Sağ Köşe: Seçilebilir Metin & Modül İsim İpuçları Onay Kutuları
         corner_widget = QWidget()
         corner_lyt = QHBoxLayout(corner_widget)
         corner_lyt.setContentsMargins(0, 0, 10, 0)
+        corner_lyt.setSpacing(12)
+
+        self.chk_layout_hints = QCheckBox("🏷️ Modül / Bölüm İsim İpuçlarını (Layout Hints) Göster")
+        self.chk_layout_hints.setStyleSheet("font-weight: bold; color: #15803d; font-size: 11px;")
+        self.chk_layout_hints.setChecked(is_layout_hints_enabled())
+        self.chk_layout_hints.toggled.connect(self.on_layout_hints_toggled)
+        corner_lyt.addWidget(self.chk_layout_hints)
 
         self.chk_global_text_select = QCheckBox("🔍 Tüm Yazıları Seçilebilir/Kopyalanabilir Yap")
         self.chk_global_text_select.setStyleSheet("font-weight: bold; color: #1e3a8a; font-size: 11px;")
@@ -78,6 +95,9 @@ class SettingsWidget(QTabWidget):
         corner_lyt.addWidget(self.chk_global_text_select)
 
         self.setCornerWidget(corner_widget)
+
+    def on_layout_hints_toggled(self, checked: bool):
+        set_layout_hints_enabled(checked)
 
     def on_text_selection_toggled(self, checked: bool):
         set_global_text_selection_enabled(checked)

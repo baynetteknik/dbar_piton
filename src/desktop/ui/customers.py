@@ -30,8 +30,12 @@ from src.core.importer import CUSTOMER_FIELDS, export_to_excel_file
 from src.core.models import Customer, Site
 from src.core.repository import SqliteCustomerRepository
 from src.core.sync.customer_sync import CustomerSyncEngine
+from src.desktop.managers.profile_manager import ProfileManager
+from src.desktop.ui.components.collapsible_section import CollapsibleSection
+from src.desktop.ui.components.dia_3_panel_base import DIA3PanelBaseWidget
 from src.desktop.ui.components.edge_panel import EdgeTriggeredPanel
 from src.desktop.ui.components.filterable_table import FilterableTableView
+from src.desktop.ui.components.layout_hint_helper import register_layout_hint
 from src.desktop.ui.import_dialog import ExcelImportDialog
 
 
@@ -54,6 +58,7 @@ class CustomerDialog(QDialog):
             self.setWindowTitle(self.tr("Yeni Cari Kart Ekle"))
         self.setMinimumWidth(850)
         self.setMinimumHeight(650)
+        register_layout_hint(self, "Cari Kart Formu", "Cari Ekle/Düzenle Diyaloğu")
         self.init_ui()
         if self.customer_id or self.remote_id:
             self.load_customer_data()
@@ -66,6 +71,7 @@ class CustomerDialog(QDialog):
         # SOL TARAF: Sekmeler (TabWidget)
         left_layout = QVBoxLayout()
         self.tabs = QTabWidget()
+        register_layout_hint(self.tabs, "Cari Kart Formu", "Form Sekmeleri Kapsayıcısı")
         self.tabs.setStyleSheet("""
             QTabWidget::panel {
                 border: 1px solid #cbd5e1;
@@ -91,6 +97,7 @@ class CustomerDialog(QDialog):
 
         # Sekme 1: Genel Bilgiler
         tab_general = QWidget()
+        register_layout_hint(tab_general, "Cari Kart Formu", "Genel Bilgiler Sekmesi")
         tab_general_layout = QVBoxLayout(tab_general)
         tab_general_layout.setSpacing(12)
 
@@ -288,35 +295,55 @@ class CustomerDialog(QDialog):
         btn_group_layout = QHBoxLayout()
         btn_group_layout.setSpacing(8)
         
-        self.btn_save = QPushButton("💾 Kaydet")
+        self.btn_save = QPushButton("💾 Kaydet (F2)")
+        self.btn_save.setShortcut("F2")
         self.btn_save.setStyleSheet("""
             QPushButton {
                 background-color: #10b981;
                 color: white;
                 border: none;
                 border-radius: 6px;
-                padding: 10px 24px;
+                padding: 10px 18px;
                 font-weight: bold;
+                font-size: 12px;
             }
             QPushButton:hover { background-color: #059669; }
         """)
         self.btn_save.clicked.connect(self.save_customer)
 
-        self.btn_cancel = QPushButton("✖ Vazgeç")
+        self.btn_save_new = QPushButton("➕ Kaydet & Yeni")
+        self.btn_save_new.setStyleSheet("""
+            QPushButton {
+                background-color: #3b82f6;
+                color: white;
+                border: none;
+                border-radius: 6px;
+                padding: 10px 18px;
+                font-weight: bold;
+                font-size: 12px;
+            }
+            QPushButton:hover { background-color: #2563eb; }
+        """)
+        self.btn_save_new.clicked.connect(self.save_and_new_customer)
+
+        self.btn_cancel = QPushButton("✖ Vazgeç (Esc)")
+        self.btn_cancel.setShortcut("Esc")
         self.btn_cancel.setStyleSheet("""
             QPushButton {
                 background-color: #64748b;
                 color: white;
                 border: none;
                 border-radius: 6px;
-                padding: 10px 24px;
+                padding: 10px 18px;
                 font-weight: bold;
+                font-size: 12px;
             }
             QPushButton:hover { background-color: #475569; }
         """)
         self.btn_cancel.clicked.connect(self.reject)
 
         btn_group_layout.addWidget(self.btn_save)
+        btn_group_layout.addWidget(self.btn_save_new)
         btn_group_layout.addWidget(self.btn_cancel)
         btn_group_layout.addStretch()
         
@@ -326,6 +353,7 @@ class CustomerDialog(QDialog):
         # SAĞ TARAF: Profil Resmi (Avatar) & Fotoğraf Paneli
         right_panel = QFrame()
         right_panel.setObjectName("RightPanel")
+        register_layout_hint(right_panel, "Cari Kart Formu", "Sağ Fotoğraf & Avatar Paneli")
         right_panel.setStyleSheet("""
             QFrame#RightPanel {
                 background-color: #f8fafc;
@@ -567,9 +595,35 @@ class CustomerDialog(QDialog):
                     self.db.add(changelog)
                 self.db.commit()
 
-            self.accept()
+            if close_on_success:
+                self.accept()
+            return True
         except Exception as e:
             QMessageBox.critical(self, self.tr("Hata"), f"Cari kart kaydedilemedi: {e}")
+            return False
+
+    def save_and_new_customer(self):
+        """Kaydeder ve formu sıfırlayarak yeni kayıt için hazır bekletir."""
+        if self.save_customer(close_on_success=False):
+            # Formu sıfırla ve yeni kayda hazırla
+            self.customer_id = None
+            self.remote_id = None
+            self.setWindowTitle(self.tr("Yeni Cari Kart Ekle"))
+            self.txt_code.clear()
+            self.txt_fullname.clear()
+            self.txt_authorized.clear()
+            self.txt_nickname.clear()
+            self.txt_phone1.clear()
+            self.txt_phone2.clear()
+            self.txt_email.clear()
+            self.txt_address.clear()
+            self.txt_tax_number.clear()
+            self.txt_tax_office.clear()
+            self.txt_notes.clear()
+            self.photo_path = None
+            self.set_default_avatar()
+            self.tabs.setCurrentIndex(0)
+            self.txt_fullname.setFocus()
 
 
 class SyncWorker(QThread):
@@ -930,21 +984,14 @@ class SyncDialog(QDialog):
                 QMessageBox.critical(self, "Hata", "Geri alma işlemi sırasında bir hata oluştu.")
 
 
-class MusteriYonetimiWidget(QWidget):
+class MusteriYonetimiWidget(DIA3PanelBaseWidget):
     """DIA stiline, sayfalama yapısına (lazy loading) ve Dolibarr pull/push senkronizasyon özelliklerine sahip Cari Yönetim paneli."""
 
     toast_requested = pyqtSignal(str, str) # message, type
 
     def __init__(self, db_session, company_id: int):
-        super().__init__()
-        self.db = db_session
         self.company_id = company_id
         self.hidden_columns = set()
-        
-        # Sayfalama Değişkenleri (Lazy Load)
-        self.current_page = 1
-        self.per_page = 25
-        self.total_records = 0
         
         # Arka planda senkronizasyon değişkenleri (Singleton / Persistent Worker)
         self.active_sync_worker = None
@@ -954,8 +1001,16 @@ class MusteriYonetimiWidget(QWidget):
         self.sync_selected_ids = None
         self.sync_strategy = "ignore"
         self.sync_site_id = 1
-        
-        self.headers_dict = {
+
+        super().__init__(
+            db_session=db_session,
+            profile_key="customers",
+            module_name="Müşteri / Cari Yönetimi",
+        )
+        register_layout_hint(self, "Müşteri Yönetimi", "Cari Yönetim Ana Ekranı")
+
+    def setup_headers_dict(self):
+        return {
             0: ("ID", "id"),
             1: ("Cari Kodu", "customer_code"),
             2: ("Ticari Ünvan", "fullname"),
@@ -973,44 +1028,15 @@ class MusteriYonetimiWidget(QWidget):
             14: ("Özel Kod 2", "special_code_2"),
             15: ("Özel Kod 3", "special_code_3"),
         }
-        
-        self.init_ui()
 
-    def init_ui(self):
+    def init_base_ui(self):
+        # Profil Yöneticisi
+        self.profile_manager = ProfileManager(profile_key="customers")
+
         # Ana Yatay Layout (Sol Panel, Orta Tablo, Sağ Panel)
         main_layout = QHBoxLayout(self)
         main_layout.setContentsMargins(10, 10, 10, 10)
         main_layout.setSpacing(5)
-
-        # Sol Filtre Paneli (Edge-Triggered Overlay/Dock)
-        self.left_panel = EdgeTriggeredPanel(side="left", parent=self)
-        self.left_panel.pinned_changed.connect(self.on_panel_pin_changed)
-        
-        self.filter_frame = QFrame()
-        self.filter_frame.setStyleSheet("background-color: transparent; border: none;")
-        filter_lyt = QVBoxLayout(self.filter_frame)
-        filter_lyt.setContentsMargins(0, 0, 0, 0)
-        filter_lyt.setSpacing(8)
-
-        # Genel Arama
-        lbl_search = QLabel("Ünvan / Kod Arama:")
-        lbl_search.setStyleSheet("font-weight: bold; color: #0f172a; font-size: 11px;")
-        self.search_box = QLineEdit()
-        self.search_box.setObjectName("SearchBox")
-        self.search_box.setPlaceholderText(self.tr("Hızlı ara..."))
-        self.search_box.textChanged.connect(self.on_search_changed)
-        self.search_box.setStyleSheet("""
-            QLineEdit {
-                border: 1px solid #cbd5e1;
-                border-radius: 6px;
-                padding: 6px 10px;
-                font-size: 12px;
-                background-color: white;
-                color: #0f172a;
-            }
-        """)
-        filter_lyt.addWidget(lbl_search)
-        filter_lyt.addWidget(self.search_box)
 
         combo_style = """
             QComboBox, QLineEdit {
@@ -1042,58 +1068,131 @@ class MusteriYonetimiWidget(QWidget):
             }
         """
 
-        # Grubu Filtresi
-        lbl_group = QLabel("Grubu:")
-        lbl_group.setStyleSheet("font-weight: bold; color: #0f172a; font-size: 11px;")
-        self.cmb_filter_group = QComboBox()
-        self.cmb_filter_group.setObjectName("FilterGroupCombo")
-        self.cmb_filter_group.addItems(["Tümü", "ALICI", "SATICI", "ALICI / SATICI", "POTANSİYEL"])
-        self.cmb_filter_group.currentTextChanged.connect(self.on_search_changed)
-        self.cmb_filter_group.setStyleSheet(combo_style)
-        filter_lyt.addWidget(lbl_group)
-        filter_lyt.addWidget(self.cmb_filter_group)
+        # ---------------------------------------------------------
+        # 1. SOL PANEL: PROFİLLER & KART İŞLEMLERİ (EdgeTriggeredPanel)
+        # ---------------------------------------------------------
+        self.left_panel = EdgeTriggeredPanel(side="left", parent=self)
+        self.left_panel.pinned_changed.connect(self.on_panel_pin_changed)
+        register_layout_hint(self.left_panel, "Müşteri Yönetimi", "Sol Kart İşlemleri Paneli")
 
-        # Durumu Filtresi
-        lbl_status = QLabel("Durum:")
-        lbl_status.setStyleSheet("font-weight: bold; color: #0f172a; font-size: 11px;")
-        self.cmb_filter_status = QComboBox()
-        self.cmb_filter_status.setObjectName("FilterStatusCombo")
-        self.cmb_filter_status.addItem("Tümü", -1)
-        self.cmb_filter_status.addItem("Aktif", 1)
-        self.cmb_filter_status.addItem("Pasif", 0)
-        self.cmb_filter_status.currentIndexChanged.connect(self.on_search_changed)
-        self.cmb_filter_status.setStyleSheet(combo_style)
-        filter_lyt.addWidget(lbl_status)
-        filter_lyt.addWidget(self.cmb_filter_status)
+        left_scroll = QScrollArea()
+        left_scroll.setWidgetResizable(True)
+        left_scroll.setStyleSheet("QScrollArea { border: none; background: transparent; }")
 
-        # Mecra Filtresi
-        lbl_marketplace = QLabel("Mecra:")
-        lbl_marketplace.setStyleSheet("font-weight: bold; color: #0f172a; font-size: 11px;")
-        self.cmb_filter_marketplace = QComboBox()
-        self.cmb_filter_marketplace.setObjectName("FilterMarketplaceCombo")
-        self.cmb_filter_marketplace.addItems(["Tümü", "LOCAL", "DOLIBARR"])
-        self.cmb_filter_marketplace.currentTextChanged.connect(self.on_search_changed)
-        self.cmb_filter_marketplace.setStyleSheet(combo_style)
-        filter_lyt.addWidget(lbl_marketplace)
-        filter_lyt.addWidget(self.cmb_filter_marketplace)
+        self.toolbar_frame = QFrame()
+        self.toolbar_frame.setStyleSheet("background-color: transparent; border: none;")
+        toolbar_lyt = QVBoxLayout(self.toolbar_frame)
+        toolbar_lyt.setContentsMargins(0, 0, 0, 0)
+        toolbar_lyt.setSpacing(8)
 
-        # Özel Kod 1 Filtresi
-        lbl_code1 = QLabel("Özel Kod 1:")
-        lbl_code1.setStyleSheet("font-weight: bold; color: #0f172a; font-size: 11px;")
-        self.txt_filter_code1 = QLineEdit()
-        self.txt_filter_code1.setObjectName("FilterCode1")
-        self.txt_filter_code1.setPlaceholderText("Kod süz...")
-        self.txt_filter_code1.textChanged.connect(self.on_search_changed)
-        self.txt_filter_code1.setStyleSheet(combo_style)
-        filter_lyt.addWidget(lbl_code1)
-        filter_lyt.addWidget(self.txt_filter_code1)
-        filter_lyt.addStretch()
+        # 1. GRUP: GÖRÜNÜM PROFİLLERİ (Açılır/Kapanır Akordiyon)
+        self.sec_profiles = CollapsibleSection("GÖRÜNÜM PROFİLLERİ", is_expanded=True)
+        
+        lbl_prof = QLabel("Aktif Profil:")
+        lbl_prof.setStyleSheet("font-weight: bold; color: #475569; font-size: 11px;")
+        self.combo_sidebar_profiles = QComboBox()
+        self.combo_sidebar_profiles.setStyleSheet(combo_style)
+        self.combo_sidebar_profiles.currentTextChanged.connect(self._on_sidebar_profile_changed)
+        
+        prof_btn_lyt = QHBoxLayout()
+        prof_btn_lyt.setSpacing(4)
+        btn_save_prof = QPushButton("💾 Kaydet")
+        btn_save_prof.setStyleSheet(self.toolbar_btn_style())
+        btn_save_prof.clicked.connect(self.save_current_profile)
+        
+        btn_manage_prof = QPushButton("⚙️ Sütunlar")
+        btn_manage_prof.setStyleSheet(self.toolbar_btn_style())
+        btn_manage_prof.clicked.connect(self.open_column_manager)
+        
+        prof_btn_lyt.addWidget(btn_save_prof)
+        prof_btn_lyt.addWidget(btn_manage_prof)
+        
+        self.sec_profiles.add_widget(lbl_prof)
+        self.sec_profiles.add_widget(self.combo_sidebar_profiles)
+        self.sec_profiles.add_layout(prof_btn_lyt)
+        toolbar_lyt.addWidget(self.sec_profiles)
 
-        self.left_panel.set_content(self.filter_frame)
+        # 2. GRUP: KART İŞLEMLERİ (Açılır/Kapanır Akordiyon)
+        self.sec_card_actions = CollapsibleSection("KART İŞLEMLERİ", is_expanded=True)
 
-        # ORTA PANEL: Tablo, Sync Paneli ve Sayfalama
+        btn_new = QPushButton("➕ Yeni (F3)")
+        btn_new.setShortcut("F3")
+        btn_new.setObjectName("BtnNewCustomer")
+        btn_new.setStyleSheet(self.toolbar_btn_style())
+        btn_new.clicked.connect(self.open_new_customer_dialog)
+        
+        btn_edit = QPushButton("✏️ Değiştir (F4)")
+        btn_edit.setShortcut("F4")
+        btn_edit.setObjectName("BtnEditCustomer")
+        btn_edit.setStyleSheet(self.toolbar_btn_style())
+        btn_edit.clicked.connect(self.open_edit_customer_dialog)
+        
+        btn_copy = QPushButton("📋 Kopyala")
+        btn_copy.setObjectName("BtnCopyCustomer")
+        btn_copy.setStyleSheet(self.toolbar_btn_style())
+        btn_copy.clicked.connect(self.copy_customer)
+
+        btn_delete = QPushButton("❌ Sil (Del)")
+        btn_delete.setObjectName("BtnDeleteCustomer")
+        btn_delete.setStyleSheet(self.toolbar_btn_style())
+        btn_delete.clicked.connect(self.delete_customer)
+        
+        btn_toggle_status = QPushButton("🔌 Durum")
+        btn_toggle_status.setObjectName("BtnToggleStatus")
+        btn_toggle_status.setStyleSheet(self.toolbar_btn_style())
+        btn_toggle_status.clicked.connect(self.toggle_customer_status)
+
+        btn_print = QPushButton("🖨️ Yazdır (F9)")
+        btn_print.setObjectName("BtnPrintCustomer")
+        btn_print.setStyleSheet(self.toolbar_btn_style())
+        btn_print.clicked.connect(self.export_customers)
+
+        btn_bulk_delete = QPushButton("🗑️ Toplu Sil")
+        btn_bulk_delete.setObjectName("BtnBulkDelete")
+        btn_bulk_delete.setStyleSheet(self.toolbar_btn_style())
+        btn_bulk_delete.clicked.connect(self.bulk_delete_customers)
+
+        # Kapat Butonu (Sol Menü Altı)
+        btn_close = QPushButton("🚪 Kapat")
+        btn_close.setObjectName("BtnCloseTab")
+        btn_close.setStyleSheet("""
+            QPushButton {
+                background-color: #fee2e2;
+                border: 1px solid #fca5a5;
+                border-radius: 6px;
+                padding: 4px 8px;
+                font-family: 'Segoe UI';
+                font-size: 11px;
+                color: #991b1b;
+                font-weight: bold;
+                text-align: center;
+                min-height: 28px;
+            }
+            QPushButton:hover { background-color: #fca5a5; }
+        """)
+        btn_close.clicked.connect(self.close_tab)
+
+        self.sec_card_actions.add_widget(btn_new)
+        self.sec_card_actions.add_widget(btn_edit)
+        self.sec_card_actions.add_widget(btn_copy)
+        self.sec_card_actions.add_widget(btn_delete)
+        self.sec_card_actions.add_widget(btn_toggle_status)
+        self.sec_card_actions.add_widget(btn_print)
+        self.sec_card_actions.add_widget(btn_bulk_delete)
+        self.sec_card_actions.add_widget(btn_close)
+        toolbar_lyt.addWidget(self.sec_card_actions)
+        toolbar_lyt.addStretch()
+
+        left_scroll.setWidget(self.toolbar_frame)
+        self.left_panel.set_content(left_scroll)
+        main_layout.addWidget(self.left_panel)
+
+        # ---------------------------------------------------------
+        # 2. ORTA PANEL: DATA GRID (FilterableTableView & Sayfalama)
+        # ---------------------------------------------------------
         self.center_container = QWidget()
         self.center_container.setObjectName("CenterContainer")
+        register_layout_hint(self.center_container, "Müşteri Yönetimi", "Orta Tablo Paneli")
         center_layout = QVBoxLayout(self.center_container)
         center_layout.setContentsMargins(5, 0, 5, 0)
         center_layout.setSpacing(8)
@@ -1137,6 +1236,7 @@ class MusteriYonetimiWidget(QWidget):
         center_layout.addWidget(self.sync_status_panel)
 
         # Dinamik Filtrelenebilir Tablo (FilterableTableView)
+        # NOT: enable_profile_bar=False -> Navbar ile body arasındaki profil barı kaldırıldı
         self.filterable_table = FilterableTableView(
             headers_dict=self.headers_dict,
             profile_key="customers",
@@ -1144,7 +1244,7 @@ class MusteriYonetimiWidget(QWidget):
             parent=self,
         )
         self.filterable_table.setObjectName("FilterableTable")
-        self.table = self.filterable_table.table_view  # Geriye dönük uyumluluk için atama yapıyoruz
+        self.table = self.filterable_table.table_view
         
         self.customer_model = QStandardItemModel(self)
         headers = [self.headers_dict[i][0] for i in sorted(self.headers_dict.keys())]
@@ -1162,6 +1262,7 @@ class MusteriYonetimiWidget(QWidget):
         self.table.horizontalHeader().setSectionsMovable(True)
         self.table.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.table.customContextMenuRequested.connect(self.show_table_context_menu)
+        self.table.doubleClicked.connect(self.open_edit_customer_dialog)
         
         self.table.setStyleSheet("""
             QTableView {
@@ -1189,16 +1290,6 @@ class MusteriYonetimiWidget(QWidget):
                 border-right: 1px solid #cbd5e1;
                 border-bottom: 2px solid #cbd5e1;
                 font-weight: bold;
-            }
-            QHeaderView::up-arrow {
-                width: 10px;
-                height: 10px;
-                padding-right: 4px;
-            }
-            QHeaderView::down-arrow {
-                width: 10px;
-                height: 10px;
-                padding-right: 4px;
             }
         """)
         self.filterable_table.filter_changed.connect(self.on_table_filter_changed)
@@ -1255,7 +1346,6 @@ class MusteriYonetimiWidget(QWidget):
                 border: none;
             }
         """)
-        # Varsayılan değere uygun elemanı seç
         for i in range(self.combo_page_size.count()):
             if str(self.per_page) in self.combo_page_size.itemText(i):
                 self.combo_page_size.setCurrentIndex(i)
@@ -1286,138 +1376,119 @@ class MusteriYonetimiWidget(QWidget):
         self.pagination_layout.addWidget(QLabel("Adet:"))
         self.pagination_layout.addWidget(self.combo_page_size)
         center_layout.addLayout(self.pagination_layout)
+        main_layout.addWidget(self.center_container, 1)
 
-        # Sağ Panel: İşlem ve Kolon Yönetimi (Edge-Triggered Overlay/Dock)
+        # ---------------------------------------------------------
+        # 3. SAĞ PANEL: FİLTRELER & DOSYA / SENKRON (EdgeTriggeredPanel)
+        # ---------------------------------------------------------
         self.right_panel = EdgeTriggeredPanel(side="right", parent=self)
         self.right_panel.pinned_changed.connect(self.on_panel_pin_changed)
+        register_layout_hint(self.right_panel, "Müşteri Yönetimi", "Sağ Filtreler ve Dosya Paneli")
 
         right_scroll = QScrollArea()
         right_scroll.setWidgetResizable(True)
         right_scroll.setStyleSheet("QScrollArea { border: none; background: transparent; }")
 
-        self.toolbar_frame = QFrame()
-        self.toolbar_frame.setStyleSheet("background-color: transparent; border: none;")
-        toolbar_lyt = QVBoxLayout(self.toolbar_frame)
-        toolbar_lyt.setContentsMargins(0, 0, 0, 0)
-        toolbar_lyt.setSpacing(6)
+        self.filter_frame = QFrame()
+        self.filter_frame.setStyleSheet("background-color: transparent; border: none;")
+        filter_lyt = QVBoxLayout(self.filter_frame)
+        filter_lyt.setContentsMargins(0, 0, 0, 0)
+        filter_lyt.setSpacing(8)
 
-        # 1. Grup: Veri İşlemleri
-        grp_data = QFrame()
-        grp_data.setStyleSheet("background-color: white; border: 1px solid #cbd5e1; border-radius: 6px;")
-        grp_data_lyt = QVBoxLayout(grp_data)
-        grp_data_lyt.setContentsMargins(4, 6, 4, 6)
-        grp_data_lyt.setSpacing(4)
-        
-        lbl_grp_data = QLabel("VERİ")
-        lbl_grp_data.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        lbl_grp_data.setStyleSheet("font-weight: 800; color: #1e3a8a; font-size: 9px; border: none; background: transparent;")
-        grp_data_lyt.addWidget(lbl_grp_data)
+        # 1. GRUP: FİLTRELER (Açılır/Kapanır Akordiyon)
+        self.sec_filters = CollapsibleSection("FİLTRELER", is_expanded=True)
 
-        btn_new = QPushButton("➕ Yeni")
-        btn_new.setObjectName("BtnNewCustomer")
-        btn_new.setStyleSheet(self.toolbar_btn_style())
-        btn_new.clicked.connect(self.open_new_customer_dialog)
-        
-        btn_edit = QPushButton("✏️ Değiştir")
-        btn_edit.setObjectName("BtnEditCustomer")
-        btn_edit.setStyleSheet(self.toolbar_btn_style())
-        btn_edit.clicked.connect(self.open_edit_customer_dialog)
-        
-        btn_delete = QPushButton("❌ Sil")
-        btn_delete.setObjectName("BtnDeleteCustomer")
-        btn_delete.setStyleSheet(self.toolbar_btn_style())
-        btn_delete.clicked.connect(self.delete_customer)
-        
-        btn_copy = QPushButton("📋 Kopyala")
-        btn_copy.setObjectName("BtnCopyCustomer")
-        btn_copy.setStyleSheet(self.toolbar_btn_style())
-        btn_copy.clicked.connect(self.copy_customer)
-        
-        btn_toggle_status = QPushButton("🔌 Durum")
-        btn_toggle_status.setObjectName("BtnToggleStatus")
-        btn_toggle_status.setStyleSheet(self.toolbar_btn_style())
-        btn_toggle_status.clicked.connect(self.toggle_customer_status)
+        # Genel Arama
+        lbl_search = QLabel("Ünvan / Kod:")
+        lbl_search.setStyleSheet("font-weight: bold; color: #0f172a; font-size: 11px;")
+        self.search_box = QLineEdit()
+        self.search_box.setObjectName("SearchBox")
+        self.search_box.setPlaceholderText(self.tr("Hızlı ara..."))
+        self.search_box.textChanged.connect(self.on_search_changed)
+        self.search_box.setStyleSheet(combo_style)
+        self.sec_filters.add_widget(lbl_search)
+        self.sec_filters.add_widget(self.search_box)
 
-        btn_bulk_delete = QPushButton("🗑️ Toplu Sil")
-        btn_bulk_delete.setObjectName("BtnBulkDelete")
-        btn_bulk_delete.setStyleSheet(self.toolbar_btn_style())
-        btn_bulk_delete.clicked.connect(self.bulk_delete_customers)
+        # Grubu Filtresi
+        lbl_group = QLabel("Grubu:")
+        lbl_group.setStyleSheet("font-weight: bold; color: #0f172a; font-size: 11px;")
+        self.cmb_filter_group = QComboBox()
+        self.cmb_filter_group.setObjectName("FilterGroupCombo")
+        self.cmb_filter_group.addItems(["Tümü", "ALICI", "SATICI", "ALICI / SATICI", "POTANSİYEL"])
+        self.cmb_filter_group.currentTextChanged.connect(self.on_search_changed)
+        self.cmb_filter_group.setStyleSheet(combo_style)
+        self.sec_filters.add_widget(lbl_group)
+        self.sec_filters.add_widget(self.cmb_filter_group)
 
-        grp_data_lyt.addWidget(btn_new)
-        grp_data_lyt.addWidget(btn_edit)
-        grp_data_lyt.addWidget(btn_delete)
-        grp_data_lyt.addWidget(btn_copy)
-        grp_data_lyt.addWidget(btn_toggle_status)
-        grp_data_lyt.addWidget(btn_bulk_delete)
-        toolbar_lyt.addWidget(grp_data)
+        # Durumu Filtresi
+        lbl_status = QLabel("Durum:")
+        lbl_status.setStyleSheet("font-weight: bold; color: #0f172a; font-size: 11px;")
+        self.cmb_filter_status = QComboBox()
+        self.cmb_filter_status.setObjectName("FilterStatusCombo")
+        self.cmb_filter_status.addItem("Tümü", -1)
+        self.cmb_filter_status.addItem("Aktif", 1)
+        self.cmb_filter_status.addItem("Pasif", 0)
+        self.cmb_filter_status.currentIndexChanged.connect(self.on_search_changed)
+        self.cmb_filter_status.setStyleSheet(combo_style)
+        self.sec_filters.add_widget(lbl_status)
+        self.sec_filters.add_widget(self.cmb_filter_status)
 
-        # 2. Grup: Senkronizasyon & Dışa Aktarım
-        grp_sync = QFrame()
-        grp_sync.setStyleSheet("background-color: white; border: 1px solid #cbd5e1; border-radius: 6px;")
-        grp_sync_lyt = QVBoxLayout(grp_sync)
-        grp_sync_lyt.setContentsMargins(4, 6, 4, 6)
-        grp_sync_lyt.setSpacing(4)
-        
-        lbl_grp_sync = QLabel("SENK/DOSYA")
-        lbl_grp_sync.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        lbl_grp_sync.setStyleSheet("font-weight: 800; color: #1e3a8a; font-size: 9px; border: none; background: transparent;")
-        grp_sync_lyt.addWidget(lbl_grp_sync)
+        # Mecra Filtresi
+        lbl_marketplace = QLabel("Mecra:")
+        lbl_marketplace.setStyleSheet("font-weight: bold; color: #0f172a; font-size: 11px;")
+        self.cmb_filter_marketplace = QComboBox()
+        self.cmb_filter_marketplace.setObjectName("FilterMarketplaceCombo")
+        self.cmb_filter_marketplace.addItems(["Tümü", "LOCAL", "DOLIBARR"])
+        self.cmb_filter_marketplace.currentTextChanged.connect(self.on_search_changed)
+        self.cmb_filter_marketplace.setStyleSheet(combo_style)
+        self.sec_filters.add_widget(lbl_marketplace)
+        self.sec_filters.add_widget(self.cmb_filter_marketplace)
 
-        btn_pull = QPushButton("🔄 Çek")
-        btn_pull.setObjectName("BtnPull")
-        btn_pull.setStyleSheet(self.toolbar_btn_style())
-        btn_pull.clicked.connect(self.trigger_pull)
+        # Özel Kod 1 Filtresi
+        lbl_code1 = QLabel("Özel Kod 1:")
+        lbl_code1.setStyleSheet("font-weight: bold; color: #0f172a; font-size: 11px;")
+        self.txt_filter_code1 = QLineEdit()
+        self.txt_filter_code1.setObjectName("FilterCode1")
+        self.txt_filter_code1.setPlaceholderText("Kod süz...")
+        self.txt_filter_code1.textChanged.connect(self.on_search_changed)
+        self.txt_filter_code1.setStyleSheet(combo_style)
+        self.sec_filters.add_widget(lbl_code1)
+        self.sec_filters.add_widget(self.txt_filter_code1)
+        filter_lyt.addWidget(self.sec_filters)
 
-        btn_push = QPushButton("🚀 Gönder")
-        btn_push.setObjectName("BtnPush")
-        btn_push.setStyleSheet(self.toolbar_btn_style())
-        btn_push.clicked.connect(self.trigger_push)
-        
-        btn_import = QPushButton("📥 İçe Aktar")
+        # 2. GRUP: DOSYA & AKTARIM (Açılır/Kapanır Akordiyon)
+        self.sec_sync = CollapsibleSection("DOSYA & AKTARIM", is_expanded=True)
+
+        btn_import = QPushButton("📥 İçe Aktar (Excel)")
         btn_import.setObjectName("BtnImport")
         btn_import.setStyleSheet(self.toolbar_btn_style())
         btn_import.clicked.connect(self.open_import_dialog)
         
-        btn_export = QPushButton("📤 Excel")
+        btn_export = QPushButton("📤 Dışa Aktar (Excel)")
         btn_export.setObjectName("BtnExport")
         btn_export.setStyleSheet(self.toolbar_btn_style())
         btn_export.clicked.connect(self.export_customers)
 
-        grp_sync_lyt.addWidget(btn_pull)
-        grp_sync_lyt.addWidget(btn_push)
-        grp_sync_lyt.addWidget(btn_import)
-        grp_sync_lyt.addWidget(btn_export)
-        toolbar_lyt.addWidget(grp_sync)
+        btn_pull = QPushButton("🔄 Çek (Dolibarr)")
+        btn_pull.setObjectName("BtnPull")
+        btn_pull.setStyleSheet(self.toolbar_btn_style())
+        btn_pull.clicked.connect(self.trigger_pull)
 
+        btn_push = QPushButton("🚀 Gönder (Dolibarr)")
+        btn_push.setObjectName("BtnPush")
+        btn_push.setStyleSheet(self.toolbar_btn_style())
+        btn_push.clicked.connect(self.trigger_push)
 
+        self.sec_sync.add_widget(btn_import)
+        self.sec_sync.add_widget(btn_export)
+        self.sec_sync.add_widget(btn_pull)
+        self.sec_sync.add_widget(btn_push)
+        filter_lyt.addWidget(self.sec_sync)
+        filter_lyt.addStretch()
 
-        # Kapat Butonu
-        btn_close = QPushButton("🚪 Kapat")
-        btn_close.setObjectName("BtnCloseTab")
-        btn_close.setStyleSheet("""
-            QPushButton {
-                background-color: #fee2e2;
-                border: 1px solid #fca5a5;
-                border-radius: 6px;
-                padding: 4px 8px;
-                font-family: 'Segoe UI';
-                font-size: 11px;
-                color: #991b1b;
-                font-weight: bold;
-                text-align: center;
-                min-height: 28px;
-            }
-            QPushButton:hover { background-color: #fca5a5; }
-        """)
-        btn_close.clicked.connect(self.close_tab)
-        toolbar_lyt.addWidget(btn_close)
-        
-        toolbar_lyt.addStretch()
-        right_scroll.setWidget(self.toolbar_frame)
+        right_scroll.setWidget(self.filter_frame)
         self.right_panel.set_content(right_scroll)
-
-        # Başlangıçta panelleri ana layout'a varsayılan olarak ekleme (Overlay olarak başlayacaklar)
-        main_layout.addWidget(self.center_container, 1)
+        main_layout.addWidget(self.right_panel)
 
         # Şirket Çalışma Moduna Göre Arayüzü Özelleştir
         self.working_mode = DataManager.get_company_mode(self.db, self.company_id)
@@ -1437,10 +1508,49 @@ class MusteriYonetimiWidget(QWidget):
         self.shortcut_search = QShortcut(QKeySequence("Ctrl+F"), self)
         self.shortcut_search.activated.connect(self.trigger_quick_search)
 
+        # Profilleri sidebar combo'suna yükle
+        self.load_sidebar_profiles()
+
         # Konumlandırmaları Overlay modda ilklendir
         self.left_panel.close_panel()
         self.right_panel.close_panel()
         self.refresh_customers()
+
+    def load_sidebar_profiles(self):
+        """Sol paneldeki profil seçim listesini yükler."""
+        if not hasattr(self, "combo_sidebar_profiles"):
+            return
+        self.combo_sidebar_profiles.blockSignals(True)
+        self.combo_sidebar_profiles.clear()
+        profiles = self.profile_manager.load_profiles()
+        for name in profiles.keys():
+            self.combo_sidebar_profiles.addItem(name)
+        active = self.profile_manager.get_active_profile_name()
+        idx = self.combo_sidebar_profiles.findText(active)
+        if idx >= 0:
+            self.combo_sidebar_profiles.setCurrentIndex(idx)
+        self.combo_sidebar_profiles.blockSignals(False)
+
+    def _on_sidebar_profile_changed(self, profile_name):
+        """Sol panelden profil değiştirildiğinde tablo görünümünü uygular."""
+        if not profile_name:
+            return
+        p = self.profile_manager.get_profile(profile_name)
+        if p and hasattr(self, "filterable_table"):
+            self.filterable_table.apply_view_profile(p)
+
+    def save_current_profile(self):
+        """Mevcut sütun genişlik ve gizlilik ayarlarını seçili profile kaydeder."""
+        active_name = self.combo_sidebar_profiles.currentText()
+        if not active_name:
+            active_name = "Varsayılan"
+        current_p = self.filterable_table.get_current_view_as_profile(active_name)
+        self.profile_manager.save_profile(active_name, current_p)
+        self.toast_requested.emit(self.tr(f"'{active_name}' görünüm profili kaydedildi."), "success")
+
+    def open_column_manager(self):
+        """Sütun yönetimi iletişim kutusunu açar."""
+        self.filterable_table.open_column_manager_dialog()
 
     def on_panel_pin_changed(self, pinned):
         """Raptiye durumuna göre paneli normal layout'a ekler ya da çıkarır."""

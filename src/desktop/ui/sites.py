@@ -30,6 +30,7 @@ from src.core.models import Site
 from src.core.security.keyring_store import delete_api_key, get_api_key, save_api_key
 from src.desktop.ui.components.edge_panel import EdgeTriggeredPanel
 from src.desktop.ui.components.filterable_table import FilterableTableView
+from src.desktop.ui.components.layout_hint_helper import register_layout_hint
 
 logger = logging.getLogger(__name__)
 
@@ -541,6 +542,7 @@ class SitesWidget(QWidget):
             6: ("API Key Hesabı", "api_key_account"),
         }
 
+        register_layout_hint(self, "Firma Tanımları", "Firma Yönetim Ana Paneli")
         self.init_ui()
         self.load_sites()
 
@@ -592,6 +594,7 @@ class SitesWidget(QWidget):
         # 1. SOL FİLTRE PANELİ (EdgeTriggeredPanel)
         # ==========================================
         self.left_panel = EdgeTriggeredPanel(side="left", parent=self)
+        register_layout_hint(self.left_panel, "Firma Tanımları", "Sol Filtre Paneli")
 
         filter_content = QWidget()
         filter_lyt = QVBoxLayout(filter_content)
@@ -659,6 +662,7 @@ class SitesWidget(QWidget):
         # 2. ORTA PANEL (Dinamik DBGrid & DIA Aksiyon Çubuğu)
         # ==========================================
         self.center_container = QWidget()
+        register_layout_hint(self.center_container, "Firma Tanımları", "Orta Firma Tablosu Paneli")
         center_lyt = QVBoxLayout(self.center_container)
         center_lyt.setContentsMargins(4, 0, 4, 0)
         center_lyt.setSpacing(8)

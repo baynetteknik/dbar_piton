@@ -4,7 +4,7 @@ import shutil
 from datetime import datetime
 from pathlib import Path
 
-from PyQt6.QtCore import QDate, Qt, QThreadPool, pyqtSignal
+from PyQt6.QtCore import QDate, Qt, pyqtSignal
 from PyQt6.QtGui import QAction, QPixmap, QStandardItem, QStandardItemModel
 from PyQt6.QtWidgets import (
     QAbstractItemView,
@@ -39,8 +39,10 @@ from src.core.security.keyring_store import get_api_key
 from src.core.sync.pull_engine import PullEngine
 from src.core.sync.push_engine import PushEngine
 from src.desktop.core.workers import SyncWorker
+from src.desktop.ui.components.dia_3_panel_base import DIA3PanelBaseWidget
 from src.desktop.ui.components.edge_panel import EdgeTriggeredPanel
 from src.desktop.ui.components.filterable_table import FilterableTableView
+from src.desktop.ui.components.layout_hint_helper import register_layout_hint
 from src.desktop.ui.import_dialog import ExcelImportDialog
 
 logger = logging.getLogger(__name__)
@@ -617,37 +619,31 @@ class ProductDetailDialog(QDialog):
             return False
 
     def save_and_new_product(self):
-        if self.save_product():
-            self.product_id = None
-            self.txt_sku.clear()
-            self.txt_name.clear()
-            self.txt_base_price.setText("0,0000")
-            self.txt_sell_price.setText("0,0000")
-            self.txt_stock.setText("0")
-            self.txt_barcode.clear()
-            self.clear_image()
+        self.txt_sell_price.setText("0,0000")
+        self.txt_stock.setText("0")
+        self.txt_barcode.clear()
+        self.clear_image()
 
 
-class ResourcesWidget(QWidget):
-    """DIA stiline, Sayfalama (Pagination) mantığına ve 3-Panelli Düzen mimarisine sahip Stok - Ürün Yönetim Paneli."""
+class ResourcesWidget(DIA3PanelBaseWidget):
+    """DIA stiline, 3-Panelli Düzen mimarisine ve gelişmiş stok kartı yönetim özelliklerine sahip Malzeme/Ürün Paneli."""
 
-    sync_started = pyqtSignal(str)
-    sync_finished = pyqtSignal(str)
+    products_updated = pyqtSignal()
 
     def __init__(self, db_session, company_id: int, parent=None):
-        super().__init__(parent)
-        self.db = db_session
         self.company_id = company_id
-        self.threadpool = QThreadPool.globalInstance()
-        self.profile_key = "products"
+        self.active_sync_worker = None
 
-        # Sayfalama Parametreleri
-        self.current_page = 1
-        self.page_size = 50
-        self.total_products = 0
-        self.total_pages = 1
+        super().__init__(
+            db_session=db_session,
+            profile_key="resources",
+            module_name="Stok / Malzeme Yönetimi",
+            parent=parent,
+        )
+        register_layout_hint(self, "Stok Yönetimi", "Malzeme / Ürün Yönetim Paneli")
 
-        self.headers_dict = {
+    def setup_headers_dict(self):
+        return {
             0: ("Kart Kodu", "sku"),
             1: ("Açıklama", "name"),
             2: ("Türü", "custom_code"),
@@ -658,9 +654,6 @@ class ResourcesWidget(QWidget):
             7: ("Kategori", "category_name"),
             8: ("Durum", "status"),
         }
-
-        self.init_ui()
-        self.load_products()
 
     def toolbar_btn_style(self, bg_color="#ffffff", text_color="#1e293b"):
         return f"""
@@ -713,6 +706,7 @@ class ResourcesWidget(QWidget):
 
         # Üst Depo & Filtre Barı (Görsel 1 Top Bar)
         top_bar_frame = QFrame()
+        register_layout_hint(top_bar_frame, "Stok Yönetimi", "Üst Depo / Filtre Barı")
         top_bar_frame.setStyleSheet("background-color: #f8fafc; border: 1px solid #cbd5e1; border-radius: 6px;")
         top_bar_lyt = QHBoxLayout(top_bar_frame)
         top_bar_lyt.setContentsMargins(10, 6, 10, 6)
@@ -746,6 +740,7 @@ class ResourcesWidget(QWidget):
 
         # SOL PANEL (EdgeTriggeredPanel)
         self.left_panel = EdgeTriggeredPanel(side="left", parent=self)
+        register_layout_hint(self.left_panel, "Stok Yönetimi", "Sol Filtre Paneli")
 
         filter_content = QWidget()
         filter_lyt = QVBoxLayout(filter_content)
