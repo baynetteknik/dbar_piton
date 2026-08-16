@@ -1,6 +1,7 @@
-"""Quotations and Orders DIA-Style 3-Panel Management Widgets."""
+"""Quotations and Orders Master 3-Panel Management Widgets with Accordion Sidebars."""
 
 import logging
+from typing import Any
 
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QAction, QFont, QStandardItem, QStandardItemModel
@@ -22,13 +23,15 @@ from PyQt6.QtWidgets import (
 from sqlalchemy import select
 
 from src.core.models import Quotation
+from src.desktop.managers.profile_manager import ProfileManager
 from src.desktop.services.excel_exporter import ExcelExporter
 from src.desktop.services.quotation_service import QuotationService
+from src.desktop.ui.components.collapsible_section import CollapsibleSection
 from src.desktop.ui.components.dia_3_panel_base import DIA3PanelBaseWidget
 from src.desktop.ui.components.edge_panel import EdgeTriggeredPanel
 from src.desktop.ui.components.filterable_table import FilterableTableView
 from src.desktop.ui.components.layout_hint_helper import register_layout_hint
-from src.desktop.ui.dialogs.quotation_edit_dialog import QuotationEditDialog
+from src.desktop.ui.dialogs.transaction_document_dialog import TransactionDocumentDialog
 
 logger = logging.getLogger(__name__)
 
@@ -41,6 +44,7 @@ class BaseQuotationOrderWidget(DIA3PanelBaseWidget):
     def __init__(self, db_session=None, quotation_type: str = "Quotation", profile_key: str = "quotations"):
         self.quotation_type = quotation_type
         self.service = QuotationService(db_session)
+        self.profile_key = profile_key
 
         module_label = "Teklif Yönetimi" if quotation_type == "Quotation" else "Sipariş Yönetimi"
         super().__init__(
@@ -51,6 +55,19 @@ class BaseQuotationOrderWidget(DIA3PanelBaseWidget):
         self.setObjectName("QuotationCanvas")
         register_layout_hint(self, module_label, "Teklif / Sipariş Ana Ekranı")
 
+    def setup_headers_dict(self) -> dict[int, tuple[str, str]]:
+        return {
+            0: (self.tr("ID"), "id"),
+            1: (self.tr("Evrak / Fiş No"), "quotation_number"),
+            2: (self.tr("Belge Başlığı"), "title"),
+            3: (self.tr("Müşteri / Cari"), "customer_name"),
+            4: (self.tr("Tarih"), "issue_date"),
+            5: (self.tr("Vade / Son Tarih"), "expiry_date"),
+            6: (self.tr("Genel Toplam"), "grand_total"),
+            7: (self.tr("Para Birimi"), "currency"),
+            8: (self.tr("Durum"), "status"),
+        }
+
     def toolbar_btn_style(self, bg_color="#ffffff", text_color="#1e293b"):
         return f"""
             QPushButton {{
@@ -58,60 +75,156 @@ class BaseQuotationOrderWidget(DIA3PanelBaseWidget):
                 color: {text_color};
                 border: 1px solid #cbd5e1;
                 border-radius: 6px;
-                padding: 6px 12px;
+                padding: 6px 10px;
                 font-size: 11px;
                 font-weight: 600;
                 text-align: left;
+                font-family: 'Segoe UI';
             }}
             QPushButton:hover {{ background-color: #f1f5f9; }}
             QPushButton:disabled {{ color: #94a3b8; background-color: #f8fafc; border-color: #e2e8f0; }}
         """
 
-    def init_ui(self):
+    def init_base_ui(self):
+        # Profil Yöneticisi
+        self.profile_manager = ProfileManager(profile_key=self.profile_key)
+
         main_layout = QHBoxLayout(self)
-        main_layout.setContentsMargins(5, 5, 5, 5)
+        main_layout.setContentsMargins(10, 10, 10, 10)
         main_layout.setSpacing(5)
 
         module_label = "Teklif Yönetimi" if getattr(self, "quotation_type", "") == "Quotation" else "Sipariş Yönetimi"
 
+        combo_style = """
+            QComboBox, QLineEdit {
+                border: 1px solid #cbd5e1;
+                border-radius: 6px;
+                padding: 6px 10px;
+                background-color: white;
+                color: #0f172a;
+                font-size: 12px;
+            }
+            QComboBox QAbstractItemView {
+                border: 1px solid #94a3b8;
+                background-color: #ffffff;
+                color: #0f172a;
+                outline: none;
+                padding: 2px 0px;
+            }
+            QComboBox QAbstractItemView::item {
+                min-height: 26px;
+                padding: 4px 10px;
+                background-color: #ffffff;
+                color: #0f172a;
+                border-radius: 0px;
+            }
+            QComboBox QAbstractItemView::item:hover,
+            QComboBox QAbstractItemView::item:selected {
+                background-color: #2563eb;
+                color: #ffffff;
+            }
+        """
+
         # ----------------------------------------------------
-        # 1. SOL PANEL (EdgeTriggeredPanel) - ARAMA VE FİLTRE
+        # 1. SOL PANEL (EdgeTriggeredPanel) - PROFİLLER & AKSİYONLAR
         # ----------------------------------------------------
         self.left_panel = EdgeTriggeredPanel(side="left", parent=self)
-        register_layout_hint(self.left_panel, module_label, "Sol Filtre Paneli")
+        register_layout_hint(self.left_panel, module_label, "Sol Kart İşlemleri Paneli")
 
-        filter_frame = QFrame()
-        filter_frame.setStyleSheet("background-color: transparent; border: none;")
-        filter_lyt = QVBoxLayout(filter_frame)
-        filter_lyt.setContentsMargins(0, 0, 0, 0)
-        filter_lyt.setSpacing(8)
-
-        lbl_search = QLabel("Arama:")
-        lbl_search.setStyleSheet("font-weight: bold; color: #0f172a; font-size: 11px;")
-        self.search_box = QLineEdit()
-        self.search_box.setPlaceholderText("Hızlı ara...")
-        self.search_box.textChanged.connect(self.on_filter_changed)
-        filter_lyt.addWidget(lbl_search)
-        filter_lyt.addWidget(self.search_box)
-
-        lbl_status = QLabel("Durum Filtresi:")
-        lbl_status.setStyleSheet("font-weight: bold; color: #0f172a; font-size: 11px;")
-        self.cmb_status = QComboBox()
-        self.cmb_status.addItems(["Tümü", "Taslak (Draft)", "Gönderildi (Sent)", "Onaylandı (Accepted)", "Reddedildi (Rejected)", "Dönüştürüldü (Converted)"])
-        self.cmb_status.currentTextChanged.connect(self.on_filter_changed)
-        filter_lyt.addWidget(lbl_status)
-        filter_lyt.addWidget(self.cmb_status)
-
-        btn_clear = QPushButton("🗑️ Filtreleri Temizle")
-        btn_clear.setStyleSheet("border: 1px solid #cbd5e1; background: white; padding: 4px; border-radius: 4px;")
-        btn_clear.clicked.connect(self.clear_filters)
-        filter_lyt.addWidget(btn_clear)
-
-        filter_lyt.addStretch()
         left_scroll = QScrollArea()
         left_scroll.setWidgetResizable(True)
         left_scroll.setStyleSheet("QScrollArea { border: none; background: transparent; }")
-        left_scroll.setWidget(filter_frame)
+
+        left_frame = QFrame()
+        left_frame.setStyleSheet("background-color: transparent; border: none;")
+        left_lyt = QVBoxLayout(left_frame)
+        left_lyt.setContentsMargins(0, 0, 0, 0)
+        left_lyt.setSpacing(8)
+
+        # 1. GRUP: GÖRÜNÜM PROFİLLERİ (Açılır/Kapanır Akordiyon)
+        self.sec_profiles = CollapsibleSection("GÖRÜNÜM PROFİLLERİ", is_expanded=True)
+        lbl_prof = QLabel("Aktif Profil:")
+        lbl_prof.setStyleSheet("font-weight: bold; color: #475569; font-size: 11px;")
+        self.combo_sidebar_profiles = QComboBox()
+        self.combo_sidebar_profiles.setStyleSheet(combo_style)
+        self.combo_sidebar_profiles.currentTextChanged.connect(self._on_sidebar_profile_changed)
+
+        prof_btn_lyt = QHBoxLayout()
+        prof_btn_lyt.setSpacing(4)
+        btn_save_prof = QPushButton("💾 Kaydet")
+        btn_save_prof.setStyleSheet(self.toolbar_btn_style())
+        btn_save_prof.clicked.connect(self.save_current_profile)
+        btn_manage_prof = QPushButton("⚙️ Sütunlar")
+        btn_manage_prof.setStyleSheet(self.toolbar_btn_style())
+        btn_manage_prof.clicked.connect(self.open_column_manager)
+        prof_btn_lyt.addWidget(btn_save_prof)
+        prof_btn_lyt.addWidget(btn_manage_prof)
+
+        self.sec_profiles.add_widget(lbl_prof)
+        self.sec_profiles.add_widget(self.combo_sidebar_profiles)
+        self.sec_profiles.add_layout(prof_btn_lyt)
+        left_lyt.addWidget(self.sec_profiles)
+
+        # 2. GRUP: EVRAK İŞLEMLERİ (Açılır/Kapanır Akordiyon)
+        action_title = "TEKLİF İŞLEMLERİ" if self.quotation_type == "Quotation" else "SİPARİŞ İŞLEMLERİ"
+        self.sec_doc_actions = CollapsibleSection(action_title, is_expanded=True)
+
+        self.btn_new = QPushButton("➕ Yeni (F3)")
+        self.btn_new.setShortcut("F3")
+        self.btn_new.setStyleSheet(self.toolbar_btn_style())
+        self.btn_new.clicked.connect(self.on_new_clicked)
+
+        self.btn_edit = QPushButton("✏️ Değiştir (F4)")
+        self.btn_edit.setShortcut("F4")
+        self.btn_edit.setStyleSheet(self.toolbar_btn_style())
+        self.btn_edit.clicked.connect(self.on_edit_clicked)
+
+        self.btn_duplicate = QPushButton("📋 Kopyala")
+        self.btn_duplicate.setStyleSheet(self.toolbar_btn_style())
+        self.btn_duplicate.clicked.connect(self.on_duplicate_clicked)
+
+        self.btn_delete = QPushButton("❌ Sil (Del)")
+        self.btn_delete.setStyleSheet(self.toolbar_btn_style())
+        self.btn_delete.clicked.connect(self.on_delete_clicked)
+
+        conv_label = "🔄 Siparişe Dönüştür" if self.quotation_type == "Quotation" else "🔄 Faturaya Dönüştür"
+        self.btn_convert = QPushButton(conv_label)
+        self.btn_convert.setStyleSheet(self.toolbar_btn_style())
+        self.btn_convert.clicked.connect(self.on_convert_clicked)
+
+        self.btn_excel = QPushButton("🖨️ Yazdır / Excel (F9)")
+        self.btn_excel.setStyleSheet(self.toolbar_btn_style())
+        self.btn_excel.clicked.connect(self.on_excel_clicked)
+
+        btn_close = QPushButton("🚪 Kapat")
+        btn_close.setStyleSheet("""
+            QPushButton {
+                background-color: #fee2e2;
+                border: 1px solid #fca5a5;
+                border-radius: 6px;
+                padding: 4px 8px;
+                font-family: 'Segoe UI';
+                font-size: 11px;
+                color: #991b1b;
+                font-weight: bold;
+                text-align: center;
+                min-height: 28px;
+            }
+            QPushButton:hover { background-color: #fca5a5; }
+        """)
+        btn_close.clicked.connect(self.close_tab)
+
+        self.sec_doc_actions.add_widget(self.btn_new)
+        self.sec_doc_actions.add_widget(self.btn_edit)
+        self.sec_doc_actions.add_widget(self.btn_duplicate)
+        self.sec_doc_actions.add_widget(self.btn_delete)
+        self.sec_doc_actions.add_widget(self.btn_convert)
+        self.sec_doc_actions.add_widget(self.btn_excel)
+        self.sec_doc_actions.add_widget(btn_close)
+        left_lyt.addWidget(self.sec_doc_actions)
+        left_lyt.addStretch()
+
+        left_scroll.setWidget(left_frame)
         self.left_panel.set_content(left_scroll)
         main_layout.addWidget(self.left_panel)
 
@@ -121,19 +234,8 @@ class BaseQuotationOrderWidget(DIA3PanelBaseWidget):
         center_container = QWidget()
         register_layout_hint(center_container, module_label, "Orta Tablo Paneli")
         center_layout = QVBoxLayout(center_container)
-        center_layout.setContentsMargins(0, 0, 0, 0)
-        center_layout.setSpacing(4)
-
-        self.headers_dict = {
-            0: (self.tr("ID"), "id"),
-            1: (self.tr("Numara"), "quotation_number"),
-            2: (self.tr("Başlık"), "title"),
-            3: (self.tr("Müşteri / Cari"), "customer_name"),
-            4: (self.tr("Tutar"), "grand_total"),
-            5: (self.tr("Para Birimi"), "currency"),
-            6: (self.tr("Durum"), "status"),
-            7: (self.tr("Tarih"), "issue_date"),
-        }
+        center_layout.setContentsMargins(5, 0, 5, 0)
+        center_layout.setSpacing(6)
 
         # Profil çubuğu kaldırıldı (enable_profile_bar=False)
         self.filterable_table = FilterableTableView(
@@ -153,6 +255,34 @@ class BaseQuotationOrderWidget(DIA3PanelBaseWidget):
         self.table_view.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.table_view.customContextMenuRequested.connect(self.show_context_menu)
         self.table_view.selectionModel().selectionChanged.connect(self.on_selection_changed)
+        self.table_view.doubleClicked.connect(self.on_edit_clicked)
+
+        self.table_view.setStyleSheet("""
+            QTableView {
+                border: 1px solid #cbd5e1;
+                background-color: white;
+                gridline-color: #f1f5f9;
+                border-radius: 6px;
+                font-family: 'Segoe UI';
+                font-size: 12px;
+                color: #334155;
+            }
+            QTableView::item { padding: 6px; }
+            QTableView::item:selected {
+                background-color: #eff6ff;
+                color: #1d4ed8;
+                font-weight: 600;
+            }
+            QHeaderView::section {
+                background-color: #f8fafc;
+                color: #475569;
+                padding: 8px;
+                border: none;
+                border-right: 1px solid #cbd5e1;
+                border-bottom: 2px solid #cbd5e1;
+                font-weight: bold;
+            }
+        """)
 
         center_layout.addWidget(self.filterable_table, 1)
 
@@ -194,102 +324,114 @@ class BaseQuotationOrderWidget(DIA3PanelBaseWidget):
         main_layout.addWidget(center_container, 1)
 
         # ----------------------------------------------------
-        # 3. SAĞ PANEL (EdgeTriggeredPanel) - EYLEMLER VE TOOLBAR
+        # 3. SAĞ PANEL (EdgeTriggeredPanel) - FİLTRELER & DOSYA
         # ----------------------------------------------------
         self.right_panel = EdgeTriggeredPanel(side="right", parent=self)
-        register_layout_hint(self.right_panel, module_label, "Sağ Hızlı Eylemler Paneli")
+        register_layout_hint(self.right_panel, module_label, "Sağ Filtreler ve Dosya Paneli")
 
         right_scroll = QScrollArea()
         right_scroll.setWidgetResizable(True)
         right_scroll.setStyleSheet("QScrollArea { border: none; background: transparent; }")
 
-        right_content = QWidget()
-        right_lyt = QVBoxLayout(right_content)
-        right_lyt.setContentsMargins(4, 4, 4, 4)
+        right_frame = QFrame()
+        right_frame.setStyleSheet("background-color: transparent; border: none;")
+        right_lyt = QVBoxLayout(right_frame)
+        right_lyt.setContentsMargins(0, 0, 0, 0)
         right_lyt.setSpacing(8)
 
-        # 1. Grup: Veri İşlemleri
-        grp_data = QFrame()
-        grp_data.setStyleSheet("background-color: white; border: 1px solid #cbd5e1; border-radius: 6px;")
-        grp_data_lyt = QVBoxLayout(grp_data)
-        grp_data_lyt.setContentsMargins(4, 6, 4, 6)
-        grp_data_lyt.setSpacing(4)
+        # 1. GRUP: FİLTRELER (Açılır/Kapanır Akordiyon)
+        self.sec_filters = CollapsibleSection("FİLTRELER", is_expanded=True)
 
-        lbl_grp_data = QLabel("VERİ İŞLEMLERİ")
-        lbl_grp_data.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        lbl_grp_data.setStyleSheet("font-weight: 800; color: #1e3a8a; font-size: 9px;")
-        grp_data_lyt.addWidget(lbl_grp_data)
+        lbl_search = QLabel("Ünvan / Fiş No:")
+        lbl_search.setStyleSheet("font-weight: bold; color: #0f172a; font-size: 11px;")
+        self.search_box = QLineEdit()
+        self.search_box.setPlaceholderText("Hızlı ara...")
+        self.search_box.textChanged.connect(self.on_filter_changed)
+        self.search_box.setStyleSheet(combo_style)
+        self.sec_filters.add_widget(lbl_search)
+        self.sec_filters.add_widget(self.search_box)
 
-        title_new = "➕ Yeni Teklif Ekle" if self.quotation_type == "Quotation" else "➕ Yeni Sipariş Ekle"
-        self.btn_new = QPushButton(title_new)
-        self.btn_new.setStyleSheet(self.toolbar_btn_style("#3b82f6", "#ffffff"))
-        self.btn_new.clicked.connect(self.on_new_clicked)
+        lbl_status = QLabel("Durum:")
+        lbl_status.setStyleSheet("font-weight: bold; color: #0f172a; font-size: 11px;")
+        self.cmb_status = QComboBox()
+        self.cmb_status.addItems(["Tümü", "Taslak (Draft)", "Gönderildi (Sent)", "Onaylandı (Accepted)", "Reddedildi (Rejected)", "Dönüştürüldü (Converted)"])
+        self.cmb_status.currentTextChanged.connect(self.on_filter_changed)
+        self.cmb_status.setStyleSheet(combo_style)
+        self.sec_filters.add_widget(lbl_status)
+        self.sec_filters.add_widget(self.cmb_status)
 
-        self.btn_edit = QPushButton("✏️ Değiştir / Düzenle")
-        self.btn_edit.setStyleSheet(self.toolbar_btn_style())
-        self.btn_edit.setEnabled(False)
-        self.btn_edit.clicked.connect(self.on_edit_clicked)
+        btn_clear = QPushButton("🗑️ Filtreleri Temizle")
+        btn_clear.setStyleSheet("border: 1px solid #cbd5e1; background: white; padding: 6px; border-radius: 4px; font-weight: 600; font-size: 11px;")
+        btn_clear.clicked.connect(self.clear_filters)
+        self.sec_filters.add_widget(btn_clear)
+        right_lyt.addWidget(self.sec_filters)
 
-        self.btn_delete = QPushButton("🗑️ Sil")
-        self.btn_delete.setStyleSheet(self.toolbar_btn_style())
-        self.btn_delete.setEnabled(False)
-        self.btn_delete.clicked.connect(self.on_delete_clicked)
+        # 2. GRUP: DOSYA & AKTARIM (Açılır/Kapanır Akordiyon)
+        self.sec_sync = CollapsibleSection("DOSYA & AKTARIM", is_expanded=True)
 
-        self.btn_duplicate = QPushButton("📋 Kopyala")
-        self.btn_duplicate.setStyleSheet(self.toolbar_btn_style())
-        self.btn_duplicate.setEnabled(False)
-        self.btn_duplicate.clicked.connect(self.on_duplicate_clicked)
+        btn_export = QPushButton("📤 Dışa Aktar (Excel)")
+        btn_export.setStyleSheet(self.toolbar_btn_style())
+        btn_export.clicked.connect(self.on_excel_clicked)
 
-        convert_title = "🔄 Siparişe Dönüştür" if self.quotation_type == "Quotation" else "🔄 Faturaya Dönüştür"
-        self.btn_convert = QPushButton(convert_title)
-        self.btn_convert.setStyleSheet(self.toolbar_btn_style())
-        self.btn_convert.setEnabled(False)
-        self.btn_convert.clicked.connect(self.on_convert_clicked)
+        btn_report = QPushButton("📊 Detaylı Rapor Al")
+        btn_report.setStyleSheet(self.toolbar_btn_style())
+        btn_report.clicked.connect(lambda: QMessageBox.information(self, "Rapor", "Evrak icmal ve detay raporu üretiliyor..."))
 
-        self.btn_excel = QPushButton("📊 Excel'e Aktar")
-        self.btn_excel.setStyleSheet(self.toolbar_btn_style("#10b981", "#ffffff"))
-        self.btn_excel.setEnabled(False)
-        self.btn_excel.clicked.connect(self.on_excel_clicked)
-
-        grp_data_lyt.addWidget(self.btn_new)
-        grp_data_lyt.addWidget(self.btn_edit)
-        grp_data_lyt.addWidget(self.btn_delete)
-        grp_data_lyt.addWidget(self.btn_duplicate)
-        grp_data_lyt.addWidget(self.btn_convert)
-        grp_data_lyt.addWidget(self.btn_excel)
-
-        right_lyt.addWidget(grp_data)
-
-        # 2. Grup: Görünüm & Sistem
-        grp_view = QFrame()
-        grp_view.setStyleSheet("background-color: white; border: 1px solid #cbd5e1; border-radius: 6px;")
-        grp_view_lyt = QVBoxLayout(grp_view)
-        grp_view_lyt.setContentsMargins(4, 6, 4, 6)
-        grp_view_lyt.setSpacing(4)
-
-        lbl_grp_view = QLabel("GÖRÜNÜM")
-        lbl_grp_view.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        lbl_grp_view.setStyleSheet("font-weight: 800; color: #1e3a8a; font-size: 9px;")
-        grp_view_lyt.addWidget(lbl_grp_view)
-
-        btn_refresh = QPushButton("🔄 Tabloyu Yenile")
-        btn_refresh.setStyleSheet(self.toolbar_btn_style())
-        btn_refresh.clicked.connect(self.refresh_table)
-
-        btn_cols = QPushButton("⚙️ Kolonları Yapılandır")
-        btn_cols.setStyleSheet(self.toolbar_btn_style())
-        btn_cols.clicked.connect(self.filterable_table.open_column_manager_dialog)
-
-        grp_view_lyt.addWidget(btn_refresh)
-        grp_view_lyt.addWidget(btn_cols)
-        right_lyt.addWidget(grp_view)
-
+        self.sec_sync.add_widget(btn_export)
+        self.sec_sync.add_widget(btn_report)
+        right_lyt.addWidget(self.sec_sync)
         right_lyt.addStretch()
-        right_scroll.setWidget(right_content)
+
+        right_scroll.setWidget(right_frame)
         self.right_panel.set_content(right_scroll)
         main_layout.addWidget(self.right_panel)
 
+        # Sidebar profilleri yükle
+        self.load_sidebar_profiles()
+
+        # Konumlandırmaları Overlay modda ilklendir
+        self.left_panel.close_panel()
+        self.right_panel.close_panel()
         self.refresh_table()
+
+    def load_sidebar_profiles(self):
+        if not hasattr(self, "combo_sidebar_profiles"):
+            return
+        self.combo_sidebar_profiles.blockSignals(True)
+        self.combo_sidebar_profiles.clear()
+        profiles = self.profile_manager.load_profiles()
+        for name in profiles.keys():
+            self.combo_sidebar_profiles.addItem(name)
+        active = self.profile_manager.get_active_profile_name()
+        idx = self.combo_sidebar_profiles.findText(active)
+        if idx >= 0:
+            self.combo_sidebar_profiles.setCurrentIndex(idx)
+        self.combo_sidebar_profiles.blockSignals(False)
+
+    def _on_sidebar_profile_changed(self, profile_name):
+        if not profile_name:
+            return
+        p = self.profile_manager.get_profile(profile_name)
+        if p and hasattr(self, "filterable_table"):
+            self.filterable_table.apply_view_profile(p)
+
+    def save_current_profile(self):
+        active_name = self.combo_sidebar_profiles.currentText()
+        if not active_name:
+            active_name = "Varsayılan"
+        current_p = self.filterable_table.get_current_view_as_profile(active_name)
+        self.profile_manager.save_profile(active_name, current_p)
+        QMessageBox.information(self, "Profil Kaydedildi", f"'{active_name}' görünüm profili kaydedildi.")
+
+    def open_column_manager(self):
+        self.filterable_table.open_column_manager_dialog()
+
+    def close_tab(self):
+        parent_tab = self.parentWidget()
+        while parent_tab and not hasattr(parent_tab, "removeTab"):
+            parent_tab = parent_tab.parentWidget()
+        if parent_tab and hasattr(parent_tab, "currentIndex") and hasattr(parent_tab, "removeTab"):
+            parent_tab.removeTab(parent_tab.currentIndex())
 
     def clear_filters(self):
         self.search_box.clear()
@@ -332,6 +474,19 @@ class BaseQuotationOrderWidget(DIA3PanelBaseWidget):
     def refresh_table(self):
         self.table_model.removeRows(0, self.table_model.rowCount())
         if not self.db:
+            # Demo Satırları Ekle (Veritabanı boşsa bile kullanıcı görsün)
+            demo_items = [
+                ("1", "TEK-20260816001", "Yıllık Bakım Anlaşması", "TATU HIRDAVAT LTD.", "16.08.2026", "15.09.2026", "12.500,00 ₺", "TRY", "Onaylandı"),
+                ("2", "SIP-20260816002", "VGA Kablo & Sarf Siparişi", "DENEME BİLİŞİM A.Ş.", "16.08.2026", "23.08.2026", "1.450,00 ₺", "TRY", "Taslak"),
+            ] if self.quotation_type == "Quotation" else [
+                ("1", "SIP-20260816001", "VGA Kablo & Sarf Siparişi", "TATU HIRDAVAT LTD.", "16.08.2026", "23.08.2026", "1.450,00 ₺", "TRY", "Onaylandı"),
+                ("2", "SIP-20260816002", "Ofis Kırtasiye İhtiyacı", "DENEME BİLİŞİM A.Ş.", "16.08.2026", "30.08.2026", "8.900,00 ₺", "TRY", "Fatura Edildi"),
+            ]
+            for row_data in demo_items:
+                items = [QStandardItem(txt) for txt in row_data]
+                self.table_model.appendRow(items)
+            self.total_records = len(demo_items)
+            self.lbl_page_info.setText(f"Sayfa 1 / 1 (Toplam: {self.total_records})")
             return
 
         stmt = select(Quotation).where(
@@ -358,38 +513,38 @@ class BaseQuotationOrderWidget(DIA3PanelBaseWidget):
         total_pages = max(1, (self.total_records + self.per_page - 1) // self.per_page)
         self.lbl_page_info.setText(f"Sayfa {self.current_page} / {total_pages} (Toplam: {self.total_records})")
 
-        start_idx = (self.current_page - 1) * self.per_page
-        end_idx = start_idx + self.per_page
-        page_records = records[start_idx:end_idx]
+        start = (self.current_page - 1) * self.per_page
+        end = start + self.per_page
+        page_records = records[start:end]
 
         for q in page_records:
-            id_item = QStandardItem(str(q.id))
-            num_item = QStandardItem(q.quotation_number)
-            num_item.setFont(QFont("Segoe UI", 10, QFont.Weight.Bold))
-
-            title_item = QStandardItem(q.title or "")
             cust_name = q.customer.fullname if q.customer else (q.customer_name_free or "-")
-            cust_item = QStandardItem(cust_name)
+            c_date = q.created_at.strftime("%d.%m.%Y") if q.created_at else "-"
+            v_date = q.valid_until.strftime("%d.%m.%Y") if q.valid_until else "-"
 
-            total_item = QStandardItem(f"{q.grand_total:,.2f}")
-            curr_item = QStandardItem(q.currency or "TRY")
-            status_item = QStandardItem(q.status)
-
-            date_str = q.issue_date.strftime("%d.%m.%Y") if hasattr(q.issue_date, "strftime") else str(q.issue_date)
-            date_item = QStandardItem(date_str)
-
-            id_item.setData(q.id, Qt.ItemDataRole.UserRole)
-            self.table_model.appendRow([id_item, num_item, title_item, cust_item, total_item, curr_item, status_item, date_item])
+            row = [
+                QStandardItem(str(q.id)),
+                QStandardItem(q.quotation_number or "-"),
+                QStandardItem(q.title or "-"),
+                QStandardItem(cust_name),
+                QStandardItem(c_date),
+                QStandardItem(v_date),
+                QStandardItem(f"{float(q.grand_total or 0):,.2f} ₺"),
+                QStandardItem(q.currency or "TRY"),
+                QStandardItem(q.status or "draft"),
+            ]
+            self.table_model.appendRow(row)
 
     def get_selected_id(self) -> int | None:
-        indexes = self.table_view.selectionModel().selectedRows()
-        if not indexes:
+        sel = self.table_view.selectionModel().selectedRows()
+        if not sel:
             return None
-        item = self.table_model.item(indexes[0].row(), 0)
-        return item.data(Qt.ItemDataRole.UserRole) if item else None
+        row = sel[0].row()
+        item = self.table_model.item(row, 0)
+        return int(item.text()) if item else None
 
     def on_selection_changed(self):
-        has_sel = bool(self.table_view.selectionModel().selectedRows())
+        has_sel = self.get_selected_id() is not None
         self.btn_edit.setEnabled(has_sel)
         self.btn_delete.setEnabled(has_sel)
         self.btn_duplicate.setEnabled(has_sel)
@@ -397,15 +552,15 @@ class BaseQuotationOrderWidget(DIA3PanelBaseWidget):
         self.btn_excel.setEnabled(has_sel)
 
     def on_new_clicked(self):
-        dlg = QuotationEditDialog(self.db, document_kind=self.quotation_type, parent=self)
+        initial_idx = 5 if self.quotation_type == "Quotation" else 7
+        dlg = TransactionDocumentDialog(self.db, company_id=1, initial_type_idx=initial_idx, parent=self)
         if dlg.exec():
             self.refresh_table()
 
     def on_edit_clicked(self):
         q_id = self.get_selected_id()
-        if not q_id:
-            return
-        dlg = QuotationEditDialog(self.db, quotation_id=q_id, document_kind=self.quotation_type, parent=self)
+        initial_idx = 5 if self.quotation_type == "Quotation" else 7
+        dlg = TransactionDocumentDialog(self.db, company_id=1, doc_id=q_id, initial_type_idx=initial_idx, parent=self)
         if dlg.exec():
             self.refresh_table()
 
