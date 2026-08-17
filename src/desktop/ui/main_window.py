@@ -284,14 +284,18 @@ class MainWindow(QMainWindow):
         header_layout.setSpacing(20)
         
         self.logo = QLabel(self.tr("🏢 Toya ERP"))
+        self.logo.setObjectName("pan.nav.logo")
+        self.logo.setToolTip("[pan.nav.logo] Toya ERP Kurumsal Yönetim Platformu")
         self.logo.setStyleSheet("font-size: 20px; font-weight: 800; color: #ffffff; font-family: 'Segoe UI';")
         header_layout.addWidget(self.logo)
         
         header_layout.addStretch()
         
         self.search_box = QLineEdit()
+        self.search_box.setObjectName("cmp.top.search")
+        self.search_box.setToolTip("[cmp.top.search] Global Modül ve Kayıt Hızlı Arama (Ctrl+K)")
         self.search_box.setPlaceholderText(self.tr("🔍 Arama yap... (Ctrl+K)"))
-        self.search_box.setMinimumWidth(280)
+        self.search_box.setMinimumWidth(260)
         self.search_box.setStyleSheet("""
             QLineEdit {
                 background-color: #1a2744;
@@ -309,11 +313,15 @@ class MainWindow(QMainWindow):
         header_layout.addWidget(self.search_box)
         
         user_lbl = QLabel("👤 admin@baynet")
+        user_lbl.setObjectName("sys.usr.001")
+        user_lbl.setToolTip("[sys.usr.001] Oturum Açan Süper Yönetici Profili")
         user_lbl.setStyleSheet("color: #ffffff; font-size: 13px; font-weight: 700; font-family: 'Segoe UI';")
         header_layout.addWidget(user_lbl)
         
         self.company_combo = QComboBox()
-        self.company_combo.setMinimumWidth(180)
+        self.company_combo.setObjectName("tan.cmp.001")
+        self.company_combo.setToolTip("[tan.cmp.001] Aktif Şirket / Şube Seçimi")
+        self.company_combo.setMinimumWidth(160)
         self.company_combo.setStyleSheet("""
             QComboBox {
                 background-color: #1a2744;
@@ -330,8 +338,34 @@ class MainWindow(QMainWindow):
             }
         """)
         header_layout.addWidget(self.company_combo)
+
+        # Mimari Kodları Göster / Gizle Parametre Butonu
+        self.btn_toggle_hints = QPushButton("🏷️ Kodlar: AÇIK")
+        self.btn_toggle_hints.setObjectName("sys.cfg.hints")
+        self.btn_toggle_hints.setCheckable(True)
+        self.btn_toggle_hints.setChecked(True)
+        self.btn_toggle_hints.setToolTip("[sys.cfg.hints] Standart Mimari Ekran ve Buton Kodlarını (act.* / cmp.*) Aç / Kapat")
+        self.btn_toggle_hints.setStyleSheet("""
+            QPushButton {
+                background-color: #047857;
+                color: #a7f3d0;
+                border: 1px solid #10b981;
+                border-radius: 6px;
+                padding: 6px 10px;
+                font-size: 11px;
+                font-weight: 700;
+            }
+            QPushButton:hover {
+                background-color: #059669;
+                color: #ffffff;
+            }
+        """)
+        self.btn_toggle_hints.clicked.connect(self.toggle_architecture_hints)
+        header_layout.addWidget(self.btn_toggle_hints)
         
         help_btn = QPushButton("❓")
+        help_btn.setObjectName("cmp.top.help")
+        help_btn.setToolTip("[cmp.top.help] Kullanıcı Kılavuzu & Yardım Dokümantasyonu")
         help_btn.setFixedSize(36, 36)
         help_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         help_btn.setStyleSheet("""
@@ -355,6 +389,7 @@ class MainWindow(QMainWindow):
         # 2. YATAY İKON MENÜSÜ (NAVBAR BAR)
         # ==========================================
         self.menu_bar = QWidget()
+        self.menu_bar.setObjectName("pan.nav.menu")
         self.menu_bar.setFixedHeight(48)
         self.menu_bar.setStyleSheet("background-color: #1a2744;")
         
@@ -374,6 +409,8 @@ class MainWindow(QMainWindow):
         lbl_top_site = QLabel(self.tr("Firma:"))
         lbl_top_site.setStyleSheet("color: #94a3b8; font-weight: bold; font-size: 11px;")
         self.cmb_top_site = QComboBox()
+        self.cmb_top_site.setObjectName("tan.sit.001")
+        self.cmb_top_site.setToolTip("[tan.sit.001] Üst Bar Entegrasyon ve Site Seçici")
         self.cmb_top_site.setMinimumWidth(160)
         self.cmb_top_site.setStyleSheet("""
             QComboBox {
@@ -391,6 +428,8 @@ class MainWindow(QMainWindow):
         lbl_top_depot = QLabel(self.tr("Depo:"))
         lbl_top_depot.setStyleSheet("color: #94a3b8; font-weight: bold; font-size: 11px;")
         self.cmb_top_depot = QComboBox()
+        self.cmb_top_depot.setObjectName("tan.dep.001")
+        self.cmb_top_depot.setToolTip("[tan.dep.001] Üst Bar Aktif Depo Seçimi")
         self.cmb_top_depot.addItem(self.tr("10-MERKEZ DEPO"), 10)
         self.cmb_top_depot.setStyleSheet("""
             QComboBox {
@@ -400,12 +439,15 @@ class MainWindow(QMainWindow):
                 border-radius: 4px;
                 padding: 3px 8px;
                 font-size: 11px;
+                font-weight: bold;
             }
         """)
 
         lbl_top_date = QLabel(self.tr("Tarih:"))
         lbl_top_date.setStyleSheet("color: #94a3b8; font-weight: bold; font-size: 11px;")
         self.date_top_header = QDateEdit(QDate.currentDate())
+        self.date_top_header.setObjectName("tan.dat.001")
+        self.date_top_header.setToolTip("[tan.dat.001] Üst Bar Sistem Çalışma Tarihi")
         self.date_top_header.setCalendarPopup(True)
         self.date_top_header.setStyleSheet("""
             QDateEdit {
@@ -613,6 +655,36 @@ class MainWindow(QMainWindow):
     def focus_search(self):
         self.search_box.setFocus()
         self.search_box.selectAll()
+
+    def toggle_architecture_hints(self, checked):
+        if checked:
+            self.btn_toggle_hints.setText("🏷️ Kodlar: AÇIK")
+            self.btn_toggle_hints.setStyleSheet("""
+                QPushButton {
+                    background-color: #047857;
+                    color: #a7f3d0;
+                    border: 1px solid #10b981;
+                    border-radius: 6px;
+                    padding: 6px 10px;
+                    font-size: 11px;
+                    font-weight: 700;
+                }
+            """)
+            self.show_toast(self.tr("🏷️ Standart mimari kod ve ipucu gösterimi AÇILDI."), "success")
+        else:
+            self.btn_toggle_hints.setText("🏷️ Kodlar: KAPALI")
+            self.btn_toggle_hints.setStyleSheet("""
+                QPushButton {
+                    background-color: #334155;
+                    color: #94a3b8;
+                    border: 1px solid #475569;
+                    border-radius: 6px;
+                    padding: 6px 10px;
+                    font-size: 11px;
+                    font-weight: 700;
+                }
+            """)
+            self.show_toast(self.tr("🏷️ Mimari kod gösterimi KAPATILDI (Kullanıcı Modu)."), "warning")
 
     def update_live_time(self):
         self.live_time_label.setText(datetime.datetime.now().strftime("%d.%m.%Y %H:%M:%S"))

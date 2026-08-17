@@ -48,7 +48,6 @@ class FilterableTableView(QWidget):
         self.init_ui()
 
     def init_ui(self):
-        from PyQt6.QtWidgets import QScrollArea, QSizePolicy
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
@@ -60,59 +59,68 @@ class FilterableTableView(QWidget):
             )
             layout.addWidget(self.profile_bar)
 
-        # 1. Filtre Çubuğu Paneli (artık QScrollArea içinde)
-        self.filter_bar_container = QWidget()
-        self.filter_bar_container.setObjectName("FilterBarContainer")
-        self.filter_bar_container.setFixedHeight(30)
+        # 1. DBGrid Başlık ve Kimlik Çubuğu ([cmp.grd.001])
+        self.grid_header_bar = QWidget()
+        self.grid_header_bar.setObjectName("cmp.grd.header")
+        self.grid_header_bar.setFixedHeight(28)
+        self.grid_header_bar.setStyleSheet("""
+            QWidget#cmp\\.grd\\.header {
+                background-color: #f1f5f9;
+                border-top: 1px solid #cbd5e1;
+                border-left: 1px solid #cbd5e1;
+                border-right: 1px solid #cbd5e1;
+                border-top-left-radius: 6px;
+                border-top-right-radius: 6px;
+            }
+        """)
+        gh_lyt = QHBoxLayout(self.grid_header_bar)
+        gh_lyt.setContentsMargins(8, 2, 8, 2)
+        gh_lyt.setSpacing(8)
 
-        filter_bar_layout = QHBoxLayout(self.filter_bar_container)
-        filter_bar_layout.setContentsMargins(0, 0, 0, 0)
-        filter_bar_layout.setSpacing(0)
+        lbl_grid_badge = QLabel("[cmp.grd.001]")
+        lbl_grid_badge.setStyleSheet("background-color: #0284c7; color: #ffffff; font-weight: 900; font-size: 10px; padding: 2px 6px; border-radius: 3px;")
+        
+        lbl_grid_title = QLabel(f"Dinamik Veri Tablosu & DbGrid Motoru ({self.profile_key.upper()})")
+        lbl_grid_title.setStyleSheet("color: #334155; font-weight: 700; font-size: 11px; font-family: 'Segoe UI';")
 
-        # Global Reset (Sol Üst Çöp Kutusu)
-        self.reset_btn = QPushButton("🗑️")
-        self.reset_btn.setObjectName("FilterResetBtn")
-        self.reset_btn.setFixedSize(30, 30)
+        self.reset_btn = QPushButton("🗑️ Filtreleri Temizle")
+        self.reset_btn.setObjectName("act.rst.001")
+        self.reset_btn.setToolTip("[act.rst.001] Tüm Kolon Filtrelerini Sıfırla")
         self.reset_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.reset_btn.setToolTip("Tüm Filtreleri Temizle")
         self.reset_btn.setStyleSheet("""
             QPushButton {
-                background-color: #f1f5f9;
-                border: 1px solid #cbd5e1;
-                border-radius: 0px;
-                font-size: 11px;
-                padding: 0px;
+                background-color: #ffffff;
+                color: #dc2626;
+                border: 1px solid #fca5a5;
+                border-radius: 4px;
+                font-size: 10px;
+                font-weight: bold;
+                padding: 2px 8px;
             }
             QPushButton:hover {
                 background-color: #fee2e2;
-                border-color: #fca5a5;
             }
         """)
         self.reset_btn.clicked.connect(self.clear_all_filters)
 
-        # *** Kaydırılabilir Filtre Alanı (QScrollArea) ***
-        self.scroll_area = QScrollArea()
-        self.scroll_area.setObjectName("FilterScrollArea")
-        self.scroll_area.setWidgetResizable(False)  # İç widget genişliğinin korunması için False olmalı
-        self.scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        self.scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        self.scroll_area.setStyleSheet("QScrollArea { border: none; background: transparent; }")
+        gh_lyt.addWidget(lbl_grid_badge)
+        gh_lyt.addWidget(lbl_grid_title)
+        gh_lyt.addStretch()
+        gh_lyt.addWidget(self.reset_btn)
+        layout.addWidget(self.grid_header_bar)
 
-        # İçine inputs_container'ı yerleştir
-        self.inputs_container = QWidget()
-        self.inputs_container.setObjectName("FilterInputsContainer")
-
-        self.inputs_layout = QHBoxLayout(self.inputs_container)
-        self.inputs_layout.setContentsMargins(0, 0, 0, 0)
-        self.inputs_layout.setSpacing(0)
+        # 2. Filtre Çubuğu Paneli (Doğrudan Viewport Piksel Senkronlu Konteyner)
+        self.filter_bar_container = QWidget()
+        self.filter_bar_container.setObjectName("FilterBarContainer")
+        self.filter_bar_container.setFixedHeight(28)
+        self.filter_bar_container.setStyleSheet("background-color: #f8fafc; border: 1px solid #cbd5e1; border-bottom: none;")
 
         # Her kolon için bir filtre kutusu (QLineEdit) oluştur
         for col_idx in sorted(self.headers_dict.keys()):
             label, field_name = self.headers_dict[col_idx]
-            le = QLineEdit()
+            le = QLineEdit(self.filter_bar_container)
             le.setObjectName(f"FilterInput_{field_name}")
             le.setPlaceholderText(f"{label}...")
-            le.setMinimumWidth(10)
             le.setStyleSheet("""
                 QLineEdit {
                     border: 1px solid #cbd5e1;
@@ -130,16 +138,11 @@ class FilterableTableView(QWidget):
             le.textChanged.connect(
                 lambda text, col=field_name: self.on_filter_text_changed(col, text),
             )
-            self.inputs_layout.addWidget(le)
             self.filter_widgets[col_idx] = le
-
-        self.scroll_area.setWidget(self.inputs_container)
-        filter_bar_layout.addWidget(self.scroll_area, 1)
-        filter_bar_layout.addWidget(self.reset_btn)
 
         layout.addWidget(self.filter_bar_container)
 
-        # 2. Asıl QTableView
+        # 3. Asıl QTableView
         self.table_view = QTableView()
         self.table_view.setObjectName("MainTableView")
         self.table_view.setSortingEnabled(True)  # ARTAN / AZALAN SIRALAMA AKTİF
@@ -174,21 +177,21 @@ class FilterableTableView(QWidget):
         self.style_delegate = ProfileStyleDelegate(self.table_view)
         self.table_view.setItemDelegate(self.style_delegate)
 
-        # Sütun genişlikleri ve kaydırma senkronizasyonu
+        # Sütun genişlikleri, kaydırma ve yer değiştirme senkronizasyonu
         hheader.sectionResized.connect(self.sync_filter_widths)
-        self.table_view.horizontalScrollBar().valueChanged.connect(self.sync_filter_scroll)
+        hheader.sectionMoved.connect(self.sync_filter_widths)
+        hheader.geometriesChanged.connect(self.sync_filter_widths)
+        self.table_view.horizontalScrollBar().valueChanged.connect(self.sync_filter_widths)
         self.table_view.horizontalScrollBar().rangeChanged.connect(lambda *_: self.sync_filter_widths())
-        hheader.sectionMoved.connect(self.sync_filter_positions)
 
         # En son kullanılan aktif profili otomatik yükle
         from PyQt6.QtCore import QTimer
         pm = ProfileManager(profile_key=self.profile_key)
         QTimer.singleShot(0, lambda: self.apply_view_profile(pm.get_active_profile()))
 
-    def sync_filter_widths(self):
-        """Tablo sütun genişliği değiştiğinde filtre kutularının genişliğini senkronize eder."""
+    def sync_filter_widths(self, *args):
+        """Tablo yatay kaydırıldığında veya sütunlar yeniden boyutlandırıldığında filtre kutularını pikseli pikseline hizalar."""
         header = self.table_view.horizontalHeader()
-        total_width = 0
         for col_idx in sorted(self.headers_dict.keys()):
             le = self.filter_widgets.get(col_idx)
             if not le:
@@ -196,42 +199,25 @@ class FilterableTableView(QWidget):
             if header.isSectionHidden(col_idx):
                 le.hide()
             else:
+                x = header.sectionViewportPosition(col_idx)
+                w = header.sectionSize(col_idx)
+                le.setGeometry(x, 0, w, 28)
                 le.show()
-                col_width = header.sectionSize(col_idx)
-                le.setFixedWidth(col_width)
-                total_width += col_width
-
-        # inputs_container genişliğini tam olarak sütunların toplamına eşitle
-        final_width = max(total_width, header.length())
-        self.inputs_container.setFixedSize(final_width, 28)
-        self.inputs_container.resize(final_width, 28)
-
-        # Scroll senkronizasyonunu anlık olarak uygula
-        val = self.table_view.horizontalScrollBar().value()
-        self.sync_filter_scroll(val)
 
     def sync_filter_scroll(self, val):
-        """Yatay kaydırma yapıldığında scroll area'yı kaydır."""
-        if hasattr(self, 'scroll_area') and self.scroll_area:
-            self.scroll_area.horizontalScrollBar().setValue(val)
+        self.sync_filter_widths()
 
     def sync_filter_positions(self, *args):
-        """Sütunaların yerleri sürükle-bırak ile değiştirildiğinde filtre kutularının sırasını senkronize eder."""
-        header = self.table_view.horizontalHeader()
-        widgets_to_reorder = []
-        for col_idx in sorted(self.headers_dict.keys()):
-            le = self.filter_widgets.get(col_idx)
-            if le:
-                visual_idx = header.visualIndex(col_idx)
-                widgets_to_reorder.append((visual_idx, le))
-                
-        # Görsel sıraya göre küçükten büyüğe sırala
-        widgets_to_reorder.sort(key=lambda x: x[0])
-        
-        # Layout'tan kaldır ve tekrar görsel sırayla ekle
-        for _, le in widgets_to_reorder:
-            self.inputs_layout.removeWidget(le)
-            self.inputs_layout.addWidget(le)
+        self.sync_filter_widths()
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self.sync_filter_widths()
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        from PyQt6.QtCore import QTimer
+        QTimer.singleShot(50, self.sync_filter_widths)
 
     def update_menu_checkboxes(self):
         """Menüdeki checkbox durumlarını tablonun anlık sütun görünürlük durumlarına göre eşitler."""
