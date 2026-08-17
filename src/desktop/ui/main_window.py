@@ -261,7 +261,7 @@ class MainWindow(QMainWindow):
                 logger.error(f"Üst menü firma listesi yüklenemedi: {e}")
 
     def init_ui(self):
-        self.setWindowTitle(self.tr("Multi-Mecra Entegre Yönetim ve Yedekleme Platformu"))
+        self.setWindowTitle(self.tr("Toya ERP"))
         self.resize(1480, 880)
         self.setStyleSheet("background-color: #f0f4f8;")
 
@@ -283,7 +283,7 @@ class MainWindow(QMainWindow):
         header_layout.setContentsMargins(20, 0, 20, 0)
         header_layout.setSpacing(20)
         
-        self.logo = QLabel(self.tr("🏢 Multi-CMS Plus"))
+        self.logo = QLabel(self.tr("🏢 Toya ERP"))
         self.logo.setStyleSheet("font-size: 20px; font-weight: 800; color: #ffffff; font-family: 'Segoe UI';")
         header_layout.addWidget(self.logo)
         
@@ -565,8 +565,7 @@ class MainWindow(QMainWindow):
         footer_layout = QHBoxLayout(self.footer_bar)
         footer_layout.setContentsMargins(16, 0, 16, 0)
         
-        footer_info = QLabel(self.tr("🏢 Multi-CMS Management Platform | Pair Programming Session"))
-        footer_info.setStyleSheet("font-size: 11px; font-weight: 500; font-family: 'Segoe UI';")
+        footer_info = QLabel("")
         footer_layout.addWidget(footer_info)
         footer_layout.addStretch()
         
@@ -622,9 +621,21 @@ class MainWindow(QMainWindow):
         self.open_module_in_tab(menu_name)
 
     def open_module_in_tab(self, menu_name):
+        SCREEN_CODES = {
+            self.tr("Teklif Yönetimi"): "[isl.quo.001] Teklif Yönetimi",
+            self.tr("Teklifler"): "[isl.quo.001] Teklif Yönetimi",
+            self.tr("Sipariş Yönetimi"): "[isl.ord.001] Sipariş Yönetimi",
+            self.tr("Siparişler"): "[isl.ord.001] Sipariş Yönetimi",
+            self.tr("Müşteriler & Cariler"): "[tan.car.001] Müşteriler & Cariler",
+            self.tr("Ürün Yönetimi"): "[tan.stk.001] Ürün & Stok Yönetimi",
+            self.tr("Görevler"): "[isl.tsk.001] Görevler & İş Emirleri",
+            self.tr("Genel Ayarlar"): "[sys.set.001] Genel Ayarlar",
+        }
+        tab_title = SCREEN_CODES.get(menu_name, menu_name)
+
         # Eğer sekme zaten açıksa ona odaklan
         for idx in range(self.tab_widget.count()):
-            if self.tab_widget.tabText(idx) == menu_name:
+            if self.tab_widget.tabText(idx) in (menu_name, tab_title):
                 self.tab_widget.setCurrentIndex(idx)
                 self.tab_widget.setVisible(True)
                 self.dashboard_container.setVisible(False)
@@ -653,7 +664,7 @@ class MainWindow(QMainWindow):
             new_widget = PlaceholderWidget(f"{menu_name} {self.tr('Modülü')}")
             
         if new_widget:
-            self.tab_widget.addTab(new_widget, menu_name)
+            self.tab_widget.addTab(new_widget, tab_title)
             self.tab_widget.setCurrentIndex(self.tab_widget.count() - 1)
             self.tab_widget.setVisible(True)
             self.dashboard_container.setVisible(False)
@@ -663,15 +674,19 @@ class MainWindow(QMainWindow):
         if self.tab_widget.count() == 0:
             self.tab_widget.setVisible(False)
             self.dashboard_container.setVisible(True)
+            self.logo.setText(self.tr("🏢 Toya ERP"))
+            self.setWindowTitle(self.tr("Toya ERP"))
 
     def tab_changed(self, index):
         if index == -1:
             self.tab_widget.setVisible(False)
             self.dashboard_container.setVisible(True)
-            self.logo.setText(self.tr("🏢 Multi-CMS Plus"))
+            self.logo.setText(self.tr("🏢 Toya ERP"))
+            self.setWindowTitle(self.tr("Toya ERP"))
         else:
             tab_text = self.tab_widget.tabText(index)
-            self.logo.setText(f"🏢 Multi-CMS Plus | {tab_text}")
+            self.logo.setText(f"🏢 Toya ERP | {tab_text}")
+            self.setWindowTitle(f"Toya ERP | {tab_text}")
 
     # Favori Yönetimi
     def favoriye_ekle(self, menu_name):

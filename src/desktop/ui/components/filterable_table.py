@@ -93,7 +93,7 @@ class FilterableTableView(QWidget):
         # *** Kaydırılabilir Filtre Alanı (QScrollArea) ***
         self.scroll_area = QScrollArea()
         self.scroll_area.setObjectName("FilterScrollArea")
-        self.scroll_area.setWidgetResizable(True)
+        self.scroll_area.setWidgetResizable(False)  # İç widget genişliğinin korunması için False olmalı
         self.scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.scroll_area.setStyleSheet("QScrollArea { border: none; background: transparent; }")
@@ -101,7 +101,6 @@ class FilterableTableView(QWidget):
         # İçine inputs_container'ı yerleştir
         self.inputs_container = QWidget()
         self.inputs_container.setObjectName("FilterInputsContainer")
-        self.inputs_container.setSizePolicy(QSizePolicy.Policy.MinimumExpanding, QSizePolicy.Policy.Preferred)
 
         self.inputs_layout = QHBoxLayout(self.inputs_container)
         self.inputs_layout.setContentsMargins(0, 0, 0, 0)
@@ -190,7 +189,10 @@ class FilterableTableView(QWidget):
         """Tablo sütun genişliği değiştiğinde filtre kutularının genişliğini senkronize eder."""
         header = self.table_view.horizontalHeader()
         total_width = 0
-        for col_idx, le in self.filter_widgets.items():
+        for col_idx in sorted(self.headers_dict.keys()):
+            le = self.filter_widgets.get(col_idx)
+            if not le:
+                continue
             if header.isSectionHidden(col_idx):
                 le.hide()
             else:
@@ -198,10 +200,15 @@ class FilterableTableView(QWidget):
                 col_width = header.sectionSize(col_idx)
                 le.setFixedWidth(col_width)
                 total_width += col_width
-        # Filtre kutularının toplam genişliğini container'a ayarla (scroll area içinde)
-        self.inputs_container.setFixedWidth(max(total_width, header.length()))
-        # Scroll senkronizasyonunu da tetikle
-        self.sync_filter_scroll(self.table_view.horizontalScrollBar().value())
+
+        # inputs_container genişliğini tam olarak sütunların toplamına eşitle
+        final_width = max(total_width, header.length())
+        self.inputs_container.setFixedSize(final_width, 28)
+        self.inputs_container.resize(final_width, 28)
+
+        # Scroll senkronizasyonunu anlık olarak uygula
+        val = self.table_view.horizontalScrollBar().value()
+        self.sync_filter_scroll(val)
 
     def sync_filter_scroll(self, val):
         """Yatay kaydırma yapıldığında scroll area'yı kaydır."""
