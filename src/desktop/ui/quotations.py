@@ -168,31 +168,44 @@ class BaseQuotationOrderWidget(DIA3PanelBaseWidget):
         # 2. GRUP: EVRAK İŞLEMLERİ (Açılır/Kapanır Akordiyon)
         action_title = "TEKLİF İŞLEMLERİ" if self.quotation_type == "Quotation" else "SİPARİŞ İŞLEMLERİ"
         self.sec_doc_actions = CollapsibleSection(action_title, is_expanded=True)
+        self.sec_doc_actions.setObjectName("cmp.act.001")
 
         self.btn_new = QPushButton("➕ Yeni (F3)")
+        self.btn_new.setObjectName("act.add.001")
+        self.btn_new.setToolTip("[act.add.001] Yeni Kayıt Ekle (F3)")
         self.btn_new.setShortcut("F3")
         self.btn_new.setStyleSheet(self.toolbar_btn_style())
         self.btn_new.clicked.connect(self.on_new_clicked)
 
         self.btn_edit = QPushButton("✏️ Değiştir (F4)")
+        self.btn_edit.setObjectName("act.edt.001")
+        self.btn_edit.setToolTip("[act.edt.001] Seçili Kaydı Değiştir (F4)")
         self.btn_edit.setShortcut("F4")
         self.btn_edit.setStyleSheet(self.toolbar_btn_style())
         self.btn_edit.clicked.connect(self.on_edit_clicked)
 
         self.btn_duplicate = QPushButton("📋 Kopyala")
+        self.btn_duplicate.setObjectName("act.dup.001")
+        self.btn_duplicate.setToolTip("[act.dup.001] Kaydı Kopyala")
         self.btn_duplicate.setStyleSheet(self.toolbar_btn_style())
         self.btn_duplicate.clicked.connect(self.on_duplicate_clicked)
 
         self.btn_delete = QPushButton("❌ Sil (Del)")
+        self.btn_delete.setObjectName("act.del.001")
+        self.btn_delete.setToolTip("[act.del.001] Seçili Kaydı Sil (Del)")
         self.btn_delete.setStyleSheet(self.toolbar_btn_style())
         self.btn_delete.clicked.connect(self.on_delete_clicked)
 
         conv_label = "🔄 Siparişe Dönüştür" if self.quotation_type == "Quotation" else "🔄 Faturaya Dönüştür"
         self.btn_convert = QPushButton(conv_label)
+        self.btn_convert.setObjectName("act.cnv.001")
+        self.btn_convert.setToolTip(f"[act.cnv.001] {conv_label}")
         self.btn_convert.setStyleSheet(self.toolbar_btn_style())
         self.btn_convert.clicked.connect(self.on_convert_clicked)
 
         self.btn_excel = QPushButton("🖨️ Yazdır / Excel (F9)")
+        self.btn_excel.setObjectName("act.xls.001")
+        self.btn_excel.setToolTip("[act.xls.001] Yazdır veya Excel'e Aktar (F9)")
         self.btn_excel.setStyleSheet(self.toolbar_btn_style())
         self.btn_excel.clicked.connect(self.on_excel_clicked)
 

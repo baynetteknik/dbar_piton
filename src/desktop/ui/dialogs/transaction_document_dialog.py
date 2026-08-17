@@ -154,9 +154,10 @@ class TransactionDocumentDialog(QDialog):
         self.doc_note1 = "Garanti BBVA TR12 0006 2000 0001 2345 6789 01 - TL Hesabı"
         self.doc_note2 = "Ürünler eksiksiz teslim alınmıştır. İhtilaf halinde Adana Mahkemeleri yetkilidir."
 
-        self.setWindowTitle("📄 Evrensel Fiş & Evrak Detay Formu - TOYA ERP Master Şablon")
+        self.setWindowTitle("[isl.doc.001] Evrensel Fiş & Evrak Detay Formu - TOYA ERP Master Şablon")
+        self.setObjectName("isl.doc.001")
         self.setMinimumSize(1250, 780)
-        self.showMaximized()
+        self.resize(1280, 800)
 
         self.load_data_from_db()
         self.init_ui()
@@ -208,6 +209,7 @@ class TransactionDocumentDialog(QDialog):
         # 0. EN ÜST MASTER BİLGİ ŞERİDİ (Evrak Türü, Firma, Şube, E-Belge Senaryosu, Belge No)
         # -------------------------------------------------------------
         top_bar = QFrame()
+        top_bar.setObjectName("cmp.nav.001")
         top_bar.setStyleSheet("""
             QFrame {
                 background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #1e3a8a, stop:1 #0f172a);
@@ -219,10 +221,14 @@ class TransactionDocumentDialog(QDialog):
         top_bar_lyt.setContentsMargins(10, 5, 10, 5)
         top_bar_lyt.setSpacing(10)
 
+        lbl_code_badge = QLabel("[isl.doc.001]")
+        lbl_code_badge.setStyleSheet("background-color: #3b82f6; color: #ffffff; font-weight: 900; font-size: 10px; padding: 2px 6px; border-radius: 3px;")
+        
         lbl_doc_badge = QLabel("📄 EVRAK TÜRÜ:")
         lbl_doc_badge.setStyleSheet("color: #93c5fd; font-weight: 800; font-size: 11px;")
         
         self.cmb_doc_type = QComboBox()
+        self.cmb_doc_type.setObjectName("cmp.nav.doc_type")
         self.cmb_doc_type.addItems(self.DOCUMENT_TYPES)
         self.cmb_doc_type.setCurrentIndex(self.initial_type_idx)
         self.cmb_doc_type.setStyleSheet("""
@@ -270,6 +276,7 @@ class TransactionDocumentDialog(QDialog):
         self.txt_top_doc_no.setFixedWidth(130)
         self.txt_top_doc_no.setStyleSheet("background-color: #ffffff; font-weight: bold; padding: 3px 6px; border-radius: 4px; color: #1e3a8a; font-size: 11px;")
 
+        top_bar_lyt.addWidget(lbl_code_badge)
         top_bar_lyt.addWidget(lbl_doc_badge)
         top_bar_lyt.addWidget(self.cmb_doc_type)
         top_bar_lyt.addWidget(lbl_firma)
