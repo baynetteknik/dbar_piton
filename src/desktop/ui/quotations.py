@@ -57,15 +57,16 @@ class BaseQuotationOrderWidget(DIA3PanelBaseWidget):
 
     def setup_headers_dict(self) -> dict[int, tuple[str, str]]:
         return {
-            0: (self.tr("ID"), "id"),
-            1: (self.tr("Evrak / Fiş No"), "quotation_number"),
-            2: (self.tr("Belge Başlığı"), "title"),
-            3: (self.tr("Müşteri / Cari"), "customer_name"),
-            4: (self.tr("Tarih"), "issue_date"),
-            5: (self.tr("Vade / Son Tarih"), "expiry_date"),
-            6: (self.tr("Genel Toplam"), "grand_total"),
-            7: (self.tr("Para Birimi"), "currency"),
-            8: (self.tr("Durum"), "status"),
+            0: (self.tr("Seç"), "select"),
+            1: (self.tr("ID"), "id"),
+            2: (self.tr("Evrak / Fiş No"), "quotation_number"),
+            3: (self.tr("Belge Başlığı"), "title"),
+            4: (self.tr("Müşteri / Cari"), "customer_name"),
+            5: (self.tr("Tarih"), "issue_date"),
+            6: (self.tr("Vade / Son Tarih"), "expiry_date"),
+            7: (self.tr("Genel Toplam"), "grand_total"),
+            8: (self.tr("Para Birimi"), "currency"),
+            9: (self.tr("Durum"), "status"),
         }
 
     def toolbar_btn_style(self, bg_color="#ffffff", text_color="#1e293b"):
@@ -496,7 +497,10 @@ class BaseQuotationOrderWidget(DIA3PanelBaseWidget):
                 ("2", "SIP-20260816002", "Ofis Kırtasiye İhtiyacı", "DENEME BİLİŞİM A.Ş.", "16.08.2026", "30.08.2026", "8.900,00 ₺", "TRY", "Fatura Edildi"),
             ]
             for row_data in demo_items:
-                items = [QStandardItem(txt) for txt in row_data]
+                chk = QStandardItem("")
+                chk.setCheckable(True)
+                chk.setCheckState(Qt.CheckState.Unchecked)
+                items = [chk] + [QStandardItem(txt) for txt in row_data]
                 self.table_model.appendRow(items)
             self.total_records = len(demo_items)
             self.lbl_page_info.setText(f"Sayfa 1 / 1 (Toplam: {self.total_records})")
@@ -535,14 +539,25 @@ class BaseQuotationOrderWidget(DIA3PanelBaseWidget):
             c_date = q.created_at.strftime("%d.%m.%Y") if q.created_at else "-"
             v_date = q.valid_until.strftime("%d.%m.%Y") if q.valid_until else "-"
 
+            chk_item = QStandardItem("")
+            chk_item.setCheckable(True)
+            chk_item.setCheckState(Qt.CheckState.Unchecked)
+
+            id_item = QStandardItem(str(q.id))
+            id_item.setData(int(q.id), Qt.ItemDataRole.UserRole)
+
+            tot_item = QStandardItem(f"{float(q.grand_total or 0):,.2f} ₺")
+            tot_item.setData(float(q.grand_total or 0), Qt.ItemDataRole.UserRole)
+
             row = [
-                QStandardItem(str(q.id)),
+                chk_item,
+                id_item,
                 QStandardItem(q.quotation_number or "-"),
                 QStandardItem(q.title or "-"),
                 QStandardItem(cust_name),
                 QStandardItem(c_date),
                 QStandardItem(v_date),
-                QStandardItem(f"{float(q.grand_total or 0):,.2f} ₺"),
+                tot_item,
                 QStandardItem(q.currency or "TRY"),
                 QStandardItem(q.status or "draft"),
             ]
@@ -553,8 +568,8 @@ class BaseQuotationOrderWidget(DIA3PanelBaseWidget):
         if not sel:
             return None
         row = sel[0].row()
-        item = self.table_model.item(row, 0)
-        return int(item.text()) if item else None
+        item = self.table_model.item(row, 1)  # 1. sütun ID'dir
+        return int(item.text()) if item and item.text().isdigit() else None
 
     def on_selection_changed(self):
         has_sel = self.get_selected_id() is not None
@@ -667,11 +682,42 @@ class BaseQuotationOrderWidget(DIA3PanelBaseWidget):
             menu.addAction(act_xls)
 
         menu.addSeparator()
+        act_sel_all = QAction("☑️ Tüm Satırları Seç", self)
+        act_sel_all.triggered.connect(self.select_all_rows)
+        menu.addAction(act_sel_all)
+
+        act_desel_all = QAction("⬜ Tüm Seçimleri Kaldır", self)
+        act_desel_all.triggered.connect(self.deselect_all_rows)
+        menu.addAction(act_desel_all)
+
+        menu.addSeparator()
         act_cols = QAction("⚙️ Kolon Yapılandır", self)
         act_cols.triggered.connect(self.filterable_table.open_column_manager_dialog)
         menu.addAction(act_cols)
 
         menu.exec(self.table_view.viewport().mapToGlobal(pos))
+
+    def select_all_rows(self):
+        for r in range(self.table_model.rowCount()):
+            item = self.table_model.item(r, 0)
+            if item:
+                item.setCheckState(Qt.CheckState.Checked)
+
+    def deselect_all_rows(self):
+        for r in range(self.table_model.rowCount()):
+            item = self.table_model.item(r, 0)
+            if item:
+                item.setCheckState(Qt.CheckState.Unchecked)
+
+    def get_checked_ids(self) -> list[int]:
+        ids = []
+        for r in range(self.table_model.rowCount()):
+            chk_item = self.table_model.item(r, 0)
+            if chk_item and chk_item.checkState() == Qt.CheckState.Checked:
+                id_item = self.table_model.item(r, 1)
+                if id_item and id_item.text().isdigit():
+                    ids.append(int(id_item.text()))
+        return ids
 
 
 class QuotationsWidget(BaseQuotationOrderWidget):

@@ -28,7 +28,7 @@ class FilterableTableView(QWidget):
     filter_changed = pyqtSignal(dict)  # Aktif filtre sözlüğünü yayar
     column_visibility_changed = pyqtSignal(int, bool)  # Sütun göster/gizle durumunu yayar (col_idx, visible)
 
-    MANDATORY_COLUMNS = {"id", "cari_kodu", "ticari_unvan"}
+    MANDATORY_COLUMNS = set()  # Kullanıcı istediği sütunu (ID dahil) gizleyebilmeli
 
     def __init__(
         self,
@@ -90,7 +90,7 @@ class FilterableTableView(QWidget):
         """)
         self.reset_btn.clicked.connect(self.clear_all_filters)
 
-        # *** YENİ: Kaydırılabilir Filtre Alanı (QScrollArea) ***
+        # *** Kaydırılabilir Filtre Alanı (QScrollArea) ***
         self.scroll_area = QScrollArea()
         self.scroll_area.setObjectName("FilterScrollArea")
         self.scroll_area.setWidgetResizable(True)
@@ -143,11 +143,16 @@ class FilterableTableView(QWidget):
         # 2. Asıl QTableView
         self.table_view = QTableView()
         self.table_view.setObjectName("MainTableView")
-        self.table_view.horizontalHeader().setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
-        self.table_view.horizontalHeader().customContextMenuRequested.connect(self.show_header_context_menu)
+        self.table_view.setSortingEnabled(True)  # ARTAN / AZALAN SIRALAMA AKTİF
+        
+        hheader = self.table_view.horizontalHeader()
+        hheader.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        hheader.customContextMenuRequested.connect(self.show_header_context_menu)
+        hheader.setSortIndicatorShown(True)
+        hheader.setSectionsClickable(True)
         
         # Sütun ayırıcı çizgileri ve hover efektini QHeaderView stili ile uygulayalım
-        self.table_view.horizontalHeader().setStyleSheet("""
+        hheader.setStyleSheet("""
             QHeaderView::section {
                 background-color: #f8fafc;
                 color: #475569;
@@ -171,9 +176,10 @@ class FilterableTableView(QWidget):
         self.table_view.setItemDelegate(self.style_delegate)
 
         # Sütun genişlikleri ve kaydırma senkronizasyonu
-        self.table_view.horizontalHeader().sectionResized.connect(self.sync_filter_widths)
+        hheader.sectionResized.connect(self.sync_filter_widths)
         self.table_view.horizontalScrollBar().valueChanged.connect(self.sync_filter_scroll)
-        self.table_view.horizontalHeader().sectionMoved.connect(self.sync_filter_positions)
+        self.table_view.horizontalScrollBar().rangeChanged.connect(lambda *_: self.sync_filter_widths())
+        hheader.sectionMoved.connect(self.sync_filter_positions)
 
         # En son kullanılan aktif profili otomatik yükle
         from PyQt6.QtCore import QTimer
@@ -193,13 +199,13 @@ class FilterableTableView(QWidget):
                 le.setFixedWidth(col_width)
                 total_width += col_width
         # Filtre kutularının toplam genişliğini container'a ayarla (scroll area içinde)
-        self.inputs_container.setFixedWidth(total_width)
+        self.inputs_container.setFixedWidth(max(total_width, header.length()))
         # Scroll senkronizasyonunu da tetikle
         self.sync_filter_scroll(self.table_view.horizontalScrollBar().value())
 
     def sync_filter_scroll(self, val):
         """Yatay kaydırma yapıldığında scroll area'yı kaydır."""
-        if hasattr(self, 'scroll_area'):
+        if hasattr(self, 'scroll_area') and self.scroll_area:
             self.scroll_area.horizontalScrollBar().setValue(val)
 
     def sync_filter_positions(self, *args):
