@@ -250,16 +250,6 @@ class MainWindow(QMainWindow):
         
         self.init_ui()
 
-    def load_global_sites_header(self):
-        if hasattr(self, 'cmb_top_site'):
-            self.cmb_top_site.clear()
-            try:
-                sites = self.db.query(Site).filter(Site.is_active == True, Site.is_deleted == False).all()
-                for site in sites:
-                    self.cmb_top_site.addItem(f"🏢 {site.name}", site.id)
-            except Exception as e:
-                logger.error(f"Üst menü firma listesi yüklenemedi: {e}")
-
     def init_ui(self):
         self.setWindowTitle(self.tr("Toya ERP"))
         self.resize(1480, 880)
@@ -402,72 +392,6 @@ class MainWindow(QMainWindow):
             menu_layout.addWidget(btn)
             
         menu_layout.addStretch()
-
-        top_selectors_layout = QHBoxLayout()
-        top_selectors_layout.setSpacing(8)
-
-        lbl_top_site = QLabel(self.tr("Firma:"))
-        lbl_top_site.setStyleSheet("color: #94a3b8; font-weight: bold; font-size: 11px;")
-        self.cmb_top_site = QComboBox()
-        self.cmb_top_site.setObjectName("tan.sit.001")
-        self.cmb_top_site.setToolTip("[tan.sit.001] Üst Bar Entegrasyon ve Site Seçici")
-        self.cmb_top_site.setMinimumWidth(160)
-        self.cmb_top_site.setStyleSheet("""
-            QComboBox {
-                background-color: #0f172a;
-                color: #f8fafc;
-                border: 1px solid #334155;
-                border-radius: 4px;
-                padding: 3px 8px;
-                font-size: 11px;
-                font-weight: bold;
-            }
-        """)
-        self.load_global_sites_header()
-
-        lbl_top_depot = QLabel(self.tr("Depo:"))
-        lbl_top_depot.setStyleSheet("color: #94a3b8; font-weight: bold; font-size: 11px;")
-        self.cmb_top_depot = QComboBox()
-        self.cmb_top_depot.setObjectName("tan.dep.001")
-        self.cmb_top_depot.setToolTip("[tan.dep.001] Üst Bar Aktif Depo Seçimi")
-        self.cmb_top_depot.addItem(self.tr("10-MERKEZ DEPO"), 10)
-        self.cmb_top_depot.setStyleSheet("""
-            QComboBox {
-                background-color: #0f172a;
-                color: #f8fafc;
-                border: 1px solid #334155;
-                border-radius: 4px;
-                padding: 3px 8px;
-                font-size: 11px;
-                font-weight: bold;
-            }
-        """)
-
-        lbl_top_date = QLabel(self.tr("Tarih:"))
-        lbl_top_date.setStyleSheet("color: #94a3b8; font-weight: bold; font-size: 11px;")
-        self.date_top_header = QDateEdit(QDate.currentDate())
-        self.date_top_header.setObjectName("tan.dat.001")
-        self.date_top_header.setToolTip("[tan.dat.001] Üst Bar Sistem Çalışma Tarihi")
-        self.date_top_header.setCalendarPopup(True)
-        self.date_top_header.setStyleSheet("""
-            QDateEdit {
-                background-color: #0f172a;
-                color: #f8fafc;
-                border: 1px solid #334155;
-                border-radius: 4px;
-                padding: 3px 6px;
-                font-size: 11px;
-            }
-        """)
-
-        top_selectors_layout.addWidget(lbl_top_site)
-        top_selectors_layout.addWidget(self.cmb_top_site)
-        top_selectors_layout.addWidget(lbl_top_depot)
-        top_selectors_layout.addWidget(self.cmb_top_depot)
-        top_selectors_layout.addWidget(lbl_top_date)
-        top_selectors_layout.addWidget(self.date_top_header)
-
-        menu_layout.addLayout(top_selectors_layout)
         main_layout.addWidget(self.menu_bar)
 
         # ==========================================
