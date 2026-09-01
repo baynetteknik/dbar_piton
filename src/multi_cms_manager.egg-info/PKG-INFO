@@ -18,6 +18,10 @@ Requires-Dist: requests>=2.31.0
 Requires-Dist: paramiko>=3.0.0
 Requires-Dist: pandas>=2.0.0
 Requires-Dist: odfpy>=1.4.1
+Requires-Dist: msgpack>=1.0.0
+Requires-Dist: zstandard>=0.22.0
+Requires-Dist: packaging>=23.0
+Requires-Dist: qt-material>=2.14
 Provides-Extra: dev
 Requires-Dist: pytest>=7.4.0; extra == "dev"
 Requires-Dist: responses>=0.23.0; extra == "dev"

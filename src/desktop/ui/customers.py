@@ -507,7 +507,7 @@ class CustomerDialog(QDialog):
                 self.photo_label.setPixmap(pixmap.scaled(self.photo_label.size(), Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation))
                 self.photo_label.setStyleSheet("border: 1px solid #94a3b8; border-radius: 6px;")
 
-    def save_customer(self):
+    def save_customer(self, close_on_success: bool = True):
         fullname = self.txt_fullname.text().strip()
         if not fullname:
             QMessageBox.warning(self, self.tr("Uyarı"), self.tr("Lütfen Ticari Ünvan alanını doldurun."))
@@ -2087,6 +2087,8 @@ class MusteriYonetimiWidget(DIA3PanelBaseWidget):
         action_search.triggered.connect(self.trigger_quick_search)
         menu.addSeparator()
         menu.addAction(action_search)
+
+        self.filterable_table.add_column_actions_to_menu(menu)
 
         menu.exec(self.table.viewport().mapToGlobal(pos))
 

@@ -59,86 +59,67 @@ class FilterableTableView(QWidget):
             )
             layout.addWidget(self.profile_bar)
 
-        # 1. DBGrid Başlık ve Kimlik Çubuğu ([cmp.grd.001])
-        self.grid_header_bar = QWidget()
-        self.grid_header_bar.setObjectName("cmp.grd.header")
-        self.grid_header_bar.setFixedHeight(28)
-        self.grid_header_bar.setStyleSheet("""
-            QWidget#cmp\\.grd\\.header {
-                background-color: #f1f5f9;
-                border-top: 1px solid #cbd5e1;
-                border-left: 1px solid #cbd5e1;
-                border-right: 1px solid #cbd5e1;
-                border-top-left-radius: 6px;
-                border-top-right-radius: 6px;
-            }
-        """)
-        gh_lyt = QHBoxLayout(self.grid_header_bar)
-        gh_lyt.setContentsMargins(8, 2, 8, 2)
-        gh_lyt.setSpacing(8)
-
-        lbl_grid_badge = QLabel("[cmp.grd.001]")
-        lbl_grid_badge.setStyleSheet("background-color: #0284c7; color: #ffffff; font-weight: 900; font-size: 10px; padding: 2px 6px; border-radius: 3px;")
-        
-        lbl_grid_title = QLabel(f"Dinamik Veri Tablosu & DbGrid Motoru ({self.profile_key.upper()})")
-        lbl_grid_title.setStyleSheet("color: #334155; font-weight: 700; font-size: 11px; font-family: 'Segoe UI';")
-
-        self.reset_btn = QPushButton("🗑️ Filtreleri Temizle")
-        self.reset_btn.setObjectName("act.rst.001")
-        self.reset_btn.setToolTip("[act.rst.001] Tüm Kolon Filtrelerini Sıfırla")
-        self.reset_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.reset_btn.setStyleSheet("""
-            QPushButton {
-                background-color: #ffffff;
-                color: #dc2626;
-                border: 1px solid #fca5a5;
-                border-radius: 4px;
-                font-size: 10px;
-                font-weight: bold;
-                padding: 2px 8px;
-            }
-            QPushButton:hover {
-                background-color: #fee2e2;
-            }
-        """)
-        self.reset_btn.clicked.connect(self.clear_all_filters)
-
-        gh_lyt.addWidget(lbl_grid_badge)
-        gh_lyt.addWidget(lbl_grid_title)
-        gh_lyt.addStretch()
-        gh_lyt.addWidget(self.reset_btn)
-        layout.addWidget(self.grid_header_bar)
-
-        # 2. Filtre Çubuğu Paneli (Doğrudan Viewport Piksel Senkronlu Konteyner)
+        # 1. Filtre Çubuğu Paneli (Doğrudan Viewport Piksel Senkronlu Konteyner)
         self.filter_bar_container = QWidget()
         self.filter_bar_container.setObjectName("FilterBarContainer")
         self.filter_bar_container.setFixedHeight(28)
         self.filter_bar_container.setStyleSheet("background-color: #f8fafc; border: 1px solid #cbd5e1; border-bottom: none;")
 
-        # Her kolon için bir filtre kutusu (QLineEdit) oluştur
+        # Kompakt Filtre Sıfırlama Butonu (Çöp Kutusu)
+        self.reset_btn = QPushButton("🗑️", self.filter_bar_container)
+        self.reset_btn.setObjectName("act.rst.001")
+        self.reset_btn.setToolTip("[act.rst.001] " + self.tr("Tüm Kolon Filtrelerini Sıfırla (Temizle)"))
+        self.reset_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.reset_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #fee2e2;
+                color: #dc2626;
+                border: 1px solid #fca5a5;
+                border-radius: 0px;
+                font-size: 12px;
+                font-weight: bold;
+                padding: 0px;
+            }
+            QPushButton:hover {
+                background-color: #fecaca;
+                color: #991b1b;
+            }
+            QPushButton:pressed {
+                background-color: #f87171;
+                color: #ffffff;
+            }
+        """)
+        self.reset_btn.clicked.connect(self.clear_all_filters)
+
+        # Her kolon için bir filtre kutusu (veya Seçim kolonu için Çöp Kutusu) oluştur
+        has_select_col = any(f.lower() in ("select", "sec", "seç", "chk", "check", "action", "actions") for _, f in self.headers_dict.values())
+        
         for col_idx in sorted(self.headers_dict.keys()):
             label, field_name = self.headers_dict[col_idx]
-            le = QLineEdit(self.filter_bar_container)
-            le.setObjectName(f"FilterInput_{field_name}")
-            le.setPlaceholderText(f"{label}...")
-            le.setStyleSheet("""
-                QLineEdit {
-                    border: 1px solid #cbd5e1;
-                    border-radius: 0px;
-                    padding: 2px 6px;
-                    font-size: 11px;
-                    background-color: #ffffff;
-                    color: #0f172a;
-                }
-                QLineEdit:focus {
-                    border-color: #3b82f6;
-                    background-color: #eff6ff;
-                }
-            """)
-            le.textChanged.connect(
-                lambda text, col=field_name: self.on_filter_text_changed(col, text),
-            )
-            self.filter_widgets[col_idx] = le
+            if (col_idx == 0 and has_select_col) or field_name.lower() in ("select", "sec", "seç", "chk", "check", "action", "actions"):
+                self.filter_widgets[col_idx] = self.reset_btn
+            else:
+                le = QLineEdit(self.filter_bar_container)
+                le.setObjectName(f"FilterInput_{field_name}")
+                le.setPlaceholderText(f"{label}...")
+                le.setStyleSheet("""
+                    QLineEdit {
+                        border: 1px solid #cbd5e1;
+                        border-radius: 0px;
+                        padding: 2px 6px;
+                        font-size: 11px;
+                        background-color: #ffffff;
+                        color: #0f172a;
+                    }
+                    QLineEdit:focus {
+                        border-color: #3b82f6;
+                        background-color: #eff6ff;
+                    }
+                """)
+                le.textChanged.connect(
+                    lambda text, col=field_name: self.on_filter_text_changed(col, text),
+                )
+                self.filter_widgets[col_idx] = le
 
         layout.addWidget(self.filter_bar_container)
 
@@ -152,17 +133,21 @@ class FilterableTableView(QWidget):
         hheader.customContextMenuRequested.connect(self.show_header_context_menu)
         hheader.setSortIndicatorShown(True)
         hheader.setSectionsClickable(True)
+        hheader.setFixedHeight(26)  # Başlık yüksekliği sabit 26px
         
         # Sütun ayırıcı çizgileri ve hover efektini QHeaderView stili ile uygulayalım
         hheader.setStyleSheet("""
             QHeaderView::section {
                 background-color: #f8fafc;
                 color: #475569;
-                padding: 8px;
+                padding: 2px 6px;
                 border: none;
                 border-right: 2px solid #cbd5e1;
                 border-bottom: 2px solid #cbd5e1;
                 font-weight: bold;
+                font-size: 10px;
+                min-height: 22px;
+                max-height: 26px;
             }
             QHeaderView::section:last {
                 border-right: none;
@@ -171,6 +156,15 @@ class FilterableTableView(QWidget):
                 background-color: #e2e8f0;
             }
         """)
+        # Satır yüksekliği
+        try:
+            from src.desktop.managers.theme_manager import ThemeManager
+            row_h = ThemeManager().row_height
+        except Exception:
+            row_h = 26
+        self.table_view.verticalHeader().setDefaultSectionSize(row_h)
+        self.table_view.verticalHeader().setMinimumSectionSize(row_h)
+
         layout.addWidget(self.table_view, 1)
 
         # Style delegate for visual rules
@@ -192,7 +186,11 @@ class FilterableTableView(QWidget):
     def sync_filter_widths(self, *args):
         """Tablo yatay kaydırıldığında veya sütunlar yeniden boyutlandırıldığında filtre kutularını pikseli pikseline hizalar."""
         header = self.table_view.horizontalHeader()
+        if not header or header.count() == 0:
+            return
         for col_idx in sorted(self.headers_dict.keys()):
+            if col_idx >= header.count():
+                continue
             le = self.filter_widgets.get(col_idx)
             if not le:
                 continue
@@ -219,6 +217,29 @@ class FilterableTableView(QWidget):
         from PyQt6.QtCore import QTimer
         QTimer.singleShot(50, self.sync_filter_widths)
 
+    @property
+    def inputs_layout(self):
+        """Geriye dönük test uyumluluğu için visualIndex sırasına göre filtre elemanlarını sunar."""
+        class DummyLayout:
+            def __init__(self, table):
+                self.table = table
+
+            def itemAt(self, visual_idx):  # noqa: N802
+                header = self.table.table_view.horizontalHeader()
+                logical_idx = header.logicalIndex(visual_idx)
+                w = self.table.filter_widgets.get(logical_idx)
+
+                class DummyItem:
+                    def __init__(self, widget):
+                        self._widget = widget
+
+                    def widget(self):
+                        return self._widget
+
+                return DummyItem(w)
+
+        return DummyLayout(self)
+
     def update_menu_checkboxes(self):
         """Menüdeki checkbox durumlarını tablonun anlık sütun görünürlük durumlarına göre eşitler."""
         if hasattr(self, 'menu_checkboxes') and self.menu_checkboxes:
@@ -236,10 +257,11 @@ class FilterableTableView(QWidget):
     def clear_all_filters(self):
         """Çöp kutusuna basıldığında tüm filtreleri temizler."""
         self.filters.clear()
-        for le in self.filter_widgets.values():
-            le.blockSignals(True)
-            le.clear()
-            le.blockSignals(False)
+        for w in self.filter_widgets.values():
+            if isinstance(w, QLineEdit):
+                w.blockSignals(True)
+                w.clear()
+                w.blockSignals(False)
         self.filter_changed.emit(self.filters)
 
     def get_mandatory_columns(self) -> set[str]:
@@ -272,7 +294,11 @@ class FilterableTableView(QWidget):
 
     def apply_view_profile(self, profile: ViewProfile):
         """Applies a ViewProfile v2.0.0 instance to the table and style delegate."""
+        if not profile or not hasattr(profile, "column_settings"):
+            return
         header = self.table_view.horizontalHeader()
+        if not header or header.count() == 0:
+            return
         mandatory_cols = self.get_mandatory_columns()
 
         # 1. Apply column positions (orders)
@@ -332,6 +358,47 @@ class FilterableTableView(QWidget):
         header_view = self.table_view.horizontalHeader()
         pos = header_view.rect().center()
         self.show_header_context_menu(pos)
+
+    def add_column_actions_to_menu(self, menu):
+        """
+        Sağ tık menüsüne sütun gizle/göster aksiyonları ekler.
+        quotations.py ve diğer liste ekranları tarafından çağrılır.
+        """
+        from PyQt6.QtGui import QAction
+        from PyQt6.QtWidgets import QMenu
+
+        col_menu = menu.addMenu("👁️ Sütunlar")
+        col_menu.setStyleSheet("""
+            QMenu {
+                background:#ffffff; border:1px solid #cbd5e1;
+                font-size:10px; padding:2px;
+            }
+            QMenu::item { padding:4px 16px; }
+            QMenu::item:selected { background:#2563eb; color:#ffffff; }
+        """)
+
+        header = self.table_view.horizontalHeader()
+        for col_idx in sorted(self.headers_dict.keys()):
+            label, _ = self.headers_dict[col_idx]
+            is_visible = not header.isSectionHidden(col_idx)
+            act = QAction(
+                f"{'✅' if is_visible else '☐'} {label}", self
+            )
+            act.triggered.connect(
+                lambda checked, c=col_idx, v=is_visible:
+                self.set_column_hidden(c, v)
+            )
+            col_menu.addAction(act)
+
+        col_menu.addSeparator()
+        act_show_all = QAction("👁️ Tümünü Göster", self)
+        act_show_all.triggered.connect(
+            lambda: [
+                self.set_column_hidden(c, False)
+                for c in self.headers_dict.keys()
+            ]
+        )
+        col_menu.addAction(act_show_all)
 
     def show_header_context_menu(self, pos):
         """Tablo başlığına sağ tıklandığında iki sütunlu, arama ve profil kayıt özellikli menüyü açar."""

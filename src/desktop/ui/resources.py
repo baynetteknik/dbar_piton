@@ -1225,8 +1225,9 @@ class ResourcesWidget(DIA3PanelBaseWidget):
         menu.addSeparator()
         menu.addAction(action_pull)
         menu.addAction(action_push)
-        menu.addSeparator()
-        menu.addAction(action_cols)
+
+        self.filterable_table.add_column_actions_to_menu(menu)
+
         menu.exec(self.table.viewport().mapToGlobal(pos))
 
     def trigger_pull(self):

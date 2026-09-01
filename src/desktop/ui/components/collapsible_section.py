@@ -7,8 +7,6 @@ genişletip daraltmayı sağlar.
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtWidgets import (
     QFrame,
-    QHBoxLayout,
-    QLabel,
     QPushButton,
     QVBoxLayout,
     QWidget,
@@ -100,10 +98,15 @@ class CollapsibleSection(QWidget):
             """)
 
     def toggle(self):
-        self.is_expanded = not self.is_expanded
-        self.content_frame.setVisible(self.is_expanded)
-        self.update_style()
-        self.toggled.emit(self.is_expanded)
+        self.set_expanded(not self.is_expanded)
+
+    def set_expanded(self, expanded: bool):
+        """Açılır/kapanır bölümün durumunu açık ya da kapalı yapar."""
+        if self.is_expanded != expanded:
+            self.is_expanded = expanded
+            self.content_frame.setVisible(self.is_expanded)
+            self.update_style()
+            self.toggled.emit(self.is_expanded)
 
     def add_widget(self, widget: QWidget):
         """İçerik alanına yeni bir bileşen ekler."""

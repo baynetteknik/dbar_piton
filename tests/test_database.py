@@ -82,3 +82,55 @@ def test_optimistic_locking(db_session):
     with pytest.raises(StaleDataError):
         db_session.commit()
 
+
+def test_schema_compatibility_migration(tmp_path):
+    """Test that DatabaseManager automatically adds missing columns to existing SQLite tables."""
+    import sqlite3
+
+    from sqlalchemy import inspect
+
+    from src.core.database import DatabaseManager
+    from src.core.models import Quotation
+
+    db_file = tmp_path / "test_migration.db"
+    
+    # Create legacy table missing company_id, exchange_rate, etc.
+    conn = sqlite3.connect(str(db_file))
+    conn.execute(
+        """
+        CREATE TABLE quotations (
+            id INTEGER PRIMARY KEY,
+            quotation_number VARCHAR(100) NOT NULL,
+            title VARCHAR(255),
+            quotation_type VARCHAR(50) DEFAULT 'Quotation',
+            status VARCHAR(50) DEFAULT 'draft',
+            created_at DATETIME,
+            updated_at DATETIME,
+            is_deleted BOOLEAN DEFAULT 0,
+            version_id INTEGER DEFAULT 1
+        )
+        """,
+    )
+    conn.commit()
+    conn.close()
+
+    # Initializing DatabaseManager should trigger _ensure_compatibility_columns
+    db_mgr = DatabaseManager(db_path=str(db_file))
+    
+    inspector = inspect(db_mgr.engine)
+    col_names = {col["name"] for col in inspector.get_columns("quotations")}
+    
+    assert "company_id" in col_names
+    assert "exchange_rate" in col_names
+    assert "payment_plan" in col_names
+    assert "grand_total" in col_names
+
+    # Test querying with ORM
+    session = db_mgr.get_db()
+    try:
+        results = session.query(Quotation).all()
+        assert results == []
+    finally:
+        session.close()
+
+

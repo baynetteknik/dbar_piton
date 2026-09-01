@@ -1,11 +1,19 @@
-from collections.abc import Generator
-
 import pytest
 import responses
+from PyQt6.QtWidgets import QApplication
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 
 from src.core.models import Base
+
+
+@pytest.fixture(scope="session")
+def qapp():
+    """Ensure QApplication instance exists for GUI tests."""
+    app = QApplication.instance()
+    if app is None:
+        app = QApplication([])
+    return app
 
 
 @pytest.fixture

@@ -3,7 +3,7 @@ import logging
 import os
 from typing import Generic, TypeVar
 
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, inspect
 from sqlalchemy.orm import Session, sessionmaker
 
 from src.core.config import settings
@@ -23,7 +23,7 @@ try:
 except ImportError:
     import sqlite3 as sqlcipher_api
 
-    logger.warning("SQLCipher not found, falling back to standard sqlite3.")
+    logger.info("SQLCipher not found, falling back to standard sqlite3.")
 
 
 class DatabaseManager:
@@ -98,50 +98,58 @@ class DatabaseManager:
 
     def _ensure_compatibility_columns(self):
         """Eski veritabanlarında yeni şema sütunlarının varlığını kontrol eder ve eksikse ALTER TABLE ile ekler."""
-        with self.engine.connect() as conn:
-            # products tablosu kontrolü
-            cursor = conn.exec_driver_sql("PRAGMA table_info(products)")
-            existing_prod_cols = {row[1] for row in cursor.fetchall()}
-            
-            prod_adds = {
-                "description": "ALTER TABLE products ADD COLUMN description TEXT",
-                "category_id": "ALTER TABLE products ADD COLUMN category_id INTEGER REFERENCES categories(id) ON DELETE SET NULL",
-                "custom_code": "ALTER TABLE products ADD COLUMN custom_code VARCHAR(100)",
-                "base_price": "ALTER TABLE products ADD COLUMN base_price FLOAT DEFAULT 0.0",
-                "image_path": "ALTER TABLE products ADD COLUMN image_path VARCHAR(255)",
-                "price": "ALTER TABLE products ADD COLUMN price FLOAT DEFAULT 0.0",
-            }
-            
-            for col, sql in prod_adds.items():
-                if col not in existing_prod_cols:
+        try:
+            inspector = inspect(self.engine)
+            with self.engine.connect() as conn:
+                for table_name, table in Base.metadata.tables.items():
+                    if not inspector.has_table(table_name):
+                        continue
+
                     try:
-                        conn.exec_driver_sql(sql)
-                        logger.info(f"Added missing column '{col}' to products table.")
+                        existing_cols = {
+                            col["name"] for col in inspector.get_columns(table_name)
+                        }
                     except Exception as e:
-                        logger.warning(f"Could not add column '{col}' to products: {e}")
-                        
-            # orders tablosu kontrolü
-            cursor = conn.exec_driver_sql("PRAGMA table_info(orders)")
-            existing_ord_cols = {row[1] for row in cursor.fetchall()}
-            
-            ord_adds = {
-                "customer_id": "ALTER TABLE orders ADD COLUMN customer_id INTEGER REFERENCES customers(id)",
-                "customer_name": "ALTER TABLE orders ADD COLUMN customer_name VARCHAR(255) DEFAULT ''",
-                "total_amount": "ALTER TABLE orders ADD COLUMN total_amount FLOAT DEFAULT 0.0",
-                "marketplace": "ALTER TABLE orders ADD COLUMN marketplace VARCHAR(50)",
-                "total": "ALTER TABLE orders ADD COLUMN total FLOAT DEFAULT 0.0",
-                "raw_status": "ALTER TABLE orders ADD COLUMN raw_status VARCHAR(50)",
-                "order_date": "ALTER TABLE orders ADD COLUMN order_date DATETIME",
-            }
-            
-            for col, sql in ord_adds.items():
-                if col not in existing_ord_cols:
-                    try:
-                        conn.exec_driver_sql(sql)
-                        logger.info(f"Added missing column '{col}' to orders table.")
-                    except Exception as e:
-                        logger.warning(f"Could not add column '{col}' to orders: {e}")
-            conn.commit()
+                        logger.warning(
+                            f"Could not inspect columns for table '{table_name}': {e}",
+                        )
+                        continue
+
+                    for col in table.columns:
+                        if col.name not in existing_cols and not col.primary_key:
+                            try:
+                                col_type = col.type.compile(dialect=self.engine.dialect)
+                                default_clause = ""
+                                if col.server_default is not None and hasattr(
+                                    col.server_default, "arg",
+                                ):
+                                    default_clause = f" DEFAULT {col.server_default.arg}"
+                                elif col.default is not None and getattr(
+                                    col.default, "is_scalar", False,
+                                ):
+                                    val = col.default.arg
+                                    if isinstance(val, str):
+                                        default_clause = f" DEFAULT '{val}'"
+                                    elif isinstance(val, bool):
+                                        default_clause = f" DEFAULT {1 if val else 0}"
+                                    elif isinstance(val, (int, float)):
+                                        default_clause = f" DEFAULT {val}"
+
+                                sql = (
+                                    f"ALTER TABLE {table_name} ADD COLUMN "
+                                    f"{col.name} {col_type}{default_clause}"
+                                )
+                                conn.exec_driver_sql(sql)
+                                logger.info(
+                                    f"Added missing column '{col.name}' to table '{table_name}'.",
+                                )
+                            except Exception as col_err:
+                                logger.warning(
+                                    f"Could not add column '{col.name}' to table '{table_name}': {col_err}",
+                                )
+                conn.commit()
+        except Exception as e:
+            logger.warning(f"Error during schema compatibility check: {e}")
 
     def get_db(self) -> Session:
         """Returns a new DB session instance."""

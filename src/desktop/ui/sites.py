@@ -1011,6 +1011,7 @@ class SitesWidget(QWidget):
         menu.addAction(action_delete)
         menu.addSeparator()
         menu.addAction(action_test)
-        menu.addAction(action_cols)
+
+        self.filterable_table.add_column_actions_to_menu(menu)
 
         menu.exec(self.table.viewport().mapToGlobal(pos))

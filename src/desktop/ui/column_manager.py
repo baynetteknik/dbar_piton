@@ -17,11 +17,11 @@ from PyQt6.QtWidgets import (
 class ColumnManagerDialog(QDialog):
     """DIA stiline uygun, arama filtrelemeli ve toplu seçim destekli gelişmiş Sütun/Kolon Yönetim Ekranı."""
     
-    def __init__(self, headers_dict, hidden_columns, settings_file_name, parent=None):
+    def __init__(self, headers_dict, hidden_columns, settings_file_name=None, parent=None):
         super().__init__(parent)
         self.headers_dict = headers_dict # {col_idx: (display_name, field_name)}
         self.hidden_columns = set(hidden_columns)
-        self.settings_path = Path("data") / f"{settings_file_name}.json"
+        self.settings_path = (Path("data") / f"{settings_file_name}.json") if settings_file_name else None
         
         self.setWindowTitle(self.tr("Sütun / Kolon Yapılandırması (DIA)"))
         self.setMinimumSize(400, 500)
@@ -177,12 +177,13 @@ class ColumnManagerDialog(QDialog):
         self.hidden_columns = new_hidden
         
         # Ayarları JSON olarak kaydet
-        self.settings_path.parent.mkdir(parents=True, exist_ok=True)
-        try:
-            with open(self.settings_path, "w", encoding="utf-8") as f:
-                json.dump(list(self.hidden_columns), f)
-        except Exception:
-            pass
+        if self.settings_path:
+            self.settings_path.parent.mkdir(parents=True, exist_ok=True)
+            try:
+                with open(self.settings_path, "w", encoding="utf-8") as f:
+                    json.dump(list(self.hidden_columns), f)
+            except Exception:
+                pass
             
         self.accept()
 

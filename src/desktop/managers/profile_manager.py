@@ -136,6 +136,12 @@ class ProfileManager:
             core_cols = ["id", "code", "name", "url", "status"]
         elif self.profile_key == "products":
             core_cols = ["id", "code", "name", "price", "stock", "unit"]
+        elif self.profile_key == "transaction_doc_items":
+            core_cols = [
+                "action_delete", "item_type", "barcode", "sku", "name", "note2",
+                "quantity", "unit", "price", "currency", "discount1", "discount2",
+                "discount_amount", "vat_rate", "withholding", "total_amount"
+            ]
         elif self.profile_key == "users":
             core_cols = ["id", "username", "full_name", "role", "email", "status"]
         else:

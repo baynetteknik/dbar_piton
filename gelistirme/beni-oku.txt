@@ -1,0 +1,28 @@
+Evet, geliştirme klasörüne almak çok mantıklı. Zaten orada MD dosyaları var, MASTER döküman da oraya gitmeli.
+
+Öneri: Klasör Yapısı
+toya_erp/
+└── gelistirme/
+    ├── TOYA_ERP_MASTER.docx    ← buraya koy
+    ├── README.md               ← mevcut
+    ├── 01_ayarlar/
+    ├── 02_cari/
+    └── ...
+Yapay Zekaya Nasıl Okutursun
+Claude'da (bu chat gibi)
+
+Direkt dosyayı yükle — Claude docx okuyabiliyor. Yeni chat açınca:
+
+1. TOYA_ERP_MASTER.docx yükle
+2. İlgili .py dosyalarını yükle
+3. "Şu modüle devam et" de
+Cursor'da
+
+Cursor zaten projeyi görüyor, ekstra bir şey yapman gerekmiyor. Sadece chat'te şunu yaz:
+
+@TOYA_ERP_MASTER.docx şu modülü geliştireceğiz...
+Geliştirme klasörüne MD versiyonu da ekle
+
+Docx yerine MD formatında da bir kopyası olsa daha pratik olur — hem Cursor hem Claude hem GitHub'da düz okunur.
+
+İstersen TOYA_ERP_MASTER.md versiyonunu da oluşturayım. Cursor'da @ ile çağırmak çok kolay olur, ayrıca GitHub'da da görünür. İkisi birlikte olsa en iyi olur — ne dersin?

@@ -50,7 +50,9 @@ class Category(BaseModel):
         Integer, ForeignKey("categories.id", ondelete="SET NULL"), nullable=True,
     )
 
-    products: Mapped[list["Product"]] = relationship("Product", back_populates="category")
+    products: Mapped[list["Product"]] = relationship(
+        "Product", foreign_keys="[Product.category_id]",
+    )
 
 
 class Product(BaseModel):
@@ -64,7 +66,6 @@ class Product(BaseModel):
 
     sku: Mapped[str] = mapped_column(String(100), unique=True, index=True, nullable=False)
     name: Mapped[str] = mapped_column(String(255), nullable=False)
-    description: Mapped[str | None] = mapped_column(Text, nullable=True)
     category_id: Mapped[int | None] = mapped_column(
         Integer, ForeignKey("categories.id", ondelete="SET NULL"), nullable=True,
     )
@@ -74,11 +75,38 @@ class Product(BaseModel):
     stock: Mapped[int] = mapped_column(Integer, default=0)
     image_path: Mapped[str | None] = mapped_column(String(255), nullable=True)
     barcode: Mapped[str | None] = mapped_column(String(100), nullable=True)
-    vat_rate: Mapped[float | None] = mapped_column(Float, default=0.0, nullable=True)
     status: Mapped[int | None] = mapped_column(Integer, default=1, nullable=True)
     status_buy: Mapped[int | None] = mapped_column(Integer, default=1, nullable=True)
 
-    category: Mapped["Category | None"] = relationship("Category", back_populates="products")
+    # --- YENİ EKLENECEK ALANLAR (Görev 11) ---
+    purchase_price: Mapped[float | None] = mapped_column(Float, nullable=True, default=0.0)
+    unit: Mapped[str | None] = mapped_column(String(50), nullable=True, default="Adet")
+    vat_rate: Mapped[int | None] = mapped_column(Integer, nullable=True, default=20)
+    category: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    brand: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    min_stock: Mapped[float | None] = mapped_column(Float, nullable=True, default=0.0)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    is_active: Mapped[bool | None] = mapped_column(Boolean, nullable=True, default=True)
+    company_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+
+    # Properties for aliases
+    @property
+    def sale_price(self) -> float:
+        return float(self.base_price or self.price or 0.0)
+
+    @sale_price.setter
+    def sale_price(self, val: float):
+        self.base_price = float(val or 0.0)
+        self.price = float(val or 0.0)
+
+    @property
+    def stock_quantity(self) -> float:
+        return float(self.stock or 0.0)
+
+    @stock_quantity.setter
+    def stock_quantity(self, val: float):
+        self.stock = int(val or 0)
+
     prices: Mapped[list["ProductPrice"]] = relationship("ProductPrice", back_populates="product", cascade="all, delete-orphan")
     order_items: Mapped[list["OrderItem"]] = relationship("OrderItem", back_populates="product")
     stock_movements: Mapped[list["StockMovement"]] = relationship("StockMovement", back_populates="product", cascade="all, delete-orphan")
@@ -245,6 +273,7 @@ class Quotation(BaseModel):
     """Represents sales proposals, quotations, and official order definitions."""
     __tablename__ = "quotations"
 
+    company_id: Mapped[int | None] = mapped_column(Integer, nullable=True, default=1)
     quotation_number: Mapped[str] = mapped_column(String(100), unique=True, index=True, nullable=False)
     title: Mapped[str | None] = mapped_column(String(255), nullable=True)
     quotation_type: Mapped[str] = mapped_column(String(50), default="Quotation")  # Quotation or Order
@@ -258,38 +287,62 @@ class Quotation(BaseModel):
 
     status: Mapped[str] = mapped_column(String(50), default="draft")  # draft, sent, accepted, rejected, converted
     currency: Mapped[str] = mapped_column(String(10), default="TRY")
+    exchange_rate: Mapped[float] = mapped_column(Float, default=1.0)
+    payment_plan: Mapped[str | None] = mapped_column(String(150), nullable=True)
     valid_until: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     issue_date: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    date: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
     subtotal: Mapped[float] = mapped_column(Float, default=0.0)
-    vat_total: Mapped[float] = mapped_column(Float, default=0.0)
-    discount_total: Mapped[float] = mapped_column(Float, default=0.0)
+    total_discount: Mapped[float] = mapped_column(Float, default=0.0)
+    discount_total: Mapped[float] = mapped_column(Float, default=0.0) # alias
+    total_expense: Mapped[float] = mapped_column(Float, default=0.0)
+    tax_base: Mapped[float] = mapped_column(Float, default=0.0)
+    total_vat: Mapped[float] = mapped_column(Float, default=0.0)
+    vat_total: Mapped[float] = mapped_column(Float, default=0.0) # alias
     grand_total: Mapped[float] = mapped_column(Float, default=0.0)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     customer: Mapped["Customer | None"] = relationship("Customer")
-    items: Mapped[list["QuotationItem"]] = relationship("QuotationItem", back_populates="quotation", cascade="all, delete-orphan")
+    lines: Mapped[list["QuotationLine"]] = relationship("QuotationLine", back_populates="quotation", cascade="all, delete-orphan")
+    items: Mapped[list["QuotationLine"]] = relationship("QuotationLine", viewonly=True)
 
 
-class QuotationItem(Base):
-    """Line items for a quotation or order."""
+class QuotationLine(Base):
+    """Line items for a quotation, proposal, or order document."""
     __tablename__ = "quotation_items"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
     quotation_id: Mapped[int] = mapped_column(Integer, ForeignKey("quotations.id", ondelete="CASCADE"), nullable=False)
     product_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("products.id", ondelete="SET NULL"), nullable=True)
+    line_order: Mapped[int | None] = mapped_column(Integer, default=1)
 
-    product_name_free: Mapped[str] = mapped_column(String(255), nullable=False)
-    product_code_free: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    sku: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    name: Mapped[str] = mapped_column(String(255), default="")
+    note2: Mapped[str | None] = mapped_column(String(255), nullable=True)
+
+    # Legacy field aliases
+    product_name_free: Mapped[str] = mapped_column(String(255), default="", nullable=False)
+    product_code_free: Mapped[str | None] = mapped_column(String(100), default="", nullable=True)
+
     unit: Mapped[str] = mapped_column(String(50), default="Adet")
     quantity: Mapped[float] = mapped_column(Float, default=1.0)
     unit_price: Mapped[float] = mapped_column(Float, default=0.0)
-    vat_rate: Mapped[float] = mapped_column(Float, default=20.0)
+    discount1: Mapped[float] = mapped_column(Float, default=0.0)
+    discount2: Mapped[float] = mapped_column(Float, default=0.0)
+    discount3: Mapped[float] = mapped_column(Float, default=0.0)
     discount_rate: Mapped[float] = mapped_column(Float, default=0.0)
+    vat_rate: Mapped[float] = mapped_column(Float, default=20.0)
+    currency: Mapped[str] = mapped_column(String(10), default="TRY")
+    total_amount: Mapped[float] = mapped_column(Float, default=0.0)
     total_price: Mapped[float] = mapped_column(Float, default=0.0)
 
-    quotation: Mapped["Quotation"] = relationship("Quotation", back_populates="items")
+    quotation: Mapped["Quotation"] = relationship("Quotation", back_populates="lines")
     product: Mapped["Product | None"] = relationship("Product")
+
+
+# Alias for backwards compatibility
+QuotationItem = QuotationLine
 
 
 class CategoryMapping(Base):
@@ -538,9 +591,59 @@ class User(BaseModel):
     )
 
 
+class Currency(BaseModel):
+    """Döviz & Kur tanımları."""
+    __tablename__ = "currencies"
+
+    code: Mapped[str] = mapped_column(String(20), nullable=False)
+    name: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    symbol: Mapped[str | None] = mapped_column(String(10), nullable=True)
+    rate: Mapped[float | None] = mapped_column(Float, default=1.0, nullable=True)
+    is_active: Mapped[bool | None] = mapped_column(Boolean, default=True, nullable=True)
+
+
+class UnitDefinition(BaseModel):
+    """Birim tanımları."""
+    __tablename__ = "unit_definitions"
+
+    code: Mapped[str] = mapped_column(String(50), nullable=False)
+    name: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    is_active: Mapped[bool | None] = mapped_column(Boolean, default=True, nullable=True)
+
+
+class WarehouseDefinition(BaseModel):
+    """Depo tanımları."""
+    __tablename__ = "warehouse_definitions"
+
+    code: Mapped[str] = mapped_column(String(50), nullable=False)
+    name: Mapped[str | None] = mapped_column(String(150), nullable=True)
+    address: Mapped[str | None] = mapped_column(Text, nullable=True)
+    is_active: Mapped[bool | None] = mapped_column(Boolean, default=True, nullable=True)
+
+
+class PaymentPlan(BaseModel):
+    """Ödeme planı tanımları."""
+    __tablename__ = "payment_plans"
+
+    code: Mapped[str] = mapped_column(String(50), nullable=False)
+    description: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    days: Mapped[int | None] = mapped_column(Integer, default=0, nullable=True)
+    payment_type: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    is_active: Mapped[bool | None] = mapped_column(Boolean, default=True, nullable=True)
+
+
+class SystemSetting(BaseModel):
+    """Sistem ayarları — key/value."""
+    __tablename__ = "system_settings"
+
+    key: Mapped[str] = mapped_column(String(150), unique=True, index=True, nullable=False)
+    value: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
 event.listen(Product, "after_insert", _record_insert)
 event.listen(Product, "after_update", _record_update)
 event.listen(Order, "after_insert", _record_insert)
 event.listen(Order, "after_update", _record_update)
+
 
 

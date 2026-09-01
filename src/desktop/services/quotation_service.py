@@ -69,18 +69,23 @@ class QuotationService:
                 vat_total += vat_amount
                 grand_total += line_total
 
+                p_name = item.get("name") or item.get("product_name_free", "Ürün/Hizmet")
+                p_code = item.get("sku") or item.get("product_code_free") or ""
                 q_item = QuotationItem(
                     product_id=item.get("product_id"),
-                    product_name_free=item.get("product_name_free", "Ürün/Hizmet"),
-                    product_code_free=item.get("product_code_free"),
+                    sku=p_code,
+                    name=p_name,
+                    product_name_free=p_name,
+                    product_code_free=p_code,
                     unit=item.get("unit", "Adet"),
                     quantity=qty,
                     unit_price=unit_price,
                     vat_rate=vat_rate,
                     discount_rate=disc_rate,
                     total_price=line_total,
+                    total_amount=line_total,
                 )
-                quotation.items.append(q_item)
+                quotation.lines.append(q_item)
 
             quotation.subtotal = subtotal
             quotation.discount_total = discount_total

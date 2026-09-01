@@ -1579,6 +1579,7 @@ class BackupWidget(QWidget):
         menu.addSeparator()
         menu.addAction(search_action)
 
+        self.filterable_table.add_column_actions_to_menu(menu)
         menu.exec(self.task_table.viewport().mapToGlobal(pos))
 
     def open_detail_popup_for_selected(self, active_tab: int = 0):
