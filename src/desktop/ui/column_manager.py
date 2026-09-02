@@ -15,7 +15,7 @@ from PyQt6.QtWidgets import (
 
 
 class ColumnManagerDialog(QDialog):
-    """DIA stiline uygun, arama filtrelemeli ve toplu seçim destekli gelişmiş Sütun/Kolon Yönetim Ekranı."""
+    """3-panelli düzene uygun, arama filtrelemeli ve toplu seçim destekli gelişmiş Sütun/Kolon Yönetim Ekranı."""
     
     def __init__(self, headers_dict, hidden_columns, settings_file_name=None, parent=None):
         super().__init__(parent)
@@ -23,7 +23,7 @@ class ColumnManagerDialog(QDialog):
         self.hidden_columns = set(hidden_columns)
         self.settings_path = (Path("data") / f"{settings_file_name}.json") if settings_file_name else None
         
-        self.setWindowTitle(self.tr("Sütun / Kolon Yapılandırması (DIA)"))
+        self.setWindowTitle(self.tr("Sütun / Kolon Yapılandırması"))
         self.setMinimumSize(400, 500)
         self.init_ui()
         self.load_columns()

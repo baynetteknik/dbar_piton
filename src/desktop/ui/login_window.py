@@ -22,7 +22,7 @@ logger = logging.getLogger(__name__)
 
 
 class LoginWindow(QMainWindow):
-    """DIAApp3 benzeri login ekranı.
+    """modern login ekranı.
 
     Uygulama başlatıldığında sunucu, kullanıcı adı ve şifre bilgilerini
     alarak CMS bağlantısını kurar.

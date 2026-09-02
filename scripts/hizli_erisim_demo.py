@@ -1419,7 +1419,7 @@ class DolibarrPlusDashboard(QMainWindow):
         main_layout.addWidget(self.tab_widget, 1)
         
         # ==========================================
-        # 4. ANA SAYFA / DIA TARZI GRID MENÜ + FAVORİLER
+        # 4. ANA SAYFA / GRID MENÜ + FAVORİLER
         # ==========================================
         self.dashboard_container = QScrollArea()
         self.dashboard_container.setWidgetResizable(True)

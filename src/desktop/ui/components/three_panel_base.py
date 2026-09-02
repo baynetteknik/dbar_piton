@@ -1,9 +1,17 @@
-"""Base class and layout template for DIA-Style 3-Panel Widgets.
+"""
+ToyaUI - ThreePanelBaseWidget
 
-Provides a unified 3-panel architecture:
-1. Left Panel (EdgeTriggeredPanel - Filters / Tree Search)
-2. Center Area (FilterableTableView + Pagination / Summary Footer)
-3. Right Panel (EdgeTriggeredPanel - Fast Actions / Details)
+Uygulamadaki tüm liste, kart ve belge ekranlarının ortak 3-panelli çatı sınıfı.
+Sol panel (filtre / aksiyon), orta panel (tablo), sağ panel (hızlı işlemler).
+
+Kullanım:
+    class TeklifListesi(ThreePanelBaseWidget):
+        def setup_headers_dict(self):
+            return {0: ("ID", "id"), 1: ("Başlık", "title")}
+
+        def init_base_ui(self):
+            super().init_base_ui()
+            # Sol ve sağ paneli doldur
 """
 
 import logging
@@ -28,8 +36,13 @@ from src.desktop.ui.components.layout_hint_helper import register_layout_hint
 logger = logging.getLogger(__name__)
 
 
-class DIA3PanelBaseWidget(QWidget):
-    """Generic 3-Panel DIA-Style Base Widget for documents, cards, and management screens."""
+class ThreePanelBaseWidget(QWidget):
+    """
+    ToyaUI - 3 Panelli Ekran Temel Sınıfı
+
+    Tüm liste / kart / belge ekranları bu sınıftan türer.
+    Sol panel (EdgeTriggeredPanel) + Orta tablo (FilterableTableView) + Sağ panel (EdgeTriggeredPanel).
+    """
 
     status_message = pyqtSignal(str)
     data_changed = pyqtSignal()
@@ -38,7 +51,7 @@ class DIA3PanelBaseWidget(QWidget):
         self,
         db_session: Any = None,
         profile_key: str = "generic_3panel",
-        module_name: str = "DIA 3-Panel Ekranı",
+        module_name: str = "Liste Ekranı",
         parent: QWidget | None = None,
     ):
         super().__init__(parent)
@@ -57,7 +70,10 @@ class DIA3PanelBaseWidget(QWidget):
         register_layout_hint(self, self.module_name, "Ana Kapsayıcı (3-Panelli Düzen)")
 
     def setup_headers_dict(self) -> dict[int, tuple[str, str]]:
-        """Override to define header column structure. Index -> (Title, FieldName)."""
+        """
+        Sütun tanımlarını döner. Alt sınıflarda override edilmeli.
+        Format: {sütun_indeksi: (başlık, alan_adı)}
+        """
         return {
             0: ("ID", "id"),
             1: ("Başlık", "title"),
@@ -65,7 +81,7 @@ class DIA3PanelBaseWidget(QWidget):
         }
 
     def init_base_ui(self) -> None:
-        """Construct the 3-panel layout structure."""
+        """3 panelli layout yapısını oluşturur."""
         self.main_layout = QHBoxLayout(self)
         self.main_layout.setContentsMargins(6, 6, 6, 6)
         self.main_layout.setSpacing(4)
@@ -74,7 +90,7 @@ class DIA3PanelBaseWidget(QWidget):
         # 1. SOL PANEL (EdgeTriggeredPanel) - FİLTRE VE ARAMA
         # --------------------------------------------------------
         self.left_panel = EdgeTriggeredPanel(side="left", parent=self)
-        register_layout_hint(self.left_panel, self.module_name, "Sol Filtre Paneli")
+        register_layout_hint(self.left_panel, self.module_name, "Sol Panel")
 
         self.left_content_frame = QFrame()
         self.left_content_frame.setStyleSheet("background-color: transparent; border: none;")
@@ -95,21 +111,21 @@ class DIA3PanelBaseWidget(QWidget):
         # 2. ORTA PANEL - FİLTRELENEBİLİR TABLO VE SAYFALAMA
         # --------------------------------------------------------
         self.center_container = QWidget()
-        self.center_container.setObjectName("DIA3PanelCenterContainer")
+        self.center_container.setObjectName("ThreePanelCenterContainer")
         register_layout_hint(self.center_container, self.module_name, "Orta Tablo Paneli")
 
         self.center_layout = QVBoxLayout(self.center_container)
         self.center_layout.setContentsMargins(0, 0, 0, 0)
         self.center_layout.setSpacing(4)
 
-        # Custom header widget / top bar insertion point
+        # Üst bar (sayfa başlığı, özel buton vs.) - alt sınıflar buraya widget ekler
         self.top_bar_widget = QWidget()
         self.top_bar_layout = QHBoxLayout(self.top_bar_widget)
         self.top_bar_layout.setContentsMargins(0, 0, 0, 0)
         self.top_bar_layout.setSpacing(6)
         self.center_layout.addWidget(self.top_bar_widget)
 
-        # Main Table View
+        # Ana tablo
         self.filterable_table = FilterableTableView(
             headers_dict=self.headers_dict,
             profile_key=self.profile_key,
@@ -121,13 +137,11 @@ class DIA3PanelBaseWidget(QWidget):
         headers = [self.headers_dict[i][0] for i in sorted(self.headers_dict.keys())]
         self.table_model.setHorizontalHeaderLabels(headers)
         self.table_view.setModel(self.table_model)
-
         self.table_view.verticalHeader().setVisible(False)
         self.table_view.setSelectionBehavior(QHeaderView.SelectionBehavior.SelectRows)
-
         self.center_layout.addWidget(self.filterable_table, 1)
 
-        # Bottom bar / Pagination insertion point
+        # Alt bar (sayfalama) - alt sınıflar buraya PaginationWidget ekler
         self.bottom_bar_widget = QWidget()
         self.bottom_bar_layout = QHBoxLayout(self.bottom_bar_widget)
         self.bottom_bar_layout.setContentsMargins(0, 0, 0, 0)
@@ -140,7 +154,7 @@ class DIA3PanelBaseWidget(QWidget):
         # 3. SAĞ PANEL (EdgeTriggeredPanel) - HIZLI İŞLEMLER
         # --------------------------------------------------------
         self.right_panel = EdgeTriggeredPanel(side="right", parent=self)
-        register_layout_hint(self.right_panel, self.module_name, "Sağ İşlem Paneli")
+        register_layout_hint(self.right_panel, self.module_name, "Sağ Panel")
 
         self.right_content_frame = QFrame()
         self.right_content_frame.setStyleSheet("background-color: transparent; border: none;")
@@ -181,5 +195,9 @@ class DIA3PanelBaseWidget(QWidget):
         self.on_filter_changed()
 
     def load_data(self) -> None:
-        """Load data into table model."""
+        """Load data into table model. Override in subclasses."""
         pass
+
+    def refresh_table(self) -> None:
+        """Refresh the table. Same behaviour as load_data by default."""
+        self.load_data()

@@ -4,7 +4,7 @@ from PyQt6.QtWidgets import QFrame, QGraphicsDropShadowEffect, QHBoxLayout, QLab
 
 
 class ToastNotification(QFrame):
-    """DIAApp3 benzeri animasyonlu bildirim sistemi.
+    """modern animasyonlu bildirim sistemi.
     
     Bildirim türleri:
     - success: Yeşil arka plan

@@ -1,6 +1,6 @@
 """
 TOYA ERP - Sürüm & Git Takip Merkezi Ekranı (GitTrackerScreen)
-DIA 3-Panelli (Sol/Sağ Açılır/Kapanır EdgeTriggeredPanel, FilterableTableView, Sayfalama) Mimarisi.
+3-Panelli (Sol/Sağ Açılır/Kapanır EdgeTriggeredPanel, FilterableTableView, Sayfalama) Mimarisi.
 Açık Teklifler ve Bekleyen Siparişler ekran şablonuyla birebir uyumludur.
 """
 
@@ -30,8 +30,8 @@ from PyQt6.QtWidgets import (
 import git_tracker
 from src.desktop.managers.profile_manager import ProfileManager
 from src.desktop.ui.components.collapsible_section import CollapsibleSection
-from src.desktop.ui.components.dia_3_panel_base import DIA3PanelBaseWidget
 from src.desktop.ui.components.layout_hint_helper import register_layout_hint
+from src.desktop.ui.components.three_panel_base import ThreePanelBaseWidget
 
 logger = logging.getLogger(__name__)
 
@@ -312,7 +312,7 @@ class GitCommitDialog(QDialog):
         return self.txt_message.toPlainText().strip()
 
 
-class GitTrackerScreen(DIA3PanelBaseWidget):
+class GitTrackerScreen(ThreePanelBaseWidget):
     """
     TOYA ERP Sürüm & Git Takip Merkezi Ekranı.
     Açık Teklifler ve Bekleyen Siparişler ile birebir aynı mimariye (EdgeTriggeredPanel,

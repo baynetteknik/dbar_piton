@@ -354,7 +354,7 @@ class FilterableTableView(QWidget):
         return existing
 
     def open_column_manager_dialog(self):
-        """Opens DIA column & view profile configuration menu."""
+        """Opens column & view profile configuration menu."""
         header_view = self.table_view.horizontalHeader()
         pos = header_view.rect().center()
         self.show_header_context_menu(pos)

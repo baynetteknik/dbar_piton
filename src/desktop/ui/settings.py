@@ -71,7 +71,7 @@ logger = logging.getLogger(__name__)
 
 
 class UserDialog(QDialog):
-    """DIA stiline uygun Kullanıcı Ekleme / Düzenleme Ekranı."""
+    """3-panelli düzene uygun Kullanıcı Ekleme / Düzenleme Ekranı."""
 
     def __init__(
         self, db_session, user_id=None, read_only=False, parent=None,
@@ -1387,7 +1387,7 @@ class ViewSettingsWidget(QWidget):
         action_delete = QAction("🗑️ Seçili Profili Sil", self)
         action_delete.triggered.connect(self.delete_selected_profile)
 
-        action_cols = QAction("⚙️ Kolonları Yapılandır (DIA)", self)
+        action_cols = QAction("⚙️ Kolonları Yapılandır", self)
         action_cols.triggered.connect(
             self.filterable_table.open_column_manager_dialog,
         )
@@ -1963,7 +1963,7 @@ class GeneralSettingsScreen(QWidget):
         btn_save_all.setStyleSheet(self.btn_style("#2563eb", "#ffffff"))
         btn_save_all.clicked.connect(self.save_current_panel)
 
-        btn_col_dia = QPushButton("⚙️ Sütunları Yapılandır (DIA)")
+        btn_col_dia = QPushButton("⚙️ Sütunları Yapılandır")
         btn_col_dia.setStyleSheet(self.btn_style("#ffffff", "#475569"))
         btn_col_dia.clicked.connect(self.open_active_column_manager)
 
@@ -2403,7 +2403,7 @@ class GeneralSettingsScreen(QWidget):
         return bar
 
     def _setup_table_style(self, table: QTableWidget) -> None:
-        """Tablolara DIA / TOYA kurumsal görünüm stili uygular."""
+        """Tablolara TOYA kurumsal görünüm stili uygular."""
         table.setAlternatingRowColors(True)
         table.setSelectionBehavior(
             QAbstractItemView.SelectionBehavior.SelectRows,

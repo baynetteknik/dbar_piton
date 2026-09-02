@@ -3,7 +3,7 @@ import sys
 import pytest
 from PyQt6.QtWidgets import QApplication
 
-from src.desktop.ui.components.dia_3_panel_base import DIA3PanelBaseWidget
+from src.desktop.ui.components.three_panel_base import ThreePanelBaseWidget
 
 
 @pytest.fixture(scope="session")
@@ -15,9 +15,9 @@ def qapp():
     return app
 
 
-def test_dia_3_panel_base_widget_structure(qapp):
-    """Tests layout components and structure of DIA3PanelBaseWidget."""
-    widget = DIA3PanelBaseWidget(profile_key="test_panel", module_name="Test Modülü")
+def test_three_panel_base_widget_structure(qapp):
+    """Tests layout components and structure of ThreePanelBaseWidget."""
+    widget = ThreePanelBaseWidget(profile_key="test_panel", module_name="Test Modülü")
 
     assert widget.profile_key == "test_panel"
     assert widget.module_name == "Test Modülü"

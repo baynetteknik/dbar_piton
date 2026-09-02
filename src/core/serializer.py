@@ -40,7 +40,7 @@ class DateTimeEncoder(json.JSONEncoder):
 class NetworkSerializer:
     """Yüksek performanslı network serializasyonu.
 
-    DIAApp3'teki MsgPack + Zstandard serializasyonunu temel alır.
+    referans alınan MsgPack + Zstandard serializasyonunu temel alır.
 
     Formatlar:
     - MsgPack + Zstd: En yüksek performans (%60-70 küçülme, 2-5x hız)

@@ -39,10 +39,10 @@ from src.core.security.keyring_store import get_api_key
 from src.core.sync.pull_engine import PullEngine
 from src.core.sync.push_engine import PushEngine
 from src.desktop.core.workers import SyncWorker
-from src.desktop.ui.components.dia_3_panel_base import DIA3PanelBaseWidget
 from src.desktop.ui.components.edge_panel import EdgeTriggeredPanel
 from src.desktop.ui.components.filterable_table import FilterableTableView
 from src.desktop.ui.components.layout_hint_helper import register_layout_hint
+from src.desktop.ui.components.three_panel_base import ThreePanelBaseWidget
 from src.desktop.ui.import_dialog import ExcelImportDialog
 
 logger = logging.getLogger(__name__)
@@ -109,7 +109,7 @@ def apply_combo_style(cmb: QComboBox, min_width: int = 150):
 
 
 class ProductDetailDialog(QDialog):
-    """DIA stiline uygun, 9 sekmeli, yüksek okunabilirlikli ve büyütülmüş görsele sahip Stok Kart Bilgileri Penceresi."""
+    """3-panelli düzene uygun, 9 sekmeli, yüksek okunabilirlikli ve büyütülmüş görsele sahip Stok Kart Bilgileri Penceresi."""
 
     def __init__(self, db_session, company_id: int, product_id=None, remote_id=None, read_only=False, parent=None):
         super().__init__(parent)
@@ -625,8 +625,8 @@ class ProductDetailDialog(QDialog):
         self.clear_image()
 
 
-class ResourcesWidget(DIA3PanelBaseWidget):
-    """DIA stiline, 3-Panelli Düzen mimarisine ve gelişmiş stok kartı yönetim özelliklerine sahip Malzeme/Ürün Paneli."""
+class ResourcesWidget(ThreePanelBaseWidget):
+    """3-Panelli Düzen mimarisine ve gelişmiş stok kartı yönetim özelliklerine sahip Malzeme/Ürün Paneli."""
 
     products_updated = pyqtSignal()
 
@@ -785,7 +785,7 @@ class ResourcesWidget(DIA3PanelBaseWidget):
         self.left_panel.set_content(filter_content)
         three_panel_layout.addWidget(self.left_panel)
 
-        # ORTA PANEL (DBGrid & DIA Alt Buton Çubuğu & Sayfalama Barı)
+        # ORTA PANEL (DBGrid & Alt Buton Çubuğu & Sayfalama Barı)
         self.center_container = QWidget()
         center_lyt = QVBoxLayout(self.center_container)
         center_lyt.setContentsMargins(4, 0, 4, 0)
@@ -830,7 +830,7 @@ class ResourcesWidget(DIA3PanelBaseWidget):
         """)
         center_lyt.addWidget(self.filterable_table, 1)
 
-        # DIA Stili Alt İşlem Çubuğu ve Sayfalama Kontrolleri
+        # Alt İşlem Çubuğu ve Sayfalama Kontrolleri
         self.action_bar = QFrame()
         self.action_bar.setStyleSheet("background-color: #f8fafc; border: 1px solid #cbd5e1; border-radius: 6px;")
         action_bar_lyt = QHBoxLayout(self.action_bar)
@@ -1214,7 +1214,7 @@ class ResourcesWidget(DIA3PanelBaseWidget):
         action_push = QAction("🚀 Uzak Sisteme Gönder (Push)", self)
         action_push.triggered.connect(self.trigger_push)
 
-        action_cols = QAction("⚙️ Kolonları Yapılandır (DIA)", self)
+        action_cols = QAction("⚙️ Kolonları Yapılandır", self)
         action_cols.triggered.connect(self.filterable_table.open_column_manager_dialog)
 
         menu.addAction(action_add)

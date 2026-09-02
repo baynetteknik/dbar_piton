@@ -288,7 +288,7 @@ class ManagedTableView(QTableView):
 
         menu.addSeparator()
         
-        dia_action = QAction(self.tr("⚙️ Kolonları Yapılandır (DIA)"), menu)
+        dia_action = QAction(self.tr("⚙️ Kolonları Yapılandır"), menu)
         dia_action.triggered.connect(self.open_column_manager_dialog)
         menu.addAction(dia_action)
 

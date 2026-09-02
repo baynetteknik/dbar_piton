@@ -1,4 +1,4 @@
-"""DIA-Style Standardized Full-Screen Document Edit/Create Engine (Teklif, Sipariş, Fatura, İrsaliye)."""
+"""Standardized Full-Screen Document Edit/Create Engine (Teklif, Sipariş, Fatura, İrsaliye)."""
 
 import logging
 from datetime import datetime
@@ -37,7 +37,7 @@ logger = logging.getLogger(__name__)
 
 
 class QuotationEditDialog(QDialog):
-    """DIA ERP Standardized Full-Screen Document Form (Teklif, Sipariş, Fatura, İrsaliye)."""
+    """Standardized Full-Screen Document Form (Teklif, Sipariş, Fatura, İrsaliye)."""
 
     def __init__(self, db_session, quotation_id: int | None = None, document_kind: str = "Quotation", parent=None):
         super().__init__(parent)
@@ -48,7 +48,7 @@ class QuotationEditDialog(QDialog):
 
         # Window Properties: Full Screen / Maximized
         title_prefix = "Teklif" if document_kind == "Quotation" else "Sipariş"
-        self.setWindowTitle(f"{title_prefix} Formu - DIA ERP Standart Ekranı" if not quotation_id else f"{title_prefix} Düzenle - DIA ERP Standart Ekranı")
+        self.setWindowTitle(f"{title_prefix} Formu - TOYA ERP Standart Ekranı" if not quotation_id else f"{title_prefix} Düzenle - TOYA ERP Standart Ekranı")
         self.setMinimumSize(1100, 700)
         self.showMaximized()
 

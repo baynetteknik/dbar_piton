@@ -9,7 +9,7 @@ logger = logging.getLogger(__name__)
 class TranslationManager:
     """Çeviri yönetim sistemi.
     
-    DIAApp3'teki DCC.TRANSLATIONS benzeri yapı ile çalışır.
+    referans alınan DCC.TRANSLATIONS benzeri yapı ile çalışır.
     JSON formatındaki çeviri dosyalarını yükler ve yönetir.
     
     Kullanım:

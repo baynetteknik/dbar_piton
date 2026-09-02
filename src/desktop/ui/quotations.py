@@ -24,10 +24,10 @@ from src.desktop.managers.profile_manager import ProfileManager
 from src.desktop.services.excel_exporter import ExcelExporter
 from src.desktop.services.quotation_save_service import QuotationSaveService
 from src.desktop.services.quotation_service import QuotationService
-from src.desktop.ui.components.base_list_panel import BaseListPanelWidget
 from src.desktop.ui.components.collapsible_section import CollapsibleSection
 from src.desktop.ui.components.filterable_table import FilterableTableView
 from src.desktop.ui.components.layout_hint_helper import register_layout_hint
+from src.desktop.ui.components.three_panel_base import ThreePanelBaseWidget
 from src.desktop.ui.dialogs.transaction_document_dialog import TransactionDocumentDialog
 from src.desktop.ui.widgets.action_bar_widget import ActionBarWidget
 from src.desktop.ui.widgets.export_widget import ExportWidget
@@ -37,8 +37,8 @@ from src.desktop.ui.widgets.pagination_widget import PaginationWidget
 logger = logging.getLogger(__name__)
 
 
-class BaseQuotationOrderWidget(BaseListPanelWidget):
-    """Base class for DIA-style 3-Panel Quotations and Orders management widgets."""
+class BaseQuotationOrderWidget(ThreePanelBaseWidget):
+    """Base class for 3-Panel Quotations and Orders management widgets."""
 
     status_message = pyqtSignal(str)
 

@@ -1,6 +1,6 @@
 """
 ToyaUI — FilterableTableView (Geliştirilmiş)
-isl.quo.001 ve tüm liste ekranları için DIA tarzı grid bileşeni.
+isl.quo.001 ve tüm liste ekranları için gelişmiş grid bileşeni.
 
 Özellikler:
     - Başlık yüksekliği 26px
@@ -49,7 +49,7 @@ logger = logging.getLogger(__name__)
 
 class FilterableTableView(QWidget):
     """
-    DIA tarzı gelişmiş liste/tablo bileşeni.
+    gelişmiş gelişmiş liste/tablo bileşeni.
 
     Sinyaller:
         row_double_clicked(int): Satıra çift tıklanınca — satır indeksi

@@ -1,6 +1,6 @@
 """
 TOYA ERP - Ekran Şablonları ve Grid Yönetim Ekranı (ScreenDefinitionsManagerWidget)
-Teklif Yönetimi (QuotationsWidget) ve DIA 3-Panel standartlarına %100 UYUMLU olarak tasarlanmıştır.
+Teklif Yönetimi (QuotationsWidget) ve 3-Panel standartlarına %100 UYUMLU olarak tasarlanmıştır.
 Sistem Varsayılan Şablonları (tpl_*), Özel Ekran Tanımları (scr_*), Fabrika Ayarlarına Sıfırlama,
 FilterableTableView, Sütun Arama Filtreleri, Görünüm Profilleri (ProfileManager),
 Başlık Satır Yüksekliği (Header Height), Veri Satır Yüksekliği (Row Height) ve

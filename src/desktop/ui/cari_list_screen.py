@@ -1,7 +1,7 @@
 """
 TOYA ERP - Cari Hesap Liste Ekranı (CAKALST001)
 ToyaUI Master Şablonu:
-DIA3PanelBaseWidget + ActionBarWidget + FilterWidget + PaginationWidget + ExportWidget
+ThreePanelBaseWidget + ActionBarWidget + FilterWidget + PaginationWidget + ExportWidget
 
 Kullanım:
     widget = CariListScreen(db_session=db, company_id=1)
@@ -27,9 +27,9 @@ from sqlalchemy import select
 from src.core.models import Customer
 from src.desktop.managers.profile_manager import ProfileManager
 from src.desktop.ui.components.collapsible_section import CollapsibleSection
-from src.desktop.ui.components.dia_3_panel_base import DIA3PanelBaseWidget
 from src.desktop.ui.components.filterable_table import FilterableTableView
 from src.desktop.ui.components.layout_hint_helper import register_layout_hint
+from src.desktop.ui.components.three_panel_base import ThreePanelBaseWidget
 from src.desktop.ui.widgets.action_bar_widget import ActionBarWidget
 from src.desktop.ui.widgets.export_widget import ExportWidget
 from src.desktop.ui.widgets.filter_widget import FilterWidget
@@ -38,7 +38,7 @@ from src.desktop.ui.widgets.pagination_widget import PaginationWidget
 logger = logging.getLogger(__name__)
 
 
-class CariListScreen(DIA3PanelBaseWidget):
+class CariListScreen(ThreePanelBaseWidget):
     """Cari Hesap Liste Ekranı — CAKALST001
 
     ToyaUI 3 panelli master şablon ve atomik widget'ları kullanır.

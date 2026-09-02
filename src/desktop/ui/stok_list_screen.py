@@ -29,9 +29,9 @@ from src.core.models import Product
 from src.desktop.managers.profile_manager import ProfileManager
 from src.desktop.managers.theme_manager import ThemeManager
 from src.desktop.ui.components.collapsible_section import CollapsibleSection
-from src.desktop.ui.components.dia_3_panel_base import DIA3PanelBaseWidget
 from src.desktop.ui.components.filterable_table import FilterableTableView
 from src.desktop.ui.components.layout_hint_helper import register_layout_hint
+from src.desktop.ui.components.three_panel_base import ThreePanelBaseWidget
 from src.desktop.ui.widgets.action_bar_widget import ActionBarWidget
 from src.desktop.ui.widgets.export_widget import ExportWidget
 from src.desktop.ui.widgets.filter_widget import FilterWidget
@@ -40,7 +40,7 @@ from src.desktop.ui.widgets.pagination_widget import PaginationWidget
 logger = logging.getLogger(__name__)
 
 
-class StokListScreen(DIA3PanelBaseWidget):
+class StokListScreen(ThreePanelBaseWidget):
     """
     Stok Kart Liste Ekranı — STKLIST001
     Teklif ve Cari ekranıyla aynı şablonu kullanır.

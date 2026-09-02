@@ -155,7 +155,7 @@ class TokenFetchDialog(QDialog):
 
 
 class SiteDialog(QDialog):
-    """DIA stiline uygun Firma Tanımı (Site) Ekleme / Düzenleme / İnceleme Diyaloğu."""
+    """3-panelli düzene uygun Firma Tanımı (Site) Ekleme / Düzenleme / İnceleme Diyaloğu."""
 
     def __init__(self, db_session, site_id=None, read_only=False, parent=None):
         super().__init__(parent)
@@ -523,7 +523,7 @@ class SiteDialog(QDialog):
 
 
 class SitesWidget(QWidget):
-    """DIA stiline, 3-Panelli Düzen mimarisine ve gelişmiş dinamik DBGrid yapısına sahip Firma Tanımları Yönetim Paneli."""
+    """3-panelli düzene, 3-Panelli Düzen mimarisine ve gelişmiş dinamik DBGrid yapısına sahip Firma Tanımları Yönetim Paneli."""
 
     sites_updated = pyqtSignal()
 
@@ -659,7 +659,7 @@ class SitesWidget(QWidget):
         main_layout.addWidget(self.left_panel)
 
         # ==========================================
-        # 2. ORTA PANEL (Dinamik DBGrid & DIA Aksiyon Çubuğu)
+        # 2. ORTA PANEL (Dinamik DBGrid & Aksiyon Çubuğu)
         # ==========================================
         self.center_container = QWidget()
         register_layout_hint(self.center_container, "Firma Tanımları", "Orta Firma Tablosu Paneli")
@@ -717,7 +717,7 @@ class SitesWidget(QWidget):
         self.filterable_table.filter_changed.connect(self.on_table_filter_changed)
         center_lyt.addWidget(self.filterable_table, 1)
 
-        # DIA Stili Alt İşlem Çubuğu (Bottom Action Bar)
+        # Alt İşlem Çubuğu (Bottom Action Bar)
         self.action_bar = QFrame()
         self.action_bar.setStyleSheet("background-color: #f8fafc; border: 1px solid #cbd5e1; border-radius: 6px;")
         action_bar_lyt = QHBoxLayout(self.action_bar)
@@ -1001,7 +1001,7 @@ class SitesWidget(QWidget):
         action_test = QAction("🔌 Bağlantıyı Test Et", self)
         action_test.triggered.connect(self.test_selected_connection)
 
-        action_cols = QAction("⚙️ Kolonları Yapılandır (DIA)", self)
+        action_cols = QAction("⚙️ Kolonları Yapılandır", self)
         action_cols.triggered.connect(self.filterable_table.open_column_manager_dialog)
 
         menu.addAction(action_add)

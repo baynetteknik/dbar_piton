@@ -1,6 +1,6 @@
 """TOYA ERP - Evrensel Fiş, Fatura, Sipariş ve Teklif Detay Motoru (Master Transaction Document Dialog).
 
-Bu modül; Akınsoft Wolvox, DIA ERP ve Kurumsal ERP'lerin en güçlü yönlerini birleştiren
+Bu modül; Akınsoft Wolvox, kurumsal ERP'lerin en güçlü yönlerini birleştiren
 evrensel evrak yönetim motorudur (Alış, Satış, Toptan, İade, Hizmet Faturaları,
 Verilen/Alınan Teklifler, Siparişler ve İrsaliyeler için tek çatı mimaridir).
 Mockup 1:1 formatında yeniden yapılandırılmıştır.

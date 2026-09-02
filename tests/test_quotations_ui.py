@@ -30,7 +30,7 @@ def db_session():
 
 
 def test_quotations_widget_initialization(qapp, db_session):
-    """Test QuotationsWidget DIA 3-panel initialization."""
+    """Test QuotationsWidget 3-panel initialization."""
     widget = QuotationsWidget(db_session=db_session)
     assert widget.quotation_type == "Quotation"
     assert widget.profile_key == "quotations"
@@ -40,7 +40,7 @@ def test_quotations_widget_initialization(qapp, db_session):
 
 
 def test_orders_widget_initialization(qapp, db_session):
-    """Test OrdersWidget DIA 3-panel initialization."""
+    """Test OrdersWidget 3-panel initialization."""
     widget = OrdersWidget(db_session=db_session)
     assert widget.quotation_type == "Order"
     assert widget.profile_key == "orders"

@@ -18,7 +18,7 @@ class NetworkState(Enum):
 class NetworkMonitor(QObject):
     """Ağ bağlantısını izleyen monitör.
     
-    DIAApp3'teki ağ izleme mantığını temel alır.
+    referans alınan ağ izleme mantığını temel alır.
     Periyodik olarak bağlantı kontrolü yapar ve durum değişikliklerini bildirir.
     
     Özellikler:

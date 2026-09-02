@@ -32,15 +32,15 @@ from src.core.repository import SqliteCustomerRepository
 from src.core.sync.customer_sync import CustomerSyncEngine
 from src.desktop.managers.profile_manager import ProfileManager
 from src.desktop.ui.components.collapsible_section import CollapsibleSection
-from src.desktop.ui.components.dia_3_panel_base import DIA3PanelBaseWidget
 from src.desktop.ui.components.edge_panel import EdgeTriggeredPanel
 from src.desktop.ui.components.filterable_table import FilterableTableView
 from src.desktop.ui.components.layout_hint_helper import register_layout_hint
+from src.desktop.ui.components.three_panel_base import ThreePanelBaseWidget
 from src.desktop.ui.import_dialog import ExcelImportDialog
 
 
 class CustomerDialog(QDialog):
-    """DIA stiline ve sekmeli yapısına sahip gelişmiş Cari Kart Ekle / Düzenle ekranı."""
+    """3-panelli düzene ve sekmeli yapısına sahip gelişmiş Cari Kart Ekle / Düzenle ekranı."""
     def __init__(self, db_session, company_id: int, customer_id=None, remote_id=None, parent=None):
         super().__init__(parent)
         self.db = db_session
@@ -984,8 +984,8 @@ class SyncDialog(QDialog):
                 QMessageBox.critical(self, "Hata", "Geri alma işlemi sırasında bir hata oluştu.")
 
 
-class MusteriYonetimiWidget(DIA3PanelBaseWidget):
-    """DIA stiline, sayfalama yapısına (lazy loading) ve Dolibarr pull/push senkronizasyon özelliklerine sahip Cari Yönetim paneli."""
+class MusteriYonetimiWidget(ThreePanelBaseWidget):
+    """3-panelli düzene, sayfalama yapısına (lazy loading) ve Dolibarr pull/push senkronizasyon özelliklerine sahip Cari Yönetim paneli."""
 
     toast_requested = pyqtSignal(str, str) # message, type
 

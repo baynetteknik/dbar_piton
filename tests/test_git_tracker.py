@@ -1,5 +1,5 @@
 """
-Tests for git_tracker.py and DIA 3-Panel GitTrackerScreen / GitTrackerWidget components.
+Tests for git_tracker.py and 3-Panel GitTrackerScreen / GitTrackerWidget components.
 """
 
 import pytest

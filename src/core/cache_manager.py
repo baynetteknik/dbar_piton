@@ -12,7 +12,7 @@ CACHE_DIR = Path("data") / "cache"
 class CacheManager:
     """MsgPack + Zstd ile yerel dosya tabanlı cache yönetimi.
     
-    DIAApp3'teki MessagePack + Zstandard serializasyonunu temel alır.
+    referans alınan MessagePack + Zstandard serializasyonunu temel alır.
     Ağ trafiğini azaltmak için uzak API verilerini yerelde sıkıştırılmış olarak saklar.
     
     Kullanım Alanları:
