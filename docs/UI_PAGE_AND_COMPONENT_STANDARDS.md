@@ -10,7 +10,7 @@ Gelecekte yeni bir ekran veya modül geliştirilirken bu standartlara uyulacak; 
 1. [🏗️ Temel Mimari Prensipler](#1-temel-mimari-prensipler)
 2. [🗺️ Ekran & Modül Kodlama Standardı (Module Code Taxonomy)](#2-ekran--modül-kodlama-standardı)
 3. [📄 5 Ana Sayfa Şablonu (Master Page Templates)](#3-5-ana-sayfa-şablonu)
-   - [3.1. `tpl.list.001` - Liste & Yönetim Sayfası (3-Panelli DIA Düzeni)](#31-tpllist001---liste--yönetim-sayfası)
+   - [3.1. `tpl.list.001` - Liste & Yönetim Sayfası (3-Panelli Standart ERP Düzeni)](#31-tpllist001---liste--yönetim-sayfası)
    - [3.2. `tpl.trans.001` - İşlem / Belge & Evrak Detay Sayfası](#32-tpltrans001---işlem--belge--evrak-detay-sayfası)
    - [3.3. `tpl.card.001` - Tanım & Kart Form Sayfası](#33-tplcard001---tanım--kart-form-sayfası)
    - [3.4. `tpl.report.001` - Raporlama & Analiz Sayfası](#34-tplreport001---raporlama--analiz-sayfası)
@@ -56,7 +56,7 @@ $$\text{Format: } \mathbf{[kategori].[modül].[sıra\_no]}$$
 
 ---
 
-### 3.1. `tpl.list.001` - Liste & Yönetim Sayfası (3-Panelli DIA Düzeni)
+### 3.1. `tpl.list.001` - Liste & Yönetim Sayfası (3-Panelli Standart ERP Düzeni)
 
 Veri kayıtlarının listelendiği, filtrelendiği, sıralandığı ve toplu yönetildiği ana ekran şablonudur.
 
@@ -263,4 +263,4 @@ Yeni bir ekran, modül veya form eklemek istediğinizde bana aşağıdaki basit 
 ---
 
 > **Son Güncelleme:** 22 Ağustos 2026  
-> **Referans Standart Sürümü:** v2.1.0 (DIA + Akınsoft Hibrit Standardı)
+> **Referans Standart Sürümü:** v2.1.0 (Kurumsal ERP Standardı)
