@@ -18,17 +18,38 @@ from src.desktop.designer.printer_engine import ReportPrinterEngine
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_TEMPLATE_PATH = (
-    Path(__file__).parent.parent / "templates" / "tpl_teklif_kurumsal_a4.json"
-)
+_TEMPLATES_DIR = Path(__file__).parent.parent / "templates"
+DEFAULT_TEMPLATE_PATH = _TEMPLATES_DIR / "tpl_teklif_kurumsal_a4.json"
+
+# Kağıt boyutuna göre hazır şablonlar (A4 kurumsal tasarımın ISO 216'daki standart
+# %70.7 küçültme oranıyla A5'e ölçeklenmiş hali — bkz. tpl_teklif_kurumsal_a5.json).
+# "PDF Yazdır (F9)" A4 üretmeye devam eder; A5 bunun yanına eklenen ek bir seçenektir.
+PAGE_SIZE_TEMPLATES: dict[str, Path] = {
+    "A4": DEFAULT_TEMPLATE_PATH,
+    "A5": _TEMPLATES_DIR / "tpl_teklif_kurumsal_a5.json",
+}
 
 
 class TeklifPrintService:
     """Teklif belgeleri için görsel baskı önizleme ve PDF üretim servisi."""
 
-    def __init__(self, db_session=None, template_path: Path | str | None = None) -> None:
+    def __init__(
+        self,
+        db_session=None,
+        template_path: Path | str | None = None,
+        page_size: str = "A4",
+    ) -> None:
         self.db = db_session
-        self.template_path = Path(template_path) if template_path else DEFAULT_TEMPLATE_PATH
+        if template_path:
+            self.template_path = Path(template_path)
+        else:
+            key = (page_size or "A4").strip().upper()
+            if key not in PAGE_SIZE_TEMPLATES:
+                raise ValueError(
+                    f"Bilinmeyen kağıt boyutu: {page_size!r}. "
+                    f"Desteklenenler: {sorted(PAGE_SIZE_TEMPLATES)}",
+                )
+            self.template_path = PAGE_SIZE_TEMPLATES[key]
         self._template: ReportTemplate | None = None
 
     def get_template(self) -> ReportTemplate:

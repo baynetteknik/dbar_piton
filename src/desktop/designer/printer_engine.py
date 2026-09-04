@@ -296,6 +296,27 @@ class ReportPrinterEngine:
 
         return total_pages
 
+    _NAMED_PAGE_SIZES = {
+        "A4": QPageSize.PageSizeId.A4,
+        "A5": QPageSize.PageSizeId.A5,
+        "A3": QPageSize.PageSizeId.A3,
+        "LETTER": QPageSize.PageSizeId.Letter,
+    }
+
+    def _resolve_page_size(self) -> QPageSize:
+        """Şablonun page.size adı bilinen bir kağıt boyutuysa (A4/A5/A3/Letter) onu,
+        değilse page.width_mm/height_mm'den özel bir QPageSize üretir. Böylece her
+        şablon kendi tanımladığı kağıda basılır, sabit A4 varsayımı kalkar."""
+        name = (self.template.page.size or "").strip().upper()
+        page_size_id = self._NAMED_PAGE_SIZES.get(name)
+        if page_size_id is not None:
+            return QPageSize(page_size_id)
+        from PyQt6.QtCore import QSizeF
+        return QPageSize(
+            QSizeF(self.template.page.width_mm, self.template.page.height_mm),
+            QPageSize.Unit.Millimeter,
+        )
+
     def export_to_pdf(self, data: dict[str, Any], output_pdf_path: str | Path) -> bool:
         """Şablonu ve veriyi vektörel PDF dosyası olarak kaydeder."""
         try:
@@ -303,8 +324,10 @@ class ReportPrinterEngine:
             printer.setOutputFormat(QPrinter.OutputFormat.PdfFormat)
             printer.setOutputFileName(str(output_pdf_path))
 
-            # Kağıt ayarları
-            printer.setPageSize(QPageSize(QPageSize.PageSizeId.A4))
+            # Kağıt ayarları — şablonun page.size / width_mm / height_mm alanlarına göre
+            # (önceden her zaman A4'e sabitliydi; A5 gibi başka boyuttaki şablonlar bile
+            # kağıda hep A4 olarak basılıyordu).
+            printer.setPageSize(self._resolve_page_size())
             printer.setPageOrientation(
                 QPageLayout.Orientation.Portrait
                 if self.template.page.orientation == "portrait"
