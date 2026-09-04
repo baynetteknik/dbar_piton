@@ -1,7 +1,8 @@
 """
 TOYA ERP - Profesyonel Baskı Önizleme Penceresi (ReportPreviewDialog)
 Teklif, fatura veya raporu ekranda milimetrik olarak birebir önizler,
-sayfalar arasında geçiş, zoom, PDF kaydetme ve yazdırma işlevlerini sağlar.
+sayfalar arasında geçiş, zoom (Sayfaya Sığdır, Genişliğe Sığdır, %25-%200),
+PDF kaydetme ve yazdırma işlevlerini sağlar.
 """
 
 from __future__ import annotations
@@ -11,7 +12,7 @@ from pathlib import Path
 from typing import Any
 
 from PyQt6.QtCore import QPointF, QRectF, QSize, Qt
-from PyQt6.QtGui import QColor, QFont, QImage, QPainter, QPixmap
+from PyQt6.QtGui import QColor, QFont, QImage, QPainter, QPixmap, QResizeEvent
 from PyQt6.QtWidgets import (
     QComboBox,
     QDialog,
@@ -48,8 +49,8 @@ class PageViewWidget(QWidget):
         self.update()
 
     def _update_size(self):
-        w = int(self.page_image.width() * self.scale_factor)
-        h = int(self.page_image.height() * self.scale_factor)
+        w = max(10, int(self.page_image.width() * self.scale_factor))
+        h = max(10, int(self.page_image.height() * self.scale_factor))
         self.setFixedSize(w, h)
 
     def paintEvent(self, event):
@@ -57,7 +58,7 @@ class PageViewWidget(QWidget):
         painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
         target_rect = self.rect()
 
-        # Sayfa arka planı ve gölge
+        # Sayfayı ölçekleyerek çiz
         painter.drawImage(target_rect, self.page_image)
 
 
@@ -78,14 +79,17 @@ class ReportPreviewDialog(QDialog):
         self.current_page_idx = 0
         self.rendered_pages: list[QImage] = []
         self.scale_factor = 1.0
+        self.zoom_mode = "fit_page"  # "fit_page", "fit_width", "manual"
 
         self.setWindowTitle(f"Baskı Önizleme - {self.template.title}")
-        self.resize(980, 850)
-        self.setMinimumSize(700, 600)
+        self.resize(1100, 850)
+        self.setMinimumSize(650, 500)
 
         self._init_ui()
         self._render_all_pages()
-        self._display_current_page()
+
+        # İlk açılışta sayfaya sığdır
+        self._apply_zoom_mode("fit_page")
 
     def _init_ui(self):
         main_layout = QVBoxLayout(self)
@@ -94,7 +98,7 @@ class ReportPreviewDialog(QDialog):
 
         # ─── 1. Üst Araç Çubuğu (Toolbar) ───
         toolbar = QWidget(self)
-        toolbar.setStyleSheet("background-color: #24292E; color: #FFFFFF; padding: 6px;")
+        toolbar.setStyleSheet("background-color: #1E293B; color: #FFFFFF; padding: 6px;")
         tb_layout = QHBoxLayout(toolbar)
         tb_layout.setContentsMargins(12, 6, 12, 6)
         tb_layout.setSpacing(10)
@@ -102,7 +106,7 @@ class ReportPreviewDialog(QDialog):
         # Yazdır Butonu
         self.btn_print = QPushButton("🖨️ Yazdır", self)
         self.btn_print.setStyleSheet(
-            "background-color: #0366D6; color: white; font-weight: bold; padding: 6px 14px; border-radius: 4px;"
+            "background-color: #2563EB; color: white; font-weight: bold; padding: 6px 14px; border-radius: 4px;"
         )
         self.btn_print.clicked.connect(self._on_print_clicked)
         tb_layout.addWidget(self.btn_print)
@@ -110,12 +114,12 @@ class ReportPreviewDialog(QDialog):
         # PDF Kaydet Butonu
         self.btn_pdf = QPushButton("💾 PDF Kaydet", self)
         self.btn_pdf.setStyleSheet(
-            "background-color: #2EA44F; color: white; font-weight: bold; padding: 6px 14px; border-radius: 4px;"
+            "background-color: #16A34A; color: white; font-weight: bold; padding: 6px 14px; border-radius: 4px;"
         )
         self.btn_pdf.clicked.connect(self._on_pdf_save_clicked)
         tb_layout.addWidget(self.btn_pdf)
 
-        tb_layout.addSpacing(20)
+        tb_layout.addSpacing(16)
 
         # Sayfa Navigasyonu
         self.btn_prev = QPushButton("◀ Önceki", self)
@@ -123,20 +127,31 @@ class ReportPreviewDialog(QDialog):
         tb_layout.addWidget(self.btn_prev)
 
         self.lbl_page_info = QLabel("Sayfa 1 / 1", self)
-        self.lbl_page_info.setStyleSheet("font-weight: bold; color: #F0F6FC;")
+        self.lbl_page_info.setStyleSheet("font-weight: bold; color: #F1F5F9; font-size: 12px;")
         tb_layout.addWidget(self.lbl_page_info)
 
         self.btn_next = QPushButton("Sonraki ▶", self)
         self.btn_next.clicked.connect(self._next_page)
         tb_layout.addWidget(self.btn_next)
 
-        tb_layout.addSpacing(20)
+        tb_layout.addSpacing(16)
 
-        # Yakınlaştırma (Zoom)
+        # Yakınlaştırma (Zoom) Seçici
         tb_layout.addWidget(QLabel("Yakınlaştır:", self))
         self.cmb_zoom = QComboBox(self)
-        self.cmb_zoom.addItems(["%75", "%100", "%125", "%150", "Genişliğe Sığdır"])
-        self.cmb_zoom.setCurrentText("%100")
+        self.cmb_zoom.addItems([
+            "📄 Sayfaya Sığdır (Tümünü Göster)",
+            "↔️ Genişliğe Sığdır",
+            "%25",
+            "%35",
+            "%50",
+            "%75",
+            "%100",
+            "%125",
+            "%150",
+            "%200",
+        ])
+        self.cmb_zoom.setCurrentIndex(0)
         self.cmb_zoom.currentTextChanged.connect(self._on_zoom_changed)
         tb_layout.addWidget(self.cmb_zoom)
 
@@ -151,24 +166,24 @@ class ReportPreviewDialog(QDialog):
 
         # ─── 2. Orta Sayfa Tuvali (Scroll Area) ───
         self.scroll_area = QScrollArea(self)
-        self.scroll_area.setStyleSheet("background-color: #525659;")
+        self.scroll_area.setStyleSheet("background-color: #475569;")
         self.scroll_area.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
         self.canvas_container = QWidget()
         self.canvas_container.setStyleSheet("background: transparent;")
         self.canvas_layout = QVBoxLayout(self.canvas_container)
         self.canvas_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.canvas_layout.setContentsMargins(20, 20, 20, 20)
+        self.canvas_layout.setContentsMargins(15, 15, 15, 15)
 
         self.scroll_area.setWidget(self.canvas_container)
         self.scroll_area.setWidgetResizable(True)
         main_layout.addWidget(self.scroll_area)
 
     def _render_all_pages(self):
-        """Tüm sayfaları milimetrik yüksek çözünürlüklü QImage olarak hafızaya çizer."""
+        """Tüm sayfaları milimetrik DPI bazlı piksel çözünürlüğünde çizer."""
         self.rendered_pages.clear()
 
-        # A4 ebatları (mm) -> 150 DPI için piksel
+        # A4 ebatları (mm) -> 150 DPI için piksel (1240 x 1754 px)
         target_dpi = 150.0
         mm_to_px = target_dpi / 25.4
         w_px = int(self.template.page.width_mm * mm_to_px)
@@ -187,7 +202,6 @@ class ReportPreviewDialog(QDialog):
         current_img, current_painter = create_new_page_image()
         page_images.append(current_img)
 
-        # Sayfa geçişinde yeni QImage oluştur
         def on_new_page():
             nonlocal current_img, current_painter
             current_painter.end()
@@ -205,6 +219,34 @@ class ReportPreviewDialog(QDialog):
 
         self.rendered_pages = page_images
         self.current_page_idx = 0
+
+    def _calculate_fit_scale(self, mode: str) -> float:
+        """Pencere boyutuna göre sığdırma oranını hesaplar."""
+        if not self.rendered_pages:
+            return 1.0
+
+        page_w = self.rendered_pages[0].width()
+        page_h = self.rendered_pages[0].height()
+
+        viewport = self.scroll_area.viewport()
+        avail_w = max(100, viewport.width() - 40)
+        avail_h = max(100, viewport.height() - 40)
+
+        if mode == "fit_page":
+            # Hem en hem boy sığsın (Tüm sayfayı göster)
+            scale_w = avail_w / page_w
+            scale_h = avail_h / page_h
+            return min(scale_w, scale_h)
+        elif mode == "fit_width":
+            # Yalnızca genişliğe sığdır
+            return avail_w / page_w
+        return 1.0
+
+    def _apply_zoom_mode(self, mode: str):
+        self.zoom_mode = mode
+        if mode in ("fit_page", "fit_width"):
+            self.scale_factor = self._calculate_fit_scale(mode)
+        self._display_current_page()
 
     def _display_current_page(self):
         """Aktif sayfayı ekrana yansıtır."""
@@ -226,10 +268,17 @@ class ReportPreviewDialog(QDialog):
         page_img = self.rendered_pages[curr]
         page_widget = PageViewWidget(page_img, scale_factor=self.scale_factor, parent=self)
         page_widget.setStyleSheet(
-            "border: 1px solid #333; background: white; "
-            "box-shadow: 0px 4px 10px rgba(0, 0, 0, 0.5);"
+            "border: 1px solid #1E293B; background: white; "
+            "box-shadow: 0px 8px 20px rgba(0, 0, 0, 0.4);"
         )
         self.canvas_layout.addWidget(page_widget)
+
+    def resizeEvent(self, event: QResizeEvent):
+        """Pencere yeniden boyutlandırıldığında sığdırma oranını güncelle."""
+        super().resizeEvent(event)
+        if self.zoom_mode in ("fit_page", "fit_width"):
+            self.scale_factor = self._calculate_fit_scale(self.zoom_mode)
+            self._display_current_page()
 
     def _prev_page(self):
         if self.current_page_idx > 0:
@@ -242,19 +291,20 @@ class ReportPreviewDialog(QDialog):
             self._display_current_page()
 
     def _on_zoom_changed(self, text: str):
-        if text == "%75":
-            self.scale_factor = 0.75
-        elif text == "%100":
-            self.scale_factor = 1.0
-        elif text == "%125":
-            self.scale_factor = 1.25
-        elif text == "%150":
-            self.scale_factor = 1.5
-        elif text == "Genişliğe Sığdır":
-            viewport_w = self.scroll_area.viewport().width() - 60
-            if self.rendered_pages:
-                self.scale_factor = max(0.5, viewport_w / self.rendered_pages[0].width())
-        self._display_current_page()
+        if "Sayfaya Sığdır" in text:
+            self._apply_zoom_mode("fit_page")
+        elif "Genişliğe Sığdır" in text:
+            self._apply_zoom_mode("fit_width")
+        else:
+            self.zoom_mode = "manual"
+            # %25, %35, %50, %75 vb.
+            clean_pct = text.replace("%", "").strip()
+            try:
+                pct = float(clean_pct)
+                self.scale_factor = pct / 100.0
+                self._display_current_page()
+            except ValueError:
+                pass
 
     def _on_pdf_save_clicked(self):
         """PDF dosyasını kaydeder."""
