@@ -50,14 +50,18 @@ except ImportError:
 
 try:
     import io
-    _orig_stderr = sys.stderr
+    # WeasyPrint, GTK/Pango yoksa import sırasında hem stdout'a hem stderr'e
+    # çok satırlı bir uyarı basıp OSError fırlatıyor (weasyprint/text/ffi.py
+    # içinde `print()` — file=stderr DEĞİL). İkisini de geçici olarak yut.
+    _orig_stdout, _orig_stderr = sys.stdout, sys.stderr
+    sys.stdout = io.StringIO()
     sys.stderr = io.StringIO()
     try:
         from weasyprint import HTML
 
         WEASYPRINT_OK = True
     finally:
-        sys.stderr = _orig_stderr
+        sys.stdout, sys.stderr = _orig_stdout, _orig_stderr
 except (ImportError, OSError, Exception):
     WEASYPRINT_OK = False
     logger.info(

@@ -172,6 +172,19 @@ class TeklifPrintService:
         dialog = ReportPreviewDialog(template=template, data=data, parent=parent)
         return dialog.exec()
 
+    def preview_with_data(
+        self,
+        data: dict[str, Any],
+        parent: QWidget | None = None,
+    ) -> int:
+        """
+        DB'ye gitmeden, çağıranın hazırladığı (örn. canlı belge detay ekranından
+        toplanan) veri sözlüğü ile önizleme penceresini açar.
+        """
+        template = self.get_template()
+        dialog = ReportPreviewDialog(template=template, data=data, parent=parent)
+        return dialog.exec()
+
     def export_pdf(self, output_path: str | Path, teklif_id: int | None = None) -> bool:
         """Teklifi doğrudan PDF dosyası olarak dışa aktarır."""
         template = self.get_template()
@@ -179,3 +192,89 @@ class TeklifPrintService:
 
         engine = ReportPrinterEngine(template)
         return engine.export_to_pdf(data, output_path)
+
+    def export_pdf_with_data(
+        self,
+        data: dict[str, Any],
+        output_path: str | Path,
+    ) -> bool:
+        """Hazır veri sözlüğünü doğrudan PDF dosyasına aktarır (DB'siz)."""
+        template = self.get_template()
+        engine = ReportPrinterEngine(template)
+        return engine.export_to_pdf(data, output_path)
+
+    # ---- Çoklu belge (toplu yazdırma / PDF / önizleme) ----------------
+    def build_many_data(self, teklif_ids: list[int]) -> list[dict[str, Any]]:
+        """Verilen tekliflerin her biri için baskı veri sözlüğü üretir."""
+        return [self.build_teklif_data(tid) for tid in teklif_ids]
+
+    def preview_many(
+        self,
+        teklif_ids: list[int],
+        parent: QWidget | None = None,
+    ) -> int:
+        """Birden çok teklifi tek önizleme penceresinde (art arda) gösterir."""
+        return self.preview_many_with_data(self.build_many_data(teklif_ids), parent)
+
+    def preview_many_with_data(
+        self,
+        datas: list[dict[str, Any]],
+        parent: QWidget | None = None,
+    ) -> int:
+        template = self.get_template()
+        dialog = ReportPreviewDialog(template=template, datas=datas, parent=parent)
+        return dialog.exec()
+
+    def export_pdf_many(
+        self,
+        teklif_ids: list[int],
+        output_path: str | Path,
+    ) -> bool:
+        """Birden çok teklifi tek bir PDF dosyasına (her biri yeni sayfadan) yazar."""
+        template = self.get_template()
+        engine = ReportPrinterEngine(template)
+        return engine.export_many_to_pdf(self.build_many_data(teklif_ids), output_path)
+
+    def export_each_pdf(
+        self,
+        teklif_ids: list[int],
+        out_dir: str | Path,
+        name_fn=None,
+    ) -> list[Path]:
+        """
+        Her teklifi ayrı bir PDF dosyası olarak `out_dir` klasörüne kaydeder.
+        `name_fn(data) -> str` verilmezse belge no'ya göre adlandırılır.
+        Oluşturulan dosya yollarını döndürür.
+        """
+        out_dir = Path(out_dir)
+        out_dir.mkdir(parents=True, exist_ok=True)
+        template = self.get_template()
+        engine = ReportPrinterEngine(template)
+        written: list[Path] = []
+        for tid in teklif_ids:
+            data = self.build_teklif_data(tid)
+            if name_fn:
+                stem = name_fn(data)
+            else:
+                stem = str(data.get("belge", {}).get("teklif_no") or f"belge_{tid}")
+            safe = "".join(c for c in stem if c.isalnum() or c in " ._-").strip() or f"belge_{tid}"
+            path = out_dir / f"{safe}.pdf"
+            if engine.export_to_pdf(data, path):
+                written.append(path)
+        return written
+
+    @staticmethod
+    def available_templates() -> list[tuple[str, Path]]:
+        """
+        Seçilebilir hazır şablonların (başlık, yol) listesi. Görsel tasarımcı
+        tamamlanana kadar kullanıcı buradan varsayılan dışında bir form seçebilir.
+        """
+        out: list[tuple[str, Path]] = []
+        for path in sorted(_TEMPLATES_DIR.glob("tpl_*.json")):
+            try:
+                with open(path, "r", encoding="utf-8") as f:
+                    title = json.load(f).get("title") or path.stem
+            except Exception:  # noqa: BLE001 - bozuk şablon listeyi düşürmesin
+                title = path.stem
+            out.append((str(title), path))
+        return out

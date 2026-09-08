@@ -11,6 +11,7 @@ from PyQt6.QtCore import QPointF, QRect, Qt, pyqtSignal
 from PyQt6.QtGui import QColor, QPainter, QPen
 from PyQt6.QtWidgets import (
     QFrame,
+    QGraphicsDropShadowEffect,
     QGridLayout,
     QHBoxLayout,
     QScrollArea,
@@ -135,10 +136,16 @@ class DesignerCanvas(QWidget):
 
         # Beyaz A4 Sayfası
         self.page_canvas = PageCanvasWidget(self.template, mm_to_px=self.mm_to_px, parent=self)
+        # NOT: Qt QSS 'box-shadow' desteklemez ("Unknown property" uyarısı verirdi);
+        # gölge QGraphicsDropShadowEffect ile verilir.
         self.page_canvas.setStyleSheet(
-            "background-color: #FFFFFF; border: 1px solid #334155; "
-            "box-shadow: 0px 8px 24px rgba(0, 0, 0, 0.35);"
+            "background-color: #FFFFFF; border: 1px solid #334155;",
         )
+        _shadow = QGraphicsDropShadowEffect(self.page_canvas)
+        _shadow.setBlurRadius(24)
+        _shadow.setOffset(0, 8)
+        _shadow.setColor(QColor(0, 0, 0, 90))
+        self.page_canvas.setGraphicsEffect(_shadow)
 
         # Sayfa içindeki bantlar dikey dizilim
         self.bands_layout = QVBoxLayout(self.page_canvas)

@@ -319,6 +319,19 @@ class ReportPrinterEngine:
 
     def export_to_pdf(self, data: dict[str, Any], output_pdf_path: str | Path) -> bool:
         """Şablonu ve veriyi vektörel PDF dosyası olarak kaydeder."""
+        return self.export_many_to_pdf([data], output_pdf_path)
+
+    def export_many_to_pdf(
+        self,
+        datas: list[dict[str, Any]],
+        output_pdf_path: str | Path,
+    ) -> bool:
+        """
+        Bir veya daha fazla belgeyi tek bir vektörel PDF dosyasına yazar.
+        Her belge yeni bir sayfadan başlar (çoklu yazdırma / toplu PDF).
+        """
+        if not datas:
+            return False
         try:
             printer = QPrinter(QPrinter.PrinterMode.HighResolution)
             printer.setOutputFormat(QPrinter.OutputFormat.PdfFormat)
@@ -345,7 +358,12 @@ class ReportPrinterEngine:
             def on_new_page():
                 printer.newPage()
 
-            self.render_document(painter, data, target_device_dpi=dpi, new_page_callback=on_new_page)
+            for doc_idx, data in enumerate(datas):
+                if doc_idx > 0:
+                    printer.newPage()
+                self.render_document(
+                    painter, data, target_device_dpi=dpi, new_page_callback=on_new_page,
+                )
             painter.end()
             return True
 

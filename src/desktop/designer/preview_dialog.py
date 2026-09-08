@@ -17,6 +17,7 @@ from PyQt6.QtWidgets import (
     QComboBox,
     QDialog,
     QFileDialog,
+    QGraphicsDropShadowEffect,
     QHBoxLayout,
     QLabel,
     QMessageBox,
@@ -68,12 +69,21 @@ class ReportPreviewDialog(QDialog):
     def __init__(
         self,
         template: ReportTemplate,
-        data: dict[str, Any],
+        data: dict[str, Any] | None = None,
         parent: QWidget | None = None,
+        datas: list[dict[str, Any]] | None = None,
     ) -> None:
         super().__init__(parent)
         self.template = template
-        self.data = data
+        # Tek belge (data) veya birden çok belge (datas) — çoklu yazdırmada
+        # her belge kendi sayfa(lar)ından başlar, hepsi tek önizlemede toplanır.
+        if datas is not None:
+            self.datas = list(datas)
+        elif data is not None:
+            self.datas = [data]
+        else:
+            self.datas = []
+        self.data = self.datas[0] if self.datas else {}
         self.engine = ReportPrinterEngine(template)
 
         self.current_page_idx = 0
@@ -208,13 +218,16 @@ class ReportPreviewDialog(QDialog):
             current_img, current_painter = create_new_page_image()
             page_images.append(current_img)
 
-        # Render işlemi
-        self.engine.render_document(
-            current_painter,
-            self.data,
-            target_device_dpi=target_dpi,
-            new_page_callback=on_new_page,
-        )
+        # Render işlemi — birden çok belge varsa aralarında yeni sayfa
+        for doc_idx, doc_data in enumerate(self.datas or [self.data]):
+            if doc_idx > 0:
+                on_new_page()
+            self.engine.render_document(
+                current_painter,
+                doc_data,
+                target_device_dpi=target_dpi,
+                new_page_callback=on_new_page,
+            )
         current_painter.end()
 
         self.rendered_pages = page_images
@@ -267,10 +280,13 @@ class ReportPreviewDialog(QDialog):
 
         page_img = self.rendered_pages[curr]
         page_widget = PageViewWidget(page_img, scale_factor=self.scale_factor, parent=self)
-        page_widget.setStyleSheet(
-            "border: 1px solid #1E293B; background: white; "
-            "box-shadow: 0px 8px 20px rgba(0, 0, 0, 0.4);"
-        )
+        # Qt QSS 'box-shadow' desteklemez; gölge efekt ile verilir.
+        page_widget.setStyleSheet("border: 1px solid #1E293B; background: white;")
+        _shadow = QGraphicsDropShadowEffect(page_widget)
+        _shadow.setBlurRadius(20)
+        _shadow.setOffset(0, 8)
+        _shadow.setColor(QColor(0, 0, 0, 100))
+        page_widget.setGraphicsEffect(_shadow)
         self.canvas_layout.addWidget(page_widget)
 
     def resizeEvent(self, event: QResizeEvent):
@@ -318,7 +334,10 @@ class ReportPreviewDialog(QDialog):
             "PDF Dosyaları (*.pdf)",
         )
         if file_path:
-            ok = self.engine.export_to_pdf(self.data, file_path)
+            if len(self.datas) > 1:
+                ok = self.engine.export_many_to_pdf(self.datas, file_path)
+            else:
+                ok = self.engine.export_to_pdf(self.data, file_path)
             if ok:
                 QMessageBox.information(
                     self,
@@ -337,11 +356,14 @@ class ReportPreviewDialog(QDialog):
             painter = QPainter(printer)
             if painter.isActive():
                 dpi = float(printer.resolution())
-                self.engine.render_document(
-                    painter,
-                    self.data,
-                    target_device_dpi=dpi,
-                    new_page_callback=lambda: printer.newPage(),
-                )
+                for doc_idx, doc_data in enumerate(self.datas or [self.data]):
+                    if doc_idx > 0:
+                        printer.newPage()
+                    self.engine.render_document(
+                        painter,
+                        doc_data,
+                        target_device_dpi=dpi,
+                        new_page_callback=lambda: printer.newPage(),
+                    )
                 painter.end()
-                QMessageBox.information(self, "Yazdırıldı", "Teklif yazıcıya gönderildi.")
+                QMessageBox.information(self, "Yazdırıldı", "Belge(ler) yazıcıya gönderildi.")
