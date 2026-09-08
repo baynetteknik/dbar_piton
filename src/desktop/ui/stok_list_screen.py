@@ -63,9 +63,11 @@ class StokListScreen(ThreePanelBaseWidget):
             db_session=db_session,
             profile_key=self.profile_key,
             module_name="Stok Yönetimi",
+            parent=parent,
         )
         self.setObjectName("StokCanvas")
         register_layout_hint(self, "Stok Yönetimi", "Stok Kart Ana Ekranı")
+        self._apply_permissions()
 
     # ─────────────────────────────────────────────
     # SÜTUN TANIMLARI
@@ -458,19 +460,29 @@ class StokListScreen(ThreePanelBaseWidget):
     # ─────────────────────────────────────────────
     # CRUD İŞLEMLERİ
     # ─────────────────────────────────────────────
+    def _apply_permissions(self) -> None:
+        from src.desktop.security.gate import gate
+        ab = self.action_bar
+        gate(ab.btn_new, "stok.create", hide=True)
+        gate(ab.btn_edit, "stok.edit", hide=True)
+        gate(ab.btn_duplicate, "stok.create", hide=True)
+        gate(ab.btn_delete, "stok.delete", hide=True)
+        gate(ab.btn_passive, "stok.edit", hide=True)
+        if hasattr(ab, "btn_bulk_delete"):
+            gate(ab.btn_bulk_delete, "stok.delete", hide=True)
+        gate(ab.btn_excel, "stok.view", hide=True)
+
     def on_new_clicked(self):
         try:
-            from src.desktop.ui.stok_kart_dialog import StokKartDialog
-            dlg = StokKartDialog(
-                db_session=self.db,
-                company_id=self.company_id,
-                parent=self,
+            from src.desktop.ui.screens.stok_kart_editor import StokKartEditorDialog
+            dlg = StokKartEditorDialog(
+                db_session=self.db, company_id=self.company_id, parent=self,
             )
             if dlg.exec():
                 self.refresh_table()
                 self.toast_requested.emit("Yeni stok kartı eklendi.", "success")
         except Exception as e:
-            logger.error(f"Stok dialog açılırken hata: {e}")
+            logger.error(f"Stok editörü açılamadı: {e}")
             QMessageBox.critical(self, "Hata", f"Form açılamadı:\n{e}")
 
     def on_edit_clicked(self):
@@ -479,18 +491,16 @@ class StokListScreen(ThreePanelBaseWidget):
             QMessageBox.information(self, "Uyarı", "Düzenlenecek stok kartını seçin.")
             return
         try:
-            from src.desktop.ui.stok_kart_dialog import StokKartDialog
-            dlg = StokKartDialog(
-                db_session=self.db,
-                company_id=self.company_id,
-                product_id=pid,
-                parent=self,
+            from src.desktop.ui.screens.stok_kart_editor import StokKartEditorDialog
+            dlg = StokKartEditorDialog(
+                db_session=self.db, product_id=pid,
+                company_id=self.company_id, parent=self,
             )
             if dlg.exec():
                 self.refresh_table()
                 self.toast_requested.emit("Stok kartı güncellendi.", "success")
         except Exception as e:
-            logger.error(f"Stok dialog açılırken hata: {e}")
+            logger.error(f"Stok editörü açılamadı: {e}")
             QMessageBox.critical(self, "Hata", f"Form açılamadı:\n{e}")
 
     def on_duplicate_clicked(self):

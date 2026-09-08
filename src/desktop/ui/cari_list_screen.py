@@ -57,9 +57,11 @@ class CariListScreen(ThreePanelBaseWidget):
             db_session=db_session,
             profile_key=self.profile_key,
             module_name="Müşteriler & Cariler",
+            parent=parent,
         )
         self.setObjectName("CariCanvas")
         register_layout_hint(self, "Müşteriler & Cariler", "Cari Hesap Ana Ekranı")
+        self._apply_permissions()
 
     # ─────────────────────────────────────────────
     # SÜTUN TANIMLARI
@@ -546,19 +548,26 @@ class CariListScreen(ThreePanelBaseWidget):
     # ─────────────────────────────────────────────
     # CRUD İŞLEMLERİ
     # ─────────────────────────────────────────────
+    def _apply_permissions(self) -> None:
+        from src.desktop.security.gate import gate
+        gate(self.btn_new, "cari.create", hide=True)
+        gate(self.btn_edit, "cari.edit", hide=True)
+        gate(self.btn_duplicate, "cari.create", hide=True)
+        gate(self.btn_delete, "cari.delete", hide=True)
+        gate(self.btn_passive, "cari.edit", hide=True)
+        gate(self.btn_excel, "cari.view", hide=True)
+
     def on_new_clicked(self):
         try:
-            from src.desktop.ui.customers import CustomerDialog
-            dlg = CustomerDialog(
-                db_session=self.db,
-                company_id=self.company_id,
-                parent=self,
+            from src.desktop.ui.screens.cari_editor import CariEditorDialog
+            dlg = CariEditorDialog(
+                db_session=self.db, company_id=self.company_id, parent=self,
             )
             if dlg.exec():
                 self.refresh_table()
                 self.toast_requested.emit("Yeni cari eklendi.", "success")
         except Exception as e:
-            logger.error(f"Cari dialog açılamadı: {e}")
+            logger.error(f"Cari editörü açılamadı: {e}")
             QMessageBox.critical(self, "Hata", f"Form açılamadı:\n{e}")
 
     def on_edit_clicked(self):
@@ -567,18 +576,16 @@ class CariListScreen(ThreePanelBaseWidget):
             QMessageBox.information(self, "Uyarı", "Düzenlenecek cariyi seçin.")
             return
         try:
-            from src.desktop.ui.customers import CustomerDialog
-            dlg = CustomerDialog(
-                db_session=self.db,
-                company_id=self.company_id,
-                customer_id=cid,
-                parent=self,
+            from src.desktop.ui.screens.cari_editor import CariEditorDialog
+            dlg = CariEditorDialog(
+                db_session=self.db, customer_id=cid,
+                company_id=self.company_id, parent=self,
             )
             if dlg.exec():
                 self.refresh_table()
                 self.toast_requested.emit("Cari güncellendi.", "success")
         except Exception as e:
-            logger.error(f"Cari dialog açılamadı: {e}")
+            logger.error(f"Cari editörü açılamadı: {e}")
             QMessageBox.critical(self, "Hata", f"Form açılamadı:\n{e}")
 
     def on_duplicate_clicked(self):
