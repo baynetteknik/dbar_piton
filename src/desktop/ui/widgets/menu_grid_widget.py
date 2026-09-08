@@ -165,6 +165,7 @@ class MenuGridWidget(QWidget):
         self.grid_layout.setSpacing(12)
 
         # Kartları Grid Olarak Diz (Satır başına 3 veya 4 kart)
+        self._buttons: dict[str, MenuGridButton] = {}
         cols_count = 3
         for i, (name, emoji, target) in enumerate(self.modules):
             row = i // cols_count
@@ -173,8 +174,26 @@ class MenuGridWidget(QWidget):
             btn.clicked.connect(lambda checked, t=target: self.module_selected.emit(t))
             btn.right_clicked.connect(lambda t, pos: self.module_right_clicked.emit(t, pos))
             self.grid_layout.addWidget(btn, row, col)
+            self._buttons[target] = btn
 
         scroll.setWidget(grid_container)
         card_lyt.addWidget(scroll, 1)
 
         main_lyt.addWidget(self.card_frame)
+
+        self._apply_permissions()
+        try:
+            from src.desktop.managers.permission_manager import PermissionManager
+            PermissionManager().role_changed.connect(lambda *_: self._apply_permissions())
+        except Exception:  # noqa: BLE001
+            pass
+
+    def _apply_permissions(self):
+        """Kullanıcının erişemediği modül kartlarını gizler."""
+        try:
+            from src.desktop.security.gate import can, module_permission
+        except Exception:  # noqa: BLE001
+            return
+        for target, btn in self._buttons.items():
+            perm = module_permission(target)
+            btn.setVisible(can(perm) if perm else True)

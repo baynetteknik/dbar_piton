@@ -54,8 +54,9 @@ class ScreenDefinitionsManagerWidget(QWidget):
 
     status_message = pyqtSignal(str)
 
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, embedded: bool = False):
         super().__init__(parent)
+        self.embedded = embedded  # kabuk içinde: kendi sol/sağ panelini eklemez
         self.profile_key = "screen_definitions"
         self.theme = ThemeManager()
         self.profile_manager = ProfileManager(profile_key=self.profile_key)
@@ -340,7 +341,10 @@ class ScreenDefinitionsManagerWidget(QWidget):
 
         left_scroll.setWidget(left_frame)
         self.left_panel.set_content(left_scroll)
-        main_layout.addWidget(self.left_panel)
+        if not self.embedded:
+            main_layout.addWidget(self.left_panel)
+        else:
+            self.left_panel.hide()
 
         # ----------------------------------------------------
         # 2. ORTA PANEL - FilterableTableView (Teklif Yönetimi ile Birebir Aynı)
@@ -461,7 +465,10 @@ class ScreenDefinitionsManagerWidget(QWidget):
         right_lyt.addStretch()
         right_scroll.setWidget(right_frame)
         self.right_panel.set_content(right_scroll)
-        main_layout.addWidget(self.right_panel)
+        if not self.embedded:
+            main_layout.addWidget(self.right_panel)
+        else:
+            self.right_panel.hide()
 
         # Sinyaller: Tema, Başlık ve Satır Yüksekliği canlı bağlantısı
         self.theme.theme_changed.connect(lambda: self.table_view.setStyleSheet(self.theme.get_table_stylesheet()))

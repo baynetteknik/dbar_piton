@@ -319,7 +319,7 @@ class GitTrackerScreen(ThreePanelBaseWidget):
     FilterableTableView, CollapsibleSection, Sayfalama) sahiptir.
     """
 
-    def __init__(self, db_session=None, parent=None):
+    def __init__(self, db_session=None, parent=None, embedded: bool = False):
         self.active_view_mode = "commits"  # 'commits', 'tasks', 'changes'
         self.worker: git_tracker.GitWorker | None = None
         self._raw_records: list[dict[str, Any]] = []
@@ -329,6 +329,7 @@ class GitTrackerScreen(ThreePanelBaseWidget):
             profile_key="git_tracker",
             module_name="Sürüm & Git Takip Merkezi",
             parent=parent,
+            embedded=embedded,
         )
         self.setObjectName("GitTrackerCanvas")
         register_layout_hint(self, "Git Yönetimi", "Sürüm ve Git Takip Ekranı")

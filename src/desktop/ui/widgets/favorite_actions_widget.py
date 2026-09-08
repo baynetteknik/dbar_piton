@@ -111,15 +111,34 @@ class FavoriteActionsWidget(QWidget):
         q_btn_lyt = QVBoxLayout()
         q_btn_lyt.setSpacing(6)
 
-        btn_cari = self._create_quick_button("👥 Yeni Cari Kartı Aç", "Müşteriler & Cariler")
-        btn_teklif = self._create_quick_button("📄 Yeni Teklif Hazırla", "Teklif Yönetimi")
-        
-        q_btn_lyt.addWidget(btn_cari)
-        q_btn_lyt.addWidget(btn_teklif)
+        self.btn_cari = self._create_quick_button("👥 Yeni Cari Kartı Aç", "Müşteriler & Cariler")
+        self.btn_teklif = self._create_quick_button("📄 Yeni Teklif Hazırla", "Teklif Yönetimi")
+
+        q_btn_lyt.addWidget(self.btn_cari)
+        q_btn_lyt.addWidget(self.btn_teklif)
         card_lyt.addLayout(q_btn_lyt)
 
         main_lyt.addWidget(self.card_frame)
         self.refresh_favorites()
+        self._apply_permissions()
+        try:
+            from src.desktop.managers.permission_manager import PermissionManager
+            PermissionManager().role_changed.connect(lambda *_: self._apply_permissions())
+        except Exception:  # noqa: BLE001
+            pass
+
+    def _apply_permissions(self):
+        """Yetkisi olmayan favori satırlarını ve hızlı kısayolları gizler."""
+        try:
+            from src.desktop.security.gate import can, module_permission
+        except Exception:  # noqa: BLE001
+            return
+        for i in range(self.list_widget.count()):
+            it = self.list_widget.item(i)
+            perm = module_permission(it.text())
+            it.setHidden(bool(perm) and not can(perm))
+        self.btn_cari.setVisible(can("cari.create"))
+        self.btn_teklif.setVisible(can("teklif.create"))
 
     def _create_quick_button(self, label: str, target: str) -> QPushButton:
         btn = QPushButton(label)
@@ -152,3 +171,5 @@ class FavoriteActionsWidget(QWidget):
             item = QListWidgetItem(fav)
             self.list_widget.addItem(item)
         self.badge_count.setText(str(len(self.favorites)))
+        if hasattr(self, "btn_cari"):
+            self._apply_permissions()

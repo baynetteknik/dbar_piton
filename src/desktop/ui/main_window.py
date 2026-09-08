@@ -5,6 +5,7 @@ from PyQt6.QtCore import QSettings, Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import QAction, QColor, QCursor, QFont, QKeySequence, QShortcut
 from PyQt6.QtWidgets import (
     QComboBox,
+    QDialog,
     QFrame,
     QGraphicsDropShadowEffect,
     QHBoxLayout,
@@ -312,9 +313,12 @@ class MainWindow(QMainWindow):
 
     log_signal = pyqtSignal(str)
 
-    def __init__(self, db_session):
+    def __init__(self, db_session, user_config: dict | None = None):
         super().__init__()
         self.db = db_session
+        self.user_config = user_config or {}
+        self.current_user = self._resolve_current_user()
+        self.company_id = None
         self.active_popup = None
         self.favoriler = [self.tr("Ürün Yönetimi"), self.tr("Görevler"), self.tr("Teklif Yönetimi"), self.tr("Müşteriler & Cariler")]
         init_global_text_selection()
@@ -329,6 +333,28 @@ class MainWindow(QMainWindow):
         }
 
         self.init_ui()
+
+    def _resolve_current_user(self):
+        """Login'de gelen kullanıcı adına göre DB'den User nesnesini çeker."""
+        uname = (self.user_config or {}).get("username")
+        if not uname:
+            return None
+        try:
+            from src.core.models import User
+            return self.db.query(User).filter(User.username == uname).first()
+        except Exception:  # noqa: BLE001
+            return None
+
+    def _current_user_label(self) -> str:
+        u = self.current_user
+        if u is not None:
+            name = u.full_name or u.username
+            role = getattr(getattr(u, "role_ref", None), "name", None)
+            if not role:
+                role = "Yönetici" if getattr(u, "role", "") == "admin" else "Kullanıcı"
+            return f"👤 {name} · {role}"
+        uname = (self.user_config or {}).get("username") or "misafir"
+        return f"👤 {uname}"
 
     def init_ui(self):
         self.setWindowTitle(self.tr("Toya ERP"))
@@ -382,11 +408,22 @@ class MainWindow(QMainWindow):
         """)
         header_layout.addWidget(self.search_box)
 
-        user_lbl = QLabel("👤 admin@baynet")
-        user_lbl.setObjectName("sys.usr.001")
-        user_lbl.setToolTip("[sys.usr.001] Oturum Açan Süper Yönetici Profili")
-        user_lbl.setStyleSheet("color: #ffffff; font-size: 13px; font-weight: 700; font-family: 'Segoe UI';")
-        header_layout.addWidget(user_lbl)
+        self.user_lbl = QLabel(self._current_user_label())
+        self.user_lbl.setObjectName("sys.usr.001")
+        self.user_lbl.setToolTip("[sys.usr.001] Oturum açan kullanıcı ve rolü")
+        self.user_lbl.setStyleSheet("color: #ffffff; font-size: 13px; font-weight: 700; font-family: 'Segoe UI';")
+        header_layout.addWidget(self.user_lbl)
+
+        self.btn_switch_user = QPushButton("🔄 Değiştir")
+        self.btn_switch_user.setToolTip("Kullanıcı Değiştir (şirket sabit kalır)")
+        self.btn_switch_user.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_switch_user.setStyleSheet(
+            "QPushButton{background:#1a2744;color:#cbd5e1;border:1px solid #334155;"
+            "border-radius:6px;padding:5px 10px;font-size:11px;font-weight:600;}"
+            "QPushButton:hover{background:#243356;color:#fff;}",
+        )
+        self.btn_switch_user.clicked.connect(self.switch_user)
+        header_layout.addWidget(self.btn_switch_user)
 
         self.company_combo = QComboBox()
         self.company_combo.setObjectName("tan.cmp.001")
@@ -729,6 +766,13 @@ class MainWindow(QMainWindow):
         self.open_module_in_tab(menu_name)
 
     def open_module_in_tab(self, menu_name):
+        # --- Yetki kontrolü ---
+        from src.desktop.security.gate import can, module_permission
+        perm = module_permission(menu_name)
+        if perm and not can(perm):
+            self.show_toast(f"'{menu_name}' için yetkiniz yok.", "error")
+            return
+
         SCREEN_CODES = {
             self.tr("Teklif Yönetimi"): "📄 [isl.quo.001] " + self.tr("Teklif Yönetimi"),
             self.tr("Teklifler"): "📄 [isl.quo.001] " + self.tr("Teklif Yönetimi"),
@@ -773,6 +817,8 @@ class MainWindow(QMainWindow):
             new_widget.toast_requested.connect(self.show_toast)
         elif menu_name in (self.tr("Genel Ayarlar"), self.tr("Sistem Ayarları")):
             new_widget = SettingsWidget(self.db)
+            # Ayarlarda firma/kullanıcı değişince üst bar tazelensin
+            new_widget.destroyed.connect(self._refresh_header_from_settings)
         elif menu_name == self.tr("Ekran & Grid Tanımları"):
             from src.desktop.ui.screen_definitions_manager import (
                 ScreenDefinitionsManagerWidget,
@@ -853,14 +899,20 @@ class MainWindow(QMainWindow):
             "Fiyat Politikaları": "💵",
             "Cari Analiz": "📊",
         }
+        from src.desktop.security.gate import can, module_permission
+        shown = 0
         for fav in self.favoriler:
+            perm = module_permission(fav)
+            if perm and not can(perm):
+                continue  # yetkisi olmayan favoriyi listeleme
             icon = SCREEN_ICONS.get(fav, "⭐")
             item = QListWidgetItem(f"{icon}  {fav}")
             item.setData(Qt.ItemDataRole.UserRole, fav)
             self.fav_screens_list.addItem(item)
+            shown += 1
 
         if hasattr(self, "fav_count_badge"):
-            self.fav_count_badge.setText(str(len(self.favoriler)))
+            self.fav_count_badge.setText(str(shown))
 
     def create_styled_menu(self):
         """Kurala uygun mavi zeminli, beyaz yazılı sağ tık menüsü üretir."""
@@ -892,16 +944,71 @@ class MainWindow(QMainWindow):
             menu.exec(QCursor.pos())
 
     def load_companies(self):
+        """Üst bardaki şirket kutusunu 'Firma Tanımları' (Company) verisinden doldurur."""
+        self.company_combo.blockSignals(True)
         self.company_combo.clear()
         try:
-            companies = self.db.query(Site).filter(Site.is_active == True).all()
-            for comp in companies:
-                self.company_combo.addItem(comp.name, comp.id)
-        except Exception:
+            from src.desktop.services.company_service import CompanyService
+            companies = CompanyService(self.db).list_companies()
+            if companies:
+                for c in companies:
+                    label = f"{c.code} · {c.short_name}" if c.code else c.short_name
+                    self.company_combo.addItem(label, c.id)
+            else:
+                self.company_combo.addItem("— Firma tanımlanmadı —", None)
+        except Exception:  # noqa: BLE001
+            # Company tablosu yoksa eski Site listesine düş
+            try:
+                for comp in self.db.query(Site).filter(Site.is_active == True).all():
+                    self.company_combo.addItem(comp.name, comp.id)
+            except Exception:  # noqa: BLE001
+                pass
+        self.company_combo.blockSignals(False)
+        self.company_id = self.company_combo.currentData()
+        try:
+            self.company_combo.currentIndexChanged.disconnect(self.on_company_changed)
+        except (TypeError, RuntimeError):
             pass
         self.company_combo.currentIndexChanged.connect(self.on_company_changed)
 
+    def switch_user(self):
+        """Şirket sabit kalır; oturum açan kullanıcıyı değiştirir."""
+        from src.desktop.ui.dialogs.switch_user_dialog import SwitchUserDialog
+        dlg = SwitchUserDialog(self.db, parent=self)
+        if dlg.exec() != QDialog.DialogCode.Accepted or not dlg.selected_user:
+            return
+        user = dlg.selected_user
+        self.current_user = user
+        self.user_config = {**(self.user_config or {}), "username": user.username}
+        try:
+            from src.desktop.managers.permission_manager import PermissionManager
+            pm = PermissionManager()
+            pm.load_from_db(self.db)
+            pm.set_current_user(user)
+        except Exception:  # noqa: BLE001
+            pass
+        self.user_lbl.setText(self._current_user_label())
+        # Açık modül sekmelerini kapat (yeni yetkilerle yeniden açılsın)
+        while self.tab_widget.count() > 1:
+            self.tab_widget.removeTab(1)
+        self.tab_widget.setCurrentIndex(0)
+        self.show_toast(f"Kullanıcı değişti: {user.full_name or user.username}", "success")
+
+    def _refresh_header_from_settings(self, *_):
+        """Genel Ayarlar sekmesi kapanınca üst bardaki firma/kullanıcı bilgisini yeniler."""
+        try:
+            cur = self.company_combo.currentData()
+            self.load_companies()
+            idx = self.company_combo.findData(cur)
+            if idx >= 0:
+                self.company_combo.setCurrentIndex(idx)
+            self.current_user = self._resolve_current_user()
+            self.user_lbl.setText(self._current_user_label())
+        except Exception:  # noqa: BLE001
+            pass
+
     def on_company_changed(self):
+        self.company_id = self.company_combo.currentData()
         # Şirket değiştiğinde tüm açık modül sekmelerini temizle
         while self.tab_widget.count() > 1:
             self.tab_widget.removeTab(1)

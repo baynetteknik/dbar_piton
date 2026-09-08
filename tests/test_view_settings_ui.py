@@ -56,3 +56,15 @@ def test_view_settings_widget_reset_all_profiles(qapp):
 
     items = [widget.profile_list.item(i).text() for i in range(widget.profile_list.count())]
     assert "TestCustomReset" not in items
+
+
+def test_embedded_mode_hides_own_chrome(qapp):
+    """embedded=True: kendi üst filtre barı ve alt aksiyon barı gizli olmalı."""
+    plain = ViewSettingsWidget()
+    emb = ViewSettingsWidget(embedded=True)
+    assert plain.action_bar.isVisibleTo(plain) is True
+    assert emb.action_bar.isVisibleTo(emb) is False
+    # kabuğun süreceği yardımcılar
+    emb.apply_quick_search("abc")
+    assert emb.txt_search.text() == "abc"
+    assert isinstance(emb.record_count(), int)

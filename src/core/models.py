@@ -574,14 +574,43 @@ user_site_association = Table(
 )
 
 
+class Role(BaseModel):
+    """
+    Yetki rolü. `permissions_json` — bu role verilen yetki kodları listesi
+    (bkz. src/desktop/security/permissions.py). "*" tüm yetkiler demektir.
+    `is_system=True` roller silinemez (Yönetici gibi).
+    """
+    __tablename__ = "roles"
+
+    name: Mapped[str] = mapped_column(String(60), unique=True, index=True, nullable=False)
+    description: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    permissions_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    is_system: Mapped[bool] = mapped_column(Boolean, default=False)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+
+    users: Mapped[list["User"]] = relationship("User", back_populates="role_ref")
+
+
 class User(BaseModel):
     """Represents a local system user for authentication and authorization."""
     __tablename__ = "users"
 
     username: Mapped[str] = mapped_column(String(100), unique=True, index=True, nullable=False)
     password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
-    role: Mapped[str] = mapped_column(String(50), default="user")  # 'admin' or 'user'
+    role: Mapped[str] = mapped_column(String(50), default="user")  # legacy 'admin'/'user'
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+
+    # --- Genişletilmiş kimlik ---
+    full_name: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    email: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    phone: Mapped[str | None] = mapped_column(String(30), nullable=True)
+    must_change_password: Mapped[bool] = mapped_column(Boolean, default=False)
+    last_login_at: Mapped[str | None] = mapped_column(String(25), nullable=True)
+
+    role_id: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("roles.id", ondelete="SET NULL"), nullable=True,
+    )
+    role_ref: Mapped["Role | None"] = relationship("Role", back_populates="users")
 
     # Relationships
     allowed_sites: Mapped[list["Site"]] = relationship(
@@ -638,6 +667,72 @@ class SystemSetting(BaseModel):
 
     key: Mapped[str] = mapped_column(String(150), unique=True, index=True, nullable=False)
     value: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
+class Company(BaseModel):
+    """
+    Firma / Şirket tanımı (Wolvox "Şirket Kayıt İşlemleri", DIA "Firma Detayı"
+    karşılığı). Belge künyesi, e-Belge ve varsayılan parametreleri tutar.
+    Çok firmalı çalışmayı destekler (kod bazlı).
+    """
+    __tablename__ = "companies"
+
+    # --- Kimlik / Künye ---
+    code: Mapped[str] = mapped_column(String(20), unique=True, index=True, nullable=False)
+    short_name: Mapped[str] = mapped_column(String(120), nullable=False)          # Kısa Ad
+    title: Mapped[str | None] = mapped_column(String(255), nullable=True)         # Resmi/Ticari Ünvan
+    company_type: Mapped[str] = mapped_column(String(30), default="Tüzel")        # Şahıs / Tüzel (Ltd/A.Ş.)
+    tax_office: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    tax_office_code: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    tax_number: Mapped[str | None] = mapped_column(String(20), nullable=True)     # VKN / TCKN
+    mersis_no: Mapped[str | None] = mapped_column(String(25), nullable=True)
+    trade_registry_no: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    nace_code: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    sgk_no: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    founded_at: Mapped[str | None] = mapped_column(String(10), nullable=True)     # GG.AA.YYYY
+
+    # --- Adres ---
+    address: Mapped[str | None] = mapped_column(Text, nullable=True)
+    district: Mapped[str | None] = mapped_column(String(80), nullable=True)       # İlçe
+    city: Mapped[str | None] = mapped_column(String(80), nullable=True)           # İl
+    postal_code: Mapped[str | None] = mapped_column(String(15), nullable=True)
+    country: Mapped[str] = mapped_column(String(60), default="TÜRKİYE")
+
+    # --- İletişim ---
+    phone1: Mapped[str | None] = mapped_column(String(30), nullable=True)
+    phone2: Mapped[str | None] = mapped_column(String(30), nullable=True)
+    fax: Mapped[str | None] = mapped_column(String(30), nullable=True)
+    email: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    accounting_email: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    website: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    kep_address: Mapped[str | None] = mapped_column(String(120), nullable=True)
+
+    # --- Yetkili ---
+    authorized_person: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    authorized_title: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    authorized_phone: Mapped[str | None] = mapped_column(String(30), nullable=True)
+
+    # --- e-Belge / Entegrasyon ---
+    e_invoice_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
+    e_archive_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
+    e_dispatch_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
+    gib_alias: Mapped[str | None] = mapped_column(String(80), nullable=True)      # GİB etiketi
+    integrator: Mapped[str | None] = mapped_column(String(80), nullable=True)
+
+    # --- Varsayılanlar ---
+    default_currency: Mapped[str] = mapped_column(String(5), default="TRY")
+    default_vat_rate: Mapped[int] = mapped_column(Integer, default=20)
+    fiscal_year_start: Mapped[str | None] = mapped_column(String(5), nullable=True)  # GG.AA
+
+    # --- Görsel (base64) ---
+    logo_base64: Mapped[str | None] = mapped_column(Text, nullable=True)
+    stamp_base64: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    # --- Banka hesapları (JSON listesi: [{banka, sube, hesap_no, iban, para_birimi}]) ---
+    bank_accounts_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
 
 
 event.listen(Product, "after_insert", _record_insert)

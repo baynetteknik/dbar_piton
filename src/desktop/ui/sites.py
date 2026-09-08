@@ -527,10 +527,14 @@ class SitesWidget(QWidget):
 
     sites_updated = pyqtSignal()
 
-    def __init__(self, db_session, parent=None):
+    def __init__(self, db_session, parent=None, embedded: bool = False):
         super().__init__(parent)
         self.db = db_session
         self.profile_key = "sites"
+        # embedded=True: Genel Ayarlar kabuğu içinde açılır — kendi sol/sağ
+        # EdgeTriggeredPanel'lerini ve alt aksiyon çubuğunu KURMAZ; bunları
+        # kabuğun sidebar'ları ve alt barı sağlar (çift sidebar olmasın).
+        self.embedded = embedded
 
         self.headers_dict = {
             0: ("Firma Kodu", "id"),
@@ -656,7 +660,10 @@ class SitesWidget(QWidget):
         filter_lyt.addStretch()
 
         self.left_panel.set_content(filter_content)
-        main_layout.addWidget(self.left_panel)
+        if not self.embedded:
+            main_layout.addWidget(self.left_panel)
+        else:
+            self.left_panel.hide()
 
         # ==========================================
         # 2. ORTA PANEL (Dinamik DBGrid & Aksiyon Çubuğu)
@@ -764,7 +771,10 @@ class SitesWidget(QWidget):
         self.lbl_record_count.setStyleSheet("font-weight: bold; color: #475569; font-size: 11px;")
         action_bar_lyt.addWidget(self.lbl_record_count)
 
-        center_lyt.addWidget(self.action_bar)
+        if not self.embedded:
+            center_lyt.addWidget(self.action_bar)
+        else:
+            self.action_bar.hide()
         main_layout.addWidget(self.center_container, 1)
 
         # ==========================================
@@ -861,7 +871,27 @@ class SitesWidget(QWidget):
 
         right_scroll.setWidget(right_content)
         self.right_panel.set_content(right_scroll)
-        main_layout.addWidget(self.right_panel)
+        if not self.embedded:
+            main_layout.addWidget(self.right_panel)
+        else:
+            self.right_panel.hide()
+
+    # -- Kabuk (Genel Ayarlar) tarafından sürülen yardımcılar --------------
+    def apply_quick_search(self, text: str):
+        """Kabuğun sağ sidebar araması → firma tablosunda hızlı arama."""
+        if hasattr(self, "txt_search"):
+            self.txt_search.setText(text)
+
+    def apply_status_filter(self, status: str):
+        """Kabuğun sağ sidebar 'Durum' kutusu → firma durum filtresi."""
+        combo = getattr(self, "cmb_filter_status", None) or getattr(self, "cmb_status", None)
+        if combo is not None:
+            idx = combo.findText(status)
+            if idx >= 0:
+                combo.setCurrentIndex(idx)
+
+    def record_count(self) -> int:
+        return self.table_model.rowCount()
 
     def load_sites(self):
         self.table_model.removeRows(0, self.table_model.rowCount())

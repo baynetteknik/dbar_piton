@@ -587,10 +587,14 @@ class UserDialog(QDialog):
 class UserManagementWidget(QWidget):
     """Kullanıcı Tanımları Yönetim Paneli."""
 
-    def __init__(self, db_session, parent=None) -> None:
+    def __init__(self, db_session, parent=None, embedded: bool = False) -> None:
         super().__init__(parent)
         self.db = db_session
         self.profile_key = "users"
+        # embedded=True: Genel Ayarlar kabuğu içinde — kendi üst filtre barını
+        # ve alt aksiyon barını kurmaz; arama/aksiyonlar kabuk sidebar'larından
+        # gelir (çift arama/filtre/buton olmasın).
+        self.embedded = embedded
 
         self.headers_dict = {
             0: ("ID", "id"),
@@ -602,6 +606,20 @@ class UserManagementWidget(QWidget):
 
         self.init_ui()
         self.load_users()
+
+    def apply_quick_search(self, text: str):
+        if hasattr(self, "txt_search"):
+            self.txt_search.setText(text)
+
+    def apply_status_filter(self, status: str):
+        combo = getattr(self, "cmb_filter_status", None)
+        if combo is not None:
+            idx = combo.findText(status)
+            if idx >= 0:
+                combo.setCurrentIndex(idx)
+
+    def record_count(self) -> int:
+        return self.table_model.rowCount() if hasattr(self, "table_model") else 0
 
     def toolbar_btn_style(
         self, bg_color="#ffffff", text_color="#1e293b",
@@ -699,7 +717,14 @@ class UserManagementWidget(QWidget):
         top_filter_lyt.addWidget(btn_add_user)
         top_filter_lyt.addWidget(btn_refresh)
 
-        main_layout.addWidget(top_filter_frame)
+        if not self.embedded:
+            main_layout.addWidget(top_filter_frame)
+        else:
+            # Layout'a eklenmeyince GC'ye gider ve içindeki QLineEdit/combo'lar
+            # silinir; parent vererek canlı ama gizli tut (kabuk bunları sürer).
+            self._top_filter_frame = top_filter_frame
+            top_filter_frame.setParent(self)
+            top_filter_frame.hide()
 
         # Tablo
         self.filterable_table = FilterableTableView(
@@ -807,7 +832,10 @@ class UserManagementWidget(QWidget):
             "font-weight: bold; color: #475569; font-size: 11px;",
         )
         action_bar_lyt.addWidget(self.lbl_record_count)
-        main_layout.addWidget(self.action_bar)
+        if not self.embedded:
+            main_layout.addWidget(self.action_bar)
+        else:
+            self.action_bar.hide()
 
     def load_users(self) -> None:
         self.table_model.removeRows(0, self.table_model.rowCount())
@@ -943,8 +971,9 @@ class UserManagementWidget(QWidget):
 class ViewSettingsWidget(QWidget):
     """Görünüm Profilleri Paneli."""
 
-    def __init__(self, parent=None) -> None:
+    def __init__(self, parent=None, embedded: bool = False) -> None:
         super().__init__(parent)
+        self.embedded = embedded
         self.current_profiles: dict[str, Any] = {}
         self.headers_dict = {
             0: ("Profil Adı", "name"),
@@ -955,6 +984,16 @@ class ViewSettingsWidget(QWidget):
             5: ("Görsel Kural Sayısı", "rules_count"),
         }
         self.init_ui()
+
+    def apply_quick_search(self, text: str):
+        if hasattr(self, "txt_search"):
+            self.txt_search.setText(text)
+
+    def apply_status_filter(self, status: str):
+        pass  # profil listesinde durum filtresi yok
+
+    def record_count(self) -> int:
+        return self.table_model.rowCount() if hasattr(self, "table_model") else 0
 
     def toolbar_btn_style(
         self, bg_color="#ffffff", text_color="#1e293b",
@@ -1043,7 +1082,12 @@ class ViewSettingsWidget(QWidget):
         top_bar_lyt.addWidget(self.txt_search, 1)
         top_bar_lyt.addWidget(btn_refresh)
 
-        main_layout.addWidget(top_bar)
+        if not self.embedded:
+            main_layout.addWidget(top_bar)
+        else:
+            self._top_bar = top_bar
+            top_bar.setParent(self)
+            top_bar.hide()
 
         # Tablo
         self.filterable_table = FilterableTableView(
@@ -1194,7 +1238,10 @@ class ViewSettingsWidget(QWidget):
             "font-weight: bold; color: #475569; font-size: 11px;",
         )
         action_bar_lyt.addWidget(self.lbl_record_count)
-        main_layout.addWidget(self.action_bar)
+        if not self.embedded:
+            main_layout.addWidget(self.action_bar)
+        else:
+            self.action_bar.hide()
 
         self.profile_list = QListWidget()
         self.profile_list.hide()
@@ -1459,6 +1506,7 @@ class GeneralSettingsScreen(QWidget):
             "SİSTEM",
             "🖥️",
             [
+                ("CMS / ERP Bağlantıları", "cms_baglantilari"),
                 ("Görünüm Profilleri", "gorunum_profilleri"),
                 ("Ekran Grid Tanım.", "ekran_grid"),
                 ("Sürüm & Git", "surum_git"),
@@ -1666,8 +1714,19 @@ class GeneralSettingsScreen(QWidget):
         # Tanımlara özel hızlı alt eylemler
         actions_map = {
             "firma_bilgileri": [
-                ("💾 Bilgileri Kaydet", lambda: self.save_current_panel()),
-                ("🔄 Yenile", lambda: self.switch_panel("firma_bilgileri")),
+                ("➕ Yeni Firma", lambda: getattr(self, "firma_tab", None) and self.firma_tab.add_new()),
+                ("✏️ Düzenle", lambda: getattr(self, "firma_tab", None) and self.firma_tab.edit_selected()),
+                ("🗑️ Sil", lambda: getattr(self, "firma_tab", None) and self.firma_tab.delete_selected()),
+                ("🔄 Yenile", lambda: getattr(self, "firma_tab", None) and self.firma_tab.load_data()),
+            ],
+            "cms_baglantilari": [
+                ("➕ Yeni Bağlantı", lambda: getattr(self, "sites_tab", None) and self.sites_tab.open_add_site_dialog()),
+                ("✏️ Değiştir", lambda: getattr(self, "sites_tab", None) and self.sites_tab.open_edit_site_dialog()),
+                ("🔍 İncele", lambda: getattr(self, "sites_tab", None) and self.sites_tab.inspect_site_dialog()),
+                ("🗑️ Sil", lambda: getattr(self, "sites_tab", None) and self.sites_tab.delete_site()),
+                ("🔌 Bağlantıyı Test Et", lambda: getattr(self, "sites_tab", None) and self.sites_tab.test_selected_connection()),
+                ("🔑 Jeton Çek", lambda: getattr(self, "sites_tab", None) and self.sites_tab.auto_fetch_token_selected()),
+                ("🔄 Yenile", lambda: getattr(self, "sites_tab", None) and self.sites_tab.load_sites()),
             ],
             "sube_tanimlari": [
                 ("➕ Yeni Şube Ekle", lambda: self._add_table_row(getattr(self, "tbl_sube", None), ["", "", "Toya ERP A.Ş.", "", "Aktif"])),
@@ -1675,19 +1734,19 @@ class GeneralSettingsScreen(QWidget):
                 ("💾 Şubeleri Kaydet", lambda: self.save_current_panel()),
             ],
             "kullanicilar": [
-                ("➕ Yeni Kullanıcı", lambda: getattr(self, "users_tab", None) and self.users_tab.open_add_user_dialog()),
-                ("✏️ Kullanıcı Düzenle", lambda: getattr(self, "users_tab", None) and self.users_tab.open_edit_user_dialog()),
-                ("🗑️ Kullanıcı Sil", lambda: getattr(self, "users_tab", None) and self.users_tab.delete_user()),
-                ("🔍 Kullanıcı İncele", lambda: getattr(self, "users_tab", None) and self.users_tab.inspect_user_dialog()),
+                ("➕ Yeni Kullanıcı", lambda: getattr(self, "users_tab", None) and self.users_tab.add_new()),
+                ("✏️ Düzenle", lambda: getattr(self, "users_tab", None) and self.users_tab.edit_selected()),
+                ("🗑️ Sil", lambda: getattr(self, "users_tab", None) and self.users_tab.delete_selected()),
+                ("🔄 Yenile", lambda: getattr(self, "users_tab", None) and self.users_tab.load_data()),
             ],
             "roller": [
-                ("➕ Yeni Rol Ekle", lambda: self._add_table_row(getattr(self, "tbl_roller", None), ["", "", "", "Aktif"])),
-                ("🗑️ Seçili Rolü Sil", lambda: self._delete_table_row(getattr(self, "tbl_roller", None))),
-                ("💾 Rolleri Kaydet", lambda: self.save_current_panel()),
+                ("➕ Yeni Rol", lambda: getattr(self, "roller_tab", None) and self.roller_tab.add_new()),
+                ("✏️ Düzenle", lambda: getattr(self, "roller_tab", None) and self.roller_tab.edit_selected()),
+                ("🗑️ Sil", lambda: getattr(self, "roller_tab", None) and self.roller_tab.delete_selected()),
+                ("🔄 Yenile", lambda: getattr(self, "roller_tab", None) and self.roller_tab.load_data()),
             ],
             "yetkiler": [
-                ("💾 Yetkileri Kaydet", lambda: self.save_current_panel()),
-                ("🔄 Yetkileri Yenile", lambda: self._load_generic_table(getattr(self, "tbl_yetkiler", None), "yetkiler", [])),
+                ("🔄 Yenile", lambda: self.switch_panel("yetkiler")),
             ],
             "doviz_kur": [
                 ("➕ Yeni Döviz Ekle", lambda: self._add_table_row(getattr(self, "tbl_doviz", None), ["", "", "", "1.0000", "Aktif"])),
@@ -1959,16 +2018,14 @@ class GeneralSettingsScreen(QWidget):
         btn_refresh.setStyleSheet(self.btn_style())
         btn_refresh.clicked.connect(self.refresh_active_panel)
 
-        btn_save_all = QPushButton("💾 Değişiklikleri Kaydet (F2)")
-        btn_save_all.setStyleSheet(self.btn_style("#2563eb", "#ffffff"))
-        btn_save_all.clicked.connect(self.save_current_panel)
+        # NOT: "Değişiklikleri Kaydet" burada YOK — Kaydet tek yerde (alt bar +
+        # sol menü bağlam eylemi). Sağ sidebarda tekrar etmesi F2'yi çiftliyordu.
 
         btn_col_dia = QPushButton("⚙️ Sütunları Yapılandır")
         btn_col_dia.setStyleSheet(self.btn_style("#ffffff", "#475569"))
         btn_col_dia.clicked.connect(self.open_active_column_manager)
 
         sec_tools.add_widget(btn_refresh)
-        sec_tools.add_widget(btn_save_all)
         sec_tools.add_widget(btn_col_dia)
         lyt.addWidget(sec_tools)
 
@@ -1979,16 +2036,23 @@ class GeneralSettingsScreen(QWidget):
 
     def _get_active_table(self):
         """Mevcut aktif paneldeki tablo bileşenini döner."""
-        if self.active_panel_id in ("kullanicilar", "users"):
-            if hasattr(self, "users_tab") and hasattr(self.users_tab, "table"):
-                return self.users_tab.table
+        if self.active_panel_id == "firma_bilgileri":
+            if hasattr(self, "firma_tab"):
+                return getattr(self.firma_tab, "table_view", None)
+        elif self.active_panel_id == "cms_baglantilari":
+            if hasattr(self, "sites_tab") and hasattr(self.sites_tab, "table"):
+                return self.sites_tab.table
+        elif self.active_panel_id in ("kullanicilar", "users"):
+            if hasattr(self, "users_tab"):
+                return getattr(self.users_tab, "table_view", None)
+        elif self.active_panel_id == "roller":
+            if hasattr(self, "roller_tab"):
+                return getattr(self.roller_tab, "table_view", None)
         elif self.active_panel_id in ("gorunum_profilleri", "view_settings"):
             if hasattr(self, "view_settings_tab") and hasattr(self.view_settings_tab, "table"):
                 return self.view_settings_tab.table
         elif self.active_panel_id == "sube_tanimlari":
             return getattr(self, "tbl_sube", None)
-        elif self.active_panel_id == "roller":
-            return getattr(self, "tbl_roller", None)
         elif self.active_panel_id == "yetkiler":
             return getattr(self, "tbl_yetkiler", None)
         elif self.active_panel_id == "doviz_kur":
@@ -2029,29 +2093,44 @@ class GeneralSettingsScreen(QWidget):
         else:
             QMessageBox.warning(self, self.tr("Uyarı"), self.tr("Lütfen silmek istediğiniz satırı seçin."))
 
+    def _active_embedded_widget(self):
+        """Aktif panel gömülü bir yönetim widget'ıysa onu döndürür."""
+        m = {
+            "firma_bilgileri": "firma_tab",
+            "cms_baglantilari": "sites_tab",
+            "kullanicilar": "users_tab",
+            "roller": "roller_tab",
+            "gorunum_profilleri": "view_settings_tab",
+            "ekran_grid": "screen_defs_tab",
+        }
+        attr = m.get(self.active_panel_id)
+        return getattr(self, attr, None) if attr else None
+
     def filter_active_table(self, query: str):
         """Aktif tablodaki satırları arama metnine göre filtreler."""
+        emb = self._active_embedded_widget()
+        if emb is not None and hasattr(emb, "apply_quick_search"):
+            emb.apply_quick_search(query)
+            return
         table = self._get_active_table()
-        if not table:
+        if not table or not isinstance(table, QTableWidget):
             return
         q = query.strip().lower()
-        if isinstance(table, QTableWidget):
-            for r in range(table.rowCount()):
-                match = False
-                for c in range(table.columnCount()):
-                    it = table.item(r, c)
-                    if it and q in it.text().lower():
-                        match = True
-                        break
-                table.setRowHidden(r, not match if q else False)
-        elif isinstance(table, QTableView):
-            if hasattr(self, "users_tab") and table == getattr(self.users_tab, "table", None):
-                self.users_tab.txt_search.setText(query)
-            elif hasattr(self, "view_settings_tab") and table == getattr(self.view_settings_tab, "table", None):
-                self.view_settings_tab.txt_search.setText(query)
+        for r in range(table.rowCount()):
+            match = False
+            for c in range(table.columnCount()):
+                it = table.item(r, c)
+                if it and q in it.text().lower():
+                    match = True
+                    break
+            table.setRowHidden(r, not match if q else False)
 
     def filter_active_table_status(self, status: str):
         """Aktif tablodaki satırları durum değerine göre filtreler."""
+        emb = self._active_embedded_widget()
+        if emb is not None and hasattr(emb, "apply_status_filter"):
+            emb.apply_status_filter(status)
+            return
         table = self._get_active_table()
         if not table or not isinstance(table, QTableWidget):
             return
@@ -2283,12 +2362,9 @@ class GeneralSettingsScreen(QWidget):
 
     def open_active_column_manager(self):
         """Aktif tablonun sütun yapılandırma diyaloğunu açar."""
-        if hasattr(self, "users_tab") and self.active_panel_id in ("kullanicilar", "users"):
-            if hasattr(self.users_tab, "filterable_table"):
-                self.users_tab.filterable_table.open_column_manager_dialog()
-        elif hasattr(self, "view_settings_tab") and self.active_panel_id in ("gorunum_profilleri", "view_settings"):
-            if hasattr(self.view_settings_tab, "filterable_table"):
-                self.view_settings_tab.filterable_table.open_column_manager_dialog()
+        emb = self._active_embedded_widget()
+        if emb is not None and hasattr(emb, "filterable_table"):
+            emb.filterable_table.open_column_manager_dialog()
         else:
             QMessageBox.information(self, self.tr("Bilgi"), self.tr("Bu tablo için standart sütun yönetimi kullanılmaktadır."))
 
@@ -2306,6 +2382,7 @@ class GeneralSettingsScreen(QWidget):
 
         panel_builders = {
             "firma_bilgileri": self.build_firma_bilgileri_panel,
+            "cms_baglantilari": self.build_cms_baglantilari_panel,
             "sube_tanimlari": self.build_sube_panel,
             "kullanicilar": self.build_kullanicilar_panel,
             "roller": self.build_roller_panel,
@@ -2368,6 +2445,8 @@ class GeneralSettingsScreen(QWidget):
                 f"⚙️ [sys.set.001] Genel Ayarlar > {menu_name}",
             )
 
+        self._update_bottom_count()
+
     def build_bottom_bar(self) -> QFrame:
         """Alt sabit aksiyon barı."""
         bar = QFrame()
@@ -2385,6 +2464,11 @@ class GeneralSettingsScreen(QWidget):
         lbl = QLabel("💡 <b>F2:</b> Kaydet | <b>Del:</b> Sil | <b>Esc:</b> Kapat")
         lbl.setStyleSheet("color:#64748b; font-size:11px;")
 
+        self.lbl_bottom_count = QLabel("")
+        self.lbl_bottom_count.setStyleSheet(
+            "color:#1e3a8a; font-size:11px; font-weight:700; padding-left:14px;",
+        )
+
         btn_cancel = QPushButton("↩️ Vazgeç")
         btn_cancel.setFixedHeight(28)
         btn_cancel.setStyleSheet(self.btn_style("#fee2e2", "#991b1b"))
@@ -2397,10 +2481,25 @@ class GeneralSettingsScreen(QWidget):
         btn_save.clicked.connect(self.save_current_panel)
 
         lyt.addWidget(lbl)
+        lyt.addWidget(self.lbl_bottom_count)
         lyt.addStretch()
         lyt.addWidget(btn_cancel)
         lyt.addWidget(btn_save)
         return bar
+
+    def _update_bottom_count(self) -> None:
+        """Alt bardaki kayıt sayacını aktif panele göre günceller (tek yer)."""
+        if not hasattr(self, "lbl_bottom_count"):
+            return
+        emb = self._active_embedded_widget()
+        n = None
+        if emb is not None and hasattr(emb, "record_count"):
+            n = emb.record_count()
+        else:
+            t = self._get_active_table()
+            if isinstance(t, QTableWidget):
+                n = t.rowCount()
+        self.lbl_bottom_count.setText(f"📊 {n} kayıt" if n is not None else "")
 
     def _setup_table_style(self, table: QTableWidget) -> None:
         """Tablolara TOYA kurumsal görünüm stili uygular."""
@@ -2442,8 +2541,14 @@ class GeneralSettingsScreen(QWidget):
     # ─────────────────────────────────────────────────────────────
 
     def build_firma_bilgileri_panel(self) -> QWidget:
-        """Mevcut Firma Tanımları Paneli."""
-        self.sites_tab = SitesWidget(self.db)
+        """Firma (Şirket) kimlik kartları listesi (kabuk içinde: yalnız içerik)."""
+        from src.desktop.ui.screens.firma_list_widget import FirmaListWidget
+        self.firma_tab = FirmaListWidget(self.db, embedded=True)
+        return self.firma_tab
+
+    def build_cms_baglantilari_panel(self) -> QWidget:
+        """CMS / ERP dış bağlantı yönetimi (eski 'Firma Bilgileri' içeriği)."""
+        self.sites_tab = SitesWidget(self.db, embedded=True)
         return self.sites_tab
 
     def build_sube_panel(self) -> QWidget:
@@ -2481,84 +2586,53 @@ class GeneralSettingsScreen(QWidget):
         return w
 
     def build_kullanicilar_panel(self) -> QWidget:
-        """Mevcut Kullanıcı Tanımları Paneli."""
-        self.users_tab = UserManagementWidget(self.db)
-        if hasattr(self, "sites_tab"):
-            self.sites_tab.sites_updated.connect(self.users_tab.load_sites)
+        """Kullanıcı tanımları listesi (kabuk içinde: yalnız içerik)."""
+        from src.desktop.ui.screens.kullanici_list_widget import KullaniciListWidget
+        self.users_tab = KullaniciListWidget(self.db, embedded=True)
         return self.users_tab
 
     def build_roller_panel(self) -> QWidget:
-        """Rol Tanımları Paneli."""
-        w = QWidget()
-        lyt = QVBoxLayout(w)
-        lyt.setContentsMargins(12, 12, 12, 12)
-        lyt.setSpacing(8)
-
-        lbl = QLabel("👤 Rol Tanımları")
-        lbl.setStyleSheet("font-size:14px; font-weight:800; color:#1e3a8a;")
-        lyt.addWidget(lbl)
-
-        lbl_info = QLabel(
-            "Kullanıcı grup rolleri ve varsayılan yetki profilleri.",
-        )
-        lbl_info.setStyleSheet("color:#64748b; font-size:11px;")
-        lyt.addWidget(lbl_info)
-
-        self.tbl_roller = QTableWidget(0, 4)
-        self.tbl_roller.setHorizontalHeaderLabels([
-            "Rol Kodu", "Rol Adı", "Açıklama", "Durum",
-        ])
-        self._setup_table_style(self.tbl_roller)
-        self.tbl_roller.horizontalHeader().setSectionResizeMode(
-            2, QHeaderView.ResizeMode.Stretch,
-        )
-
-        default_roller = [
-            ("ADMIN", "Sistem Yöneticisi", "Tam yetkili sistem yöneticisi", "Aktif"),
-            ("SALES", "Satış Temsilcisi", "Teklif, Sipariş ve Cari işlemleri", "Aktif"),
-            ("ACCOUNTING", "Ön Muhasebe", "Fatura, Kasa, Banka ve Cari işlemleri", "Aktif"),
-            ("WAREHOUSE", "Depo Sorumlusu", "Stok giriş/çıkış ve sayım işlemleri", "Aktif"),
-        ]
-        self._load_generic_table(self.tbl_roller, "roller", default_roller)
-        lyt.addWidget(self.tbl_roller, 1)
-        return w
+        """Rol (yetki rolü) tanımları listesi (kabuk içinde: yalnız içerik)."""
+        from src.desktop.ui.screens.rol_list_widget import RolListWidget
+        self.roller_tab = RolListWidget(self.db, embedded=True)
+        return self.roller_tab
 
     def build_yetkiler_panel(self) -> QWidget:
-        """Yetki Matrisi Paneli."""
+        """Rol × yetki matrisi (salt görüntüleme; düzenleme rol editöründe)."""
+        from src.desktop.security.permissions import PERMISSION_GROUPS, permission_label
+        from src.desktop.services.role_service import RoleService
+
         w = QWidget()
         lyt = QVBoxLayout(w)
         lyt.setContentsMargins(12, 12, 12, 12)
         lyt.setSpacing(8)
-
-        lbl = QLabel("🛡️ Modül & Yetki Matrisi")
+        lbl = QLabel("🛡️ Rol × Yetki Matrisi")
         lbl.setStyleSheet("font-size:14px; font-weight:800; color:#1e3a8a;")
         lyt.addWidget(lbl)
+        info = QLabel("Her rolün hangi yetkilere sahip olduğunu gösterir. "
+                      "Değişiklik için 'Rol Tanımları'ndaki rol editörünü kullanın.")
+        info.setStyleSheet("color:#64748b; font-size:11px;")
+        lyt.addWidget(info)
 
-        lbl_info = QLabel(
-            "Modül bazında rollerin okuma, yazma, güncelleme ve silme erişim izinleri.",
-        )
-        lbl_info.setStyleSheet("color:#64748b; font-size:11px;")
-        lyt.addWidget(lbl_info)
+        svc = RoleService(self.db)
+        svc.seed_defaults()
+        roles = svc.list_roles()
+        role_perms = {r.name: set(svc.permissions_of(r)) for r in roles}
 
-        self.tbl_yetkiler = QTableWidget(0, 6)
-        self.tbl_yetkiler.setHorizontalHeaderLabels([
-            "Modül / Ekran", "Görüntüleme", "Ekleme", "Düzenleme", "Silme", "Raporlama",
-        ])
+        codes = [f"{m}.{a}" for m, _mn, acts in PERMISSION_GROUPS for a, _an in acts]
+        self.tbl_yetkiler = QTableWidget(len(codes), 1 + len(roles))
+        self.tbl_yetkiler.setHorizontalHeaderLabels(["Yetki"] + [r.name for r in roles])
         self._setup_table_style(self.tbl_yetkiler)
         self.tbl_yetkiler.horizontalHeader().setSectionResizeMode(
             0, QHeaderView.ResizeMode.Stretch,
         )
-
-        default_yetkiler = [
-            ("🏢 Firma & Şube Yönetimi", "admin", "admin", "admin", "admin", "admin"),
-            ("👤 Kullanıcı & Rol Yönetimi", "admin", "admin", "admin", "admin", "admin"),
-            ("📦 Stok & Ürün Yönetimi", "admin, sales, warehouse", "admin, warehouse", "admin, warehouse", "admin", "admin, sales"),
-            ("👥 Cari & Müşteri Yönetimi", "admin, sales, accounting", "admin, sales, accounting", "admin, sales", "admin", "admin, sales, accounting"),
-            ("🧾 Fatura & İrsaliye", "admin, accounting", "admin, accounting", "admin, accounting", "admin", "admin, accounting"),
-            ("💼 Teklif & Sipariş", "admin, sales", "admin, sales", "admin, sales", "admin", "admin, sales"),
-            ("💰 Kasa & Banka", "admin, accounting", "admin, accounting", "admin", "admin", "admin, accounting"),
-        ]
-        self._load_generic_table(self.tbl_yetkiler, "yetkiler", default_yetkiler)
+        for row, code in enumerate(codes):
+            self.tbl_yetkiler.setItem(row, 0, QTableWidgetItem(permission_label(code)))
+            for col, r in enumerate(roles, start=1):
+                has = "*" in role_perms[r.name] or code in role_perms[r.name]
+                it = QTableWidgetItem("✔" if has else "—")
+                it.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+                self.tbl_yetkiler.setItem(row, col, it)
         lyt.addWidget(self.tbl_yetkiler, 1)
         return w
 
@@ -2952,18 +3026,18 @@ class GeneralSettingsScreen(QWidget):
 
 
     def build_gorunum_panel(self) -> QWidget:
-        """Mevcut Görünüm Profilleri Paneli."""
-        self.view_settings_tab = ViewSettingsWidget()
+        """Mevcut Görünüm Profilleri Paneli (kabuk içinde: yalnız içerik)."""
+        self.view_settings_tab = ViewSettingsWidget(embedded=True)
         return self.view_settings_tab
 
     def build_ekran_grid_panel(self) -> QWidget:
-        """Mevcut Ekran Şablonları & Grid Tanımları Paneli."""
-        self.screen_defs_tab = ScreenDefinitionsManagerWidget()
+        """Ekran Şablonları & Grid Tanımları Paneli (kabuk içinde: yalnız içerik)."""
+        self.screen_defs_tab = ScreenDefinitionsManagerWidget(embedded=True)
         return self.screen_defs_tab
 
     def build_surum_panel(self) -> QWidget:
-        """Mevcut Sürüm & Git Takibi Paneli."""
-        self.git_tracker_tab = GitTrackerWidget()
+        """Sürüm & Git Takibi Paneli (kabuk içinde: yalnız içerik)."""
+        self.git_tracker_tab = GitTrackerWidget(embedded=True)
         return self.git_tracker_tab
 
     # ─────────────────────────────────────────────────────────────
@@ -3458,12 +3532,10 @@ class GeneralSettingsScreen(QWidget):
             "sube_tanimlari": lambda: self._save_generic_table(
                 self.tbl_sube, "subeler",
             ),
-            "roller": lambda: self._save_generic_table(
-                self.tbl_roller, "roller",
-            ),
-            "yetkiler": lambda: self._save_generic_table(
-                self.tbl_yetkiler, "yetkiler",
-            ),
+            # roller / yetkiler: kayıt kendi editör diyaloglarında; panelde Kaydet no-op
+            "roller": lambda: None,
+            "yetkiler": lambda: None,
+            "kullanicilar": lambda: None,
             "fiyat_listeleri": lambda: self._save_generic_table(
                 self.tbl_fiyat, "fiyat_listeleri",
             ),
@@ -3511,13 +3583,17 @@ class GeneralSettingsScreen(QWidget):
     def new_current_panel(self) -> None:
         """Aktif panele yeni kayıt / satır ekler."""
         if self.active_panel_id == "kullanicilar":
-            self.users_tab.open_add_user_dialog()
+            self.users_tab.add_new()
+            return
+        if self.active_panel_id == "roller":
+            self.roller_tab.add_new()
+            return
+        if self.active_panel_id == "firma_bilgileri":
+            self.firma_tab.add_new()
             return
 
         panel_table_map = {
             "sube_tanimlari": "tbl_sube",
-            "roller": "tbl_roller",
-            "yetkiler": "tbl_yetkiler",
             "doviz_kur": "tbl_doviz",
             "odeme_planlari": "tbl_odeme",
             "fiyat_listeleri": "tbl_fiyat",
@@ -3539,7 +3615,13 @@ class GeneralSettingsScreen(QWidget):
     def delete_current_panel(self) -> None:
         """Aktif panelden seçili kaydı / satırı siler."""
         if self.active_panel_id == "kullanicilar":
-            self.users_tab.delete_user()
+            self.users_tab.delete_selected()
+            return
+        if self.active_panel_id == "roller":
+            self.roller_tab.delete_selected()
+            return
+        if self.active_panel_id == "firma_bilgileri":
+            self.firma_tab.delete_selected()
             return
 
         if self.active_panel_id == "gorunum_profilleri":
@@ -3548,8 +3630,6 @@ class GeneralSettingsScreen(QWidget):
 
         panel_table_map = {
             "sube_tanimlari": "tbl_sube",
-            "roller": "tbl_roller",
-            "yetkiler": "tbl_yetkiler",
             "doviz_kur": "tbl_doviz",
             "odeme_planlari": "tbl_odeme",
             "fiyat_listeleri": "tbl_fiyat",

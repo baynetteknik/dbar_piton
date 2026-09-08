@@ -46,8 +46,8 @@ class LoginWindow(QMainWindow):
     def __init__(self, db_session=None, parent=None):
         super().__init__(parent)
         self.db = db_session
-        self.setWindowTitle("Multi-CMS Plus - Giris")
-        self.setFixedSize(480, 720)
+        self.setWindowTitle("Toya ERP - Giriş")
+        self.setFixedSize(500, 800)
         self.setStyleSheet("background-color: #0f172a;")
         self._result: dict[str, Any] | None = None
         self._init_ui()
@@ -60,8 +60,9 @@ class LoginWindow(QMainWindow):
         layout.setSpacing(0)
 
         # Logo / Baslik
-        logo_lbl = QLabel("Multi-CMS Plus")
-        logo_lbl.setFont(QFont("Segoe UI", 28, QFont.Weight.Bold))
+        # Logo görseli hazır olunca buraya QPixmap gelecek; şimdilik metin.
+        logo_lbl = QLabel("Toya ERP")
+        logo_lbl.setFont(QFont("Segoe UI", 30, QFont.Weight.Bold))
         logo_lbl.setStyleSheet("color: #ffffff;")
         logo_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(logo_lbl)
@@ -90,35 +91,71 @@ class LoginWindow(QMainWindow):
         form_layout.setContentsMargins(30, 30, 30, 30)
         form_layout.setSpacing(16)
 
-        # CMS Tipi
-        cms_label = QLabel("CMS Turu")
+        # Bağlantı Türü
+        cms_label = QLabel("Bağlantı Türü")
         cms_label.setStyleSheet("color: #94a3b8; font-size: 12px; font-weight: bold;")
         form_layout.addWidget(cms_label)
         self.cms_combo = QComboBox()
-        self.cms_combo.addItems(["Dolibarr ERP", "WooCommerce"])
+        self.cms_combo.addItems(["Toya ERP (Yerel)", "Dolibarr ERP", "WooCommerce"])
         self.cms_combo.setFixedHeight(42)
         self.cms_combo.setStyleSheet(self._input_style())
+        self.cms_combo.currentIndexChanged.connect(self._on_conn_type_changed)
         form_layout.addWidget(self.cms_combo)
 
-        # Sunucu URL
+        # --- Yerel (Toya ERP) alanı: Veri Türü + Veritabanı ---
+        self.local_box = QWidget()
+        local_lyt = QVBoxLayout(self.local_box)
+        local_lyt.setContentsMargins(0, 4, 0, 0)
+        local_lyt.setSpacing(6)
+
+        dt_label = QLabel("Veri Türü")
+        dt_label.setStyleSheet("color: #94a3b8; font-size: 12px; font-weight: bold;")
+        local_lyt.addWidget(dt_label)
+        self.datatype_combo = QComboBox()
+        self.datatype_combo.addItems(["SQLite (Yerel Dosya)"])
+        self.datatype_combo.setFixedHeight(42)
+        self.datatype_combo.setStyleSheet(self._input_style())
+        local_lyt.addWidget(self.datatype_combo)
+
+        db_label = QLabel("Veritabanı")
+        db_label.setStyleSheet("color: #94a3b8; font-size: 12px; font-weight: bold;")
+        local_lyt.addWidget(db_label)
+        self.database_combo = QComboBox()
+        self.database_combo.setEditable(True)
+        self.database_combo.setFixedHeight(42)
+        self.database_combo.setStyleSheet(self._input_style())
+        self._populate_databases()
+        local_lyt.addWidget(self.database_combo)
+        form_layout.addWidget(self.local_box)
+
+        # --- Uzak (CMS) alanı: Sunucu Adresi ---
+        self.remote_box = QWidget()
+        remote_lyt = QVBoxLayout(self.remote_box)
+        remote_lyt.setContentsMargins(0, 4, 0, 0)
+        remote_lyt.setSpacing(6)
         url_label = QLabel("Sunucu Adresi")
         url_label.setStyleSheet("color: #94a3b8; font-size: 12px; font-weight: bold;")
-        form_layout.addWidget(url_label)
+        remote_lyt.addWidget(url_label)
         self.url_input = QLineEdit()
         self.url_input.setPlaceholderText("https://orneginiz.com")
         self.url_input.setFixedHeight(42)
         self.url_input.setStyleSheet(self._input_style())
-        form_layout.addWidget(self.url_input)
+        remote_lyt.addWidget(self.url_input)
+        form_layout.addWidget(self.remote_box)
 
-        # Kullanici Adi
-        user_label = QLabel("Kullanici Adi")
+        # Kullanıcı Adı (mevcut kullanıcılar açılır listede)
+        user_label = QLabel("Kullanıcı Adı")
         user_label.setStyleSheet("color: #94a3b8; font-size: 12px; font-weight: bold;")
         form_layout.addWidget(user_label)
-        self.username_input = QLineEdit()
-        self.username_input.setPlaceholderText("Kullanici adinizi girin")
+        self.username_input = QComboBox()
+        self.username_input.setEditable(True)
         self.username_input.setFixedHeight(42)
         self.username_input.setStyleSheet(self._input_style())
+        self.username_input.lineEdit().setPlaceholderText("Kullanıcı adınızı girin veya seçin")
+        self._populate_users()
         form_layout.addWidget(self.username_input)
+
+        self._on_conn_type_changed(0)  # başlangıçta yerel görünümü
 
         # Sifre
         pass_label = QLabel("Sifre")
@@ -203,7 +240,7 @@ class LoginWindow(QMainWindow):
 
         # Alt bilgi
         layout.addStretch()
-        footer = QLabel("v0.1.0 | Multi-CMS Manager")
+        footer = QLabel("Toya ERP · v0.1.0")
         footer.setAlignment(Qt.AlignmentFlag.AlignCenter)
         footer.setStyleSheet("color: #475569; font-size: 10px;")
         layout.addWidget(footer)
@@ -257,18 +294,61 @@ class LoginWindow(QMainWindow):
             }
         """
 
+    # ------------------------------------------------------------------
+    def _is_local(self) -> bool:
+        return self.cms_combo.currentIndex() == 0
+
+    def _on_conn_type_changed(self, _idx: int):
+        local = self._is_local()
+        self.local_box.setVisible(local)
+        self.remote_box.setVisible(not local)
+
+    def _populate_users(self):
+        """Kullanıcı kutusunu DB'deki aktif kullanıcılarla doldurur."""
+        self.username_input.clear()
+        try:
+            from src.core.models import User
+            names = [u.username for u in self.db.query(User).filter(
+                User.is_active == True, User.is_deleted == False,
+            ).order_by(User.username).all()]
+            self.username_input.addItems(names)
+        except Exception:  # noqa: BLE001
+            pass
+        self.username_input.setCurrentText("")
+
+    def _populate_databases(self):
+        """data/ ve proje kökündeki .db / .sqlite dosyalarını listeler."""
+        import glob
+        import os
+
+        from src.core.config import settings
+        self.database_combo.clear()
+        found: list[str] = []
+        try:
+            cur = getattr(settings.db, "db_path", "")
+            if cur and cur != ":memory:":
+                found.append(os.path.abspath(cur))
+        except Exception:  # noqa: BLE001
+            pass
+        for pat in ("*.db", "*.sqlite", "*.sqlite3", "data/*.db", "data/*.sqlite"):
+            for p in glob.glob(pat):
+                ap = os.path.abspath(p)
+                if ap not in found:
+                    found.append(ap)
+        self.database_combo.addItems(found or ["toya_erp.db"])
+
     def _on_connect(self):
         url = self.url_input.text().strip()
-        username = self.username_input.text().strip()
+        username = self.username_input.currentText().strip()
         password = self.password_input.text()
 
-        # URL'ye otomatik https:// ekle
-        if url and not url.startswith(("http://", "https://")):
+        # Uzak modda URL'ye otomatik https:// ekle
+        if not self._is_local() and url and not url.startswith(("http://", "https://")):
             url = f"https://{url}"
             self.url_input.setText(url)
 
         if not username:
-            self._show_status("Kullanici adi bos olamaz", "error")
+            self._show_status("Kullanıcı adı boş olamaz", "error")
             return
         if not password:
             self._show_status("Sifre bos olamaz", "error")
@@ -298,18 +378,36 @@ class LoginWindow(QMainWindow):
                     return
                 
                 self._show_status("Giris basarili!", "success")
-                
-                cms_type = "dolibarr" if self.cms_combo.currentIndex() == 0 else "woocommerce"
-                site_name = f"{self.cms_combo.currentText()} - {url}"
+
+                # Rol tabanlı yetkileri DB'den yükle ve giriş yapan kullanıcıyı ata
+                try:
+                    from src.desktop.managers.permission_manager import PermissionManager
+                    pm = PermissionManager()
+                    pm.load_from_db(self.db)
+                    pm.set_current_user(user)
+                except Exception:  # noqa: BLE001
+                    logger.exception("Yetki yöneticisi başlatılamadı")
+
+                if self._is_local():
+                    cms_type = "local"
+                    db_path = self.database_combo.currentText().strip()
+                    site_name = f"Toya ERP (Yerel) · {db_path}"
+                else:
+                    cms_type = "dolibarr" if self.cms_combo.currentIndex() == 1 else "woocommerce"
+                    db_path = None
+                    site_name = f"{self.cms_combo.currentText()} - {url}"
                 self._result = {
                     "site_name": site_name,
                     "url": url,
                     "username": username,
                     "password": password,
                     "cms_type": cms_type,
+                    "data_type": "sqlite" if self._is_local() else "api",
+                    "db_path": db_path,
                     "user_role": user.role,
+                    "full_name": user.full_name,
                 }
-                
+
                 if self.remember_cb.isChecked():
                     self._save_credentials(url, username, cms_type, password)
                 else:
@@ -394,11 +492,15 @@ class LoginWindow(QMainWindow):
         if url:
             self.url_input.setText(url)
         if username:
-            self.username_input.setText(username)
+            self.username_input.setCurrentText(username)
         if password:
             self.password_input.setText(password)
         if cms_type == "woocommerce":
+            self.cms_combo.setCurrentIndex(2)
+        elif cms_type == "dolibarr":
             self.cms_combo.setCurrentIndex(1)
+        else:
+            self.cms_combo.setCurrentIndex(0)  # Toya ERP (Yerel)
 
     def get_result(self) -> dict[str, Any] | None:
         return self._result

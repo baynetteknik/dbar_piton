@@ -53,11 +53,16 @@ class ThreePanelBaseWidget(QWidget):
         profile_key: str = "generic_3panel",
         module_name: str = "Liste Ekranı",
         parent: QWidget | None = None,
+        embedded: bool = False,
     ):
         super().__init__(parent)
         self.db = db_session
         self.profile_key = profile_key
         self.module_name = module_name
+        # embedded=True: başka bir kabuğun (örn. Genel Ayarlar) içinde açılır;
+        # kendi sol/sağ EdgeTriggeredPanel'lerini layout'a EKLEMEZ (çift sidebar
+        # olmasın). Paneller yine kurulur ama gizli tutulur; kabuk süreç sağlar.
+        self.embedded = embedded
 
         # Pagination & record state
         self.current_page: int = 1
@@ -105,7 +110,10 @@ class ThreePanelBaseWidget(QWidget):
         left_scroll.setStyleSheet("QScrollArea { border: none; background: transparent; }")
         left_scroll.setWidget(self.left_content_frame)
         self.left_panel.set_content(left_scroll)
-        self.main_layout.addWidget(self.left_panel)
+        if not self.embedded:
+            self.main_layout.addWidget(self.left_panel)
+        else:
+            self.left_panel.hide()
 
         # --------------------------------------------------------
         # 2. ORTA PANEL - FİLTRELENEBİLİR TABLO VE SAYFALAMA
@@ -169,7 +177,10 @@ class ThreePanelBaseWidget(QWidget):
         right_scroll.setStyleSheet("QScrollArea { border: none; background: transparent; }")
         right_scroll.setWidget(self.right_content_frame)
         self.right_panel.set_content(right_scroll)
-        self.main_layout.addWidget(self.right_panel)
+        if not self.embedded:
+            self.main_layout.addWidget(self.right_panel)
+        else:
+            self.right_panel.hide()
 
     def setup_left_panel_content(self, container: QFrame, layout: QVBoxLayout) -> None:
         """Override in subclasses to populate left filter panel."""

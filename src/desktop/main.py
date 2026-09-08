@@ -33,8 +33,22 @@ def main():
     main_window_container: list = []
 
     def on_login_success(config: dict):
-        window = MainWindow(db_session)
-        window.show()
+        session = db_session
+        # Yerel modda farklı bir SQLite dosyası seçildiyse ona bağlan
+        chosen = (config or {}).get("db_path")
+        if chosen:
+            import os
+            from src.core.config import settings
+            cur = getattr(settings.db, "db_path", "")
+            if chosen and os.path.abspath(chosen) != os.path.abspath(cur or ""):
+                try:
+                    session = DatabaseManager(db_path=chosen).get_db()
+                except Exception:  # noqa: BLE001
+                    session = db_session
+        window = MainWindow(session, user_config=config)
+        # Ana pencere bulunduğu monitöre tam otursun (Windows'ta başlıktan tutup
+        # başka ekrana taşındığında da o ekrana yeniden maksimize olur).
+        window.showMaximized()
         main_window_container.append(window)
 
     login.login_success.connect(on_login_success)

@@ -16,6 +16,21 @@ def qapp():
     return app
 
 
+@pytest.fixture(autouse=True)
+def _isolate_permission_manager():
+    """PermissionManager bir singleton'dur; testler arası rol/yetki sızıntısını önler.
+
+    Yetki kapısı (``gate``) testlerinin bıraktığı kısıtlı rol, sonraki UI
+    testlerinde butonları pasifleştirip yanıltıcı hatalara yol açıyordu.
+    """
+    yield
+    try:
+        from src.desktop.managers.permission_manager import PermissionManager
+        PermissionManager().reset()
+    except Exception:  # noqa: BLE001
+        pass
+
+
 @pytest.fixture
 def mock_api() -> Generator[responses.RequestsMock, None, None]:
     """Provides a mocked requests container for HTTP requests."""
