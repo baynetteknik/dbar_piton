@@ -26,18 +26,16 @@ Bu doküman, **Bant Tabanlı Görsel Form & Rapor Tasarımcısı** ile TOYA ERP'
 
 ---
 
-## 🎯 2. Yarın Devam Edilecek Aşama: Widget Mimarisi Entegrasyonu
+## 🎯 2. Devam Eden Aşama: Widget Mimarisi Entegrasyonu
 
 TOYA ERP'nin `src/desktop/ui/widgets/widget_registry.py` merkezi kataloğu ile tasarımcıyı tam entegre etmek üzere planlanan adımlar:
 
-### 🔹 Adım 1: Tasarımcı Bileşenlerini `WIDGET_REGISTRY`'ye Dahil Etme (Seviye 1)
-1. **`ReportDesignerWidget`:** Tasarımcıyı bağımsız bir pencere olmanın yanında, ERP'nin ana sekmelerinden biri (örn: *Ayarlar / Rapor & Form Tasarımı* sekmesi) olarak açılabilir bir `QWidget` haline getirmek.
-2. **`ReportPreviewWidget`:** Baskı önizleme tuvalini evrak detay ekranının (veya teklif formunun) sağ paneline doğrudan gömülebilir bir "Canlı Mini Önizleme Widget'ı" olarak uyarlamak.
-3. `widget_registry.py` içine şu kayıtların eklenmesi:
-   - `widget_report_designer` (Bant Tabanlı Form ve Rapor Tasarımcısı)
-   - `widget_report_preview` (Canlı Belge Baskı Önizleme Paneli)
+### ✅ Adım 1: Tasarımcı Bileşenlerini `WIDGET_REGISTRY`'ye Dahil Etme (Seviye 1) — TAMAMLANDI
+1. **`ReportDesignerWidget` (`designer/ui/designer_widget.py`):** Tasarımcının tüm işlevi (3 panel, milimetrik toolbar, durum şeridi) artık bir `QWidget`. `ReportDesignerWindow` yalnızca onu saran ince bir `QMainWindow` kabuğu (bağımsız başlatıcı + "ayrı pencerede aç" için); eski `.template` / `.canvas` proxy'leri korundu.
+2. **`ReportPreviewWidget` (`designer/ui/preview_widget.py`):** Baskı önizleme tuvali gömülebilir `QWidget`. `compact=True` modunda yazdır/PDF butonları gizli, varsayılan zoom "genişliğe sığdır" (evrak ekranı sağ paneli için). `set_document(template, data|datas)` ile canlı yeniden besleme. `ReportPreviewDialog` artık bu widget'ı saran ince bir modal kabuk.
+3. `widget_registry.py`'ye eklendi: `widget_report_designer` (body) ve `widget_report_preview` (right_sidebar). `tests/test_designer_widgets.py` ile doğrulandı.
 
-### 🔹 Adım 2: Teklif Formu & Belge Detay Ekranı Entegrasyonu
+### 🔹 Adım 2: Teklif Formu & Belge Detay Ekranı Entegrasyonu (sıradaki)
 1. `DocumentDetailScreen` veya `QuotationDialog` üzerindeki *"🖨️ Yazdır / Önizle (F9)"* eylemine `TeklifPrintService` bağlantısının yapılması.
 2. Formda girilen kalemler ve cari bilgileri değiştikçe önizlemenin dinamik beslenmesi.
 

@@ -13,6 +13,10 @@ from src.desktop.ui.widgets.favorite_actions_widget import FavoriteActionsWidget
 from src.desktop.ui.widgets.menu_grid_widget import MenuGridWidget
 from src.desktop.ui.widgets.quick_tiles_bar_widget import QuickTilesBarWidget
 
+# Görsel Tasarımcı & Baskı Önizleme (gömülebilir)
+from src.desktop.designer.ui.designer_widget import ReportDesignerWidget
+from src.desktop.designer.ui.preview_widget import ReportPreviewWidget
+
 # Evrak Formu Modüler Widget'ları
 from src.desktop.ui.widgets.document_form.cari_kunyesi_widget import CariHesapKunyesiWidget
 from src.desktop.ui.widgets.document_form.belge_vade_widget import BelgeVadeDetaylariWidget
@@ -102,6 +106,19 @@ WIDGET_REGISTRY: Dict[str, Dict[str, Any]] = {
         "description": "Ara toplam, KDV matrahı, tevkifat ve Genel Toplam vurgu kutusu.",
         "class": FinansWidget,
         "default_region": "bottom_form"
+    },
+    # 3. Görsel Tasarımcı & Baskı Önizleme Widget'ları
+    "widget_report_designer": {
+        "name": "Bant Tabanlı Form ve Rapor Tasarımcısı",
+        "description": "Milimetrik tuval, cetveller, veri ağacı ve özellik denetçisi ile görsel şablon tasarımı.",
+        "class": ReportDesignerWidget,
+        "default_region": "body"
+    },
+    "widget_report_preview": {
+        "name": "Canlı Belge Baskı Önizleme Paneli",
+        "description": "Seçili şablon + canlı belge verisiyle milimetrik baskı önizlemesi; evrak ekranına gömülebilir.",
+        "class": ReportPreviewWidget,
+        "default_region": "right_sidebar"
     }
 }
 
