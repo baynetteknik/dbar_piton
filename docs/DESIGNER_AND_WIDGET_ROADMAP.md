@@ -46,10 +46,14 @@ TOYA ERP'nin `src/desktop/ui/widgets/widget_registry.py` merkezi kataloğu ile t
 2. `WIDGET_REGISTRY` içerisindeki atomik parçaların (`widget_cari_kunyesi`, `widget_belge_vade`, `widget_hareket_kalemleri`, `widget_finans` vb.) listelenmesi.
 3. Kullanıcının bu widget'ları tuvale sürükleyip bırakarak kendi özel ekran şablonunu (`scr_evrak_ozel.json`) oluşturabilmesi.
 
-### 🔹 Adım 4: Yeni Hazır Belge Şablonları
-1. `tpl_fatura_kurumsal_a4.json` (GİB e-Fatura & e-Arşiv Standartlarında Karekodlu A4 Fatura).
-2. `tpl_irsaliye_kurumsal_a4.json` (Sevk / Satış İrsaliyesi Şablonu).
-3. `tpl_perakende_fis_80mm.json` (Termal POS Yazıcılar İçin Rulo Fiş Şablonu).
+### ✅ Adım 4: Yeni Hazır Belge Şablonları — TAMAMLANDI
+1. **`tpl_fatura_kurumsal_a4.json`** — e-Fatura A4: senaryo / fatura tipi / ETTN künyesi, sağ üstte karekod (`barcode` öğesi — motor şu an QR yer tutucu kutusu çiziyor), alıcı VKN/vergi dairesi, kalem tablosunda iskonto + KDV sütunları, KDV matrahı → ödenecek tutar icmali, YAZIYLA.
+2. **`tpl_irsaliye_kurumsal_a4.json`** — Sevk İrsaliyesi: irsaliye no / düzenleme + fiili sevk tarihi, alıcı ve sevk bilgileri (adres, taşıyıcı/plaka, ilgili sipariş) kutuları, sade kalem tablosu (kod / cins / miktar / birim), teslim eden & teslim alan imza kutuları.
+3. **`tpl_perakende_fis_80mm.json`** — 80 mm termal fiş: özel kağıt boyutu (80×200 mm, `_resolve_page_size` mm'den üretir), ortalanmış firma künyesi, iki satırlı kompakt kalem düzeni (açıklama + `miktar × B.Fiyat`), GENEL TOPLAM vurgusu, YAZIYLA, "KDV DAHİLDİR", fiş no barkodu.
+
+Üçü de `TeklifPrintService.available_templates()` ile belge ekranındaki baskı formu seçicisinde listelenir. `printer_engine`: `data_field` öğesinde `text` verilince etiket öneki olarak kullanılır ("VKN: 852…"), değer boşsa dangling etiket basılmaz. Testler: `tests/test_designer_templates.py`.
+
+> **Not:** `barcode` öğesi hâlâ gerçek QR/Code128 üretmiyor (yer tutucu kutu). Gerçek karekod için ileride bir kodlayıcı (ör. `segno` / `python-barcode`) eklenmeli.
 
 ---
 

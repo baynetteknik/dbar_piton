@@ -107,6 +107,17 @@ class TeklifPrintService:
                 "durum": "Onay Bekliyor",
                 "odeme_plani": "30 Gün Vadeli",
                 "aciklama": "Kurumsal ERP ve Barkod Otomasyon Sistemi Kurulum Teklifi",
+                # e-Belge / irsaliye alanları — teklif şablonu kullanmaz; fatura ve
+                # irsaliye şablonları referans verir, kayıtsız kalınca boş basılır.
+                "ettn": "f47ac10b-58cc-4372-a567-0e02b2c3d479",
+                "senaryo": "TEMEL FATURA",
+                "fatura_tipi": "SATIŞ",
+                "irsaliye_no": "IRS-2026-0451",
+                "irsaliye_tarih": "02.09.2026",
+                "siparis_no": "SIP-2026-0310",
+                "sevk_adresi": "Organize Sanayi Bölgesi 4. Cadde No:18 Nilüfer / BURSA",
+                "tasiyici": "TOYA Lojistik — 16 ABC 123",
+                "saat": "14:35",
             },
             "kalemler": [
                 {

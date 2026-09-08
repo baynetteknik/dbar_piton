@@ -1,0 +1,113 @@
+{
+  "schema_version": "2.0",
+  "template_id": "tpl_irsaliye_kurumsal_a4",
+  "title": "Kurumsal Sevk İrsaliyesi A4",
+  "template_type": "print_report",
+  "page": {
+    "size": "A4",
+    "orientation": "portrait",
+    "width_mm": 210.0,
+    "height_mm": 297.0,
+    "margin_top_mm": 10.0,
+    "margin_bottom_mm": 10.0,
+    "margin_left_mm": 10.0,
+    "margin_right_mm": 10.0
+  },
+  "bands": [
+    {
+      "id": "band_page_header",
+      "type": "page_header",
+      "height_mm": 30.0,
+      "items": [
+        { "id": "txt_company_name", "type": "data_field", "field": "firma.unvan", "x_mm": 6.0, "y_mm": 0.0, "w_mm": 105.0, "h_mm": 6.0, "text": "TOYA TEKNOLOJİ VE BİLİŞİM SİSTEMLERİ A.Ş.", "font_size": 11, "font_bold": true, "word_wrap": true, "text_color": "#1E3A8A" },
+        { "id": "txt_company_addr", "type": "data_field", "field": "firma.adres", "x_mm": 6.0, "y_mm": 6.5, "w_mm": 105.0, "h_mm": 9.0, "font_size": 8, "word_wrap": true, "text_color": "#6B7280" },
+        { "id": "txt_company_vkn", "type": "data_field", "field": "firma.vergi_no", "text": "VKN: ", "x_mm": 6.0, "y_mm": 15.5, "w_mm": 105.0, "h_mm": 4.5, "font_size": 8, "text_color": "#6B7280" },
+
+        { "id": "txt_doc_title", "type": "text", "text": "SEVK İRSALİYESİ", "x_mm": 118.0, "y_mm": 0.0, "w_mm": 72.0, "h_mm": 8.0, "font_size": 15, "font_bold": true, "align": "right", "text_color": "#0F172A" },
+        { "id": "lbl_ino", "type": "text", "text": "İrsaliye No:", "x_mm": 120.0, "y_mm": 9.0, "w_mm": 28.0, "h_mm": 4.5, "font_size": 8, "font_bold": true },
+        { "id": "val_ino", "type": "data_field", "field": "belge.irsaliye_no", "x_mm": 148.0, "y_mm": 9.0, "w_mm": 42.0, "h_mm": 4.5, "font_size": 8, "font_bold": true, "align": "right" },
+        { "id": "lbl_idate", "type": "text", "text": "Düzenleme Tarihi:", "x_mm": 120.0, "y_mm": 13.5, "w_mm": 28.0, "h_mm": 4.5, "font_size": 8 },
+        { "id": "val_idate", "type": "data_field", "field": "belge.tarih", "format": "date", "x_mm": 148.0, "y_mm": 13.5, "w_mm": 42.0, "h_mm": 4.5, "font_size": 8, "align": "right" },
+        { "id": "lbl_fiili", "type": "text", "text": "Fiili Sevk Tarihi:", "x_mm": 120.0, "y_mm": 18.0, "w_mm": 28.0, "h_mm": 4.5, "font_size": 8 },
+        { "id": "val_fiili", "type": "data_field", "field": "belge.irsaliye_tarih", "x_mm": 148.0, "y_mm": 18.0, "w_mm": 42.0, "h_mm": 4.5, "font_size": 8, "align": "right" },
+        { "id": "lbl_saat", "type": "text", "text": "Sevk Saati:", "x_mm": 120.0, "y_mm": 22.5, "w_mm": 28.0, "h_mm": 4.5, "font_size": 8 },
+        { "id": "val_saat", "type": "data_field", "field": "belge.saat", "x_mm": 148.0, "y_mm": 22.5, "w_mm": 42.0, "h_mm": 4.5, "font_size": 8, "align": "right" },
+
+        { "id": "line_header_sep", "type": "line", "x_mm": 0.0, "y_mm": 28.0, "w_mm": 190.0, "h_mm": 0.0, "border_color": "#0F172A", "border_width": 1.0 }
+      ]
+    },
+    {
+      "id": "band_header_group",
+      "type": "header_group",
+      "height_mm": 34.0,
+      "items": [
+        { "id": "box_alici", "type": "box", "x_mm": 0.0, "y_mm": 2.0, "w_mm": 93.0, "h_mm": 30.0, "border_color": "#E2E8F0", "bg_color": "#F8FAFC", "corner_radius": 2.0 },
+        { "id": "lbl_alici_t", "type": "text", "text": "ALICI / TESLİM ALAN:", "x_mm": 5.0, "y_mm": 3.5, "w_mm": 85.0, "h_mm": 4.0, "font_size": 7, "font_bold": true, "text_color": "#64748B" },
+        { "id": "val_alici_ad", "type": "data_field", "field": "musteri.adi", "x_mm": 5.0, "y_mm": 7.5, "w_mm": 85.0, "h_mm": 5.0, "font_bold": true, "font_size": 9, "text_color": "#0F172A" },
+        { "id": "val_alici_adr", "type": "data_field", "field": "musteri.adres", "x_mm": 5.0, "y_mm": 12.5, "w_mm": 85.0, "h_mm": 10.0, "font_size": 8, "word_wrap": true, "text_color": "#334155" },
+        { "id": "val_alici_vkn", "type": "data_field", "field": "musteri.vergi_no", "text": "VKN/TCKN: ", "x_mm": 5.0, "y_mm": 23.0, "w_mm": 85.0, "h_mm": 4.5, "font_size": 8, "text_color": "#334155" },
+        { "id": "val_alici_vd", "type": "data_field", "field": "musteri.vergi_daire", "text": "Vergi Dairesi: ", "x_mm": 5.0, "y_mm": 27.0, "w_mm": 85.0, "h_mm": 4.5, "font_size": 8, "text_color": "#334155" },
+
+        { "id": "box_sevk", "type": "box", "x_mm": 97.0, "y_mm": 2.0, "w_mm": 93.0, "h_mm": 30.0, "border_color": "#E2E8F0", "bg_color": "#F8FAFC", "corner_radius": 2.0 },
+        { "id": "lbl_sevk_t", "type": "text", "text": "SEVK BİLGİLERİ:", "x_mm": 102.0, "y_mm": 3.5, "w_mm": 85.0, "h_mm": 4.0, "font_size": 7, "font_bold": true, "text_color": "#64748B" },
+        { "id": "lbl_sevk_adr", "type": "text", "text": "Sevk Adresi:", "x_mm": 102.0, "y_mm": 7.5, "w_mm": 85.0, "h_mm": 4.0, "font_size": 8, "font_bold": true },
+        { "id": "val_sevk_adr", "type": "data_field", "field": "belge.sevk_adresi", "x_mm": 102.0, "y_mm": 11.0, "w_mm": 85.0, "h_mm": 10.0, "font_size": 8, "word_wrap": true, "text_color": "#334155" },
+        { "id": "val_tasiyici", "type": "data_field", "field": "belge.tasiyici", "text": "Taşıyıcı / Plaka: ", "x_mm": 102.0, "y_mm": 22.0, "w_mm": 85.0, "h_mm": 4.5, "font_size": 8, "text_color": "#334155" },
+        { "id": "val_siparis", "type": "data_field", "field": "belge.siparis_no", "text": "İlgili Sipariş: ", "x_mm": 102.0, "y_mm": 26.5, "w_mm": 85.0, "h_mm": 4.5, "font_size": 8, "text_color": "#334155" }
+      ]
+    },
+    {
+      "id": "band_column_header",
+      "type": "column_header",
+      "height_mm": 7.0,
+      "items": [
+        { "id": "col_h_bg", "type": "box", "x_mm": 0.0, "y_mm": 0.0, "w_mm": 190.0, "h_mm": 7.0, "bg_color": "#0F172A" },
+        { "id": "th_sira", "type": "text", "text": "No", "x_mm": 4.0, "y_mm": 1.0, "w_mm": 10.0, "h_mm": 5.0, "font_size": 8, "font_bold": true, "align": "center", "text_color": "#FFFFFF" },
+        { "id": "th_kod", "type": "text", "text": "Stok Kodu", "x_mm": 16.0, "y_mm": 1.0, "w_mm": 30.0, "h_mm": 5.0, "font_size": 8, "font_bold": true, "text_color": "#FFFFFF" },
+        { "id": "th_aciklama", "type": "text", "text": "Mal / Malzeme Cinsi", "x_mm": 48.0, "y_mm": 1.0, "w_mm": 104.0, "h_mm": 5.0, "font_size": 8, "font_bold": true, "text_color": "#FFFFFF" },
+        { "id": "th_miktar", "type": "text", "text": "Miktar", "x_mm": 154.0, "y_mm": 1.0, "w_mm": 20.0, "h_mm": 5.0, "font_size": 8, "font_bold": true, "align": "right", "text_color": "#FFFFFF" },
+        { "id": "th_birim", "type": "text", "text": "Birim", "x_mm": 175.0, "y_mm": 1.0, "w_mm": 15.0, "h_mm": 5.0, "font_size": 8, "font_bold": true, "align": "center", "text_color": "#FFFFFF" }
+      ]
+    },
+    {
+      "id": "band_detail",
+      "type": "detail_data",
+      "height_mm": 8.0,
+      "dataset": "kalemler",
+      "can_grow": true,
+      "items": [
+        { "id": "td_line_bottom", "type": "line", "x_mm": 0.0, "y_mm": 7.9, "w_mm": 190.0, "h_mm": 0.0, "border_color": "#E2E8F0" },
+        { "id": "col_sira", "type": "data_field", "field": "kalem.sira_no", "x_mm": 4.0, "y_mm": 1.0, "w_mm": 10.0, "h_mm": 6.0, "font_size": 8, "align": "center" },
+        { "id": "col_kod", "type": "data_field", "field": "kalem.kod", "x_mm": 16.0, "y_mm": 1.0, "w_mm": 30.0, "h_mm": 6.0, "font_size": 8 },
+        { "id": "col_aciklama", "type": "data_field", "field": "kalem.aciklama", "x_mm": 48.0, "y_mm": 1.0, "w_mm": 104.0, "h_mm": 6.0, "font_size": 8, "word_wrap": true },
+        { "id": "col_miktar", "type": "data_field", "field": "kalem.miktar", "format": "number", "x_mm": 152.0, "y_mm": 1.0, "w_mm": 22.0, "h_mm": 6.0, "font_size": 8, "align": "right" },
+        { "id": "col_birim", "type": "data_field", "field": "kalem.birim", "x_mm": 175.0, "y_mm": 1.0, "w_mm": 15.0, "h_mm": 6.0, "font_size": 8, "align": "center" }
+      ]
+    },
+    {
+      "id": "band_report_summary",
+      "type": "report_summary",
+      "height_mm": 20.0,
+      "keep_together": true,
+      "items": [
+        { "id": "line_sum_top", "type": "line", "x_mm": 0.0, "y_mm": 2.0, "w_mm": 190.0, "h_mm": 0.0, "border_color": "#CBD5E1" },
+        { "id": "lbl_notes_title", "type": "text", "text": "AÇIKLAMA / NOTLAR:", "x_mm": 0.0, "y_mm": 4.0, "w_mm": 110.0, "h_mm": 4.0, "font_size": 7, "font_bold": true, "text_color": "#64748B" },
+        { "id": "lbl_notes", "type": "data_field", "field": "notlar", "x_mm": 0.0, "y_mm": 8.0, "w_mm": 150.0, "h_mm": 10.0, "font_size": 7, "word_wrap": true, "text_color": "#334155" }
+      ]
+    },
+    {
+      "id": "band_page_footer",
+      "type": "page_footer",
+      "height_mm": 24.0,
+      "items": [
+        { "id": "line_footer_top", "type": "line", "x_mm": 0.0, "y_mm": 1.0, "w_mm": 190.0, "h_mm": 0.0, "border_color": "#E2E8F0" },
+        { "id": "box_teslim_eden", "type": "box", "x_mm": 4.0, "y_mm": 3.0, "w_mm": 88.0, "h_mm": 16.0, "border_color": "#CBD5E1" },
+        { "id": "lbl_teslim_eden", "type": "text", "text": "Teslim Eden (Kaşe / İmza)", "x_mm": 4.0, "y_mm": 14.5, "w_mm": 88.0, "h_mm": 4.0, "font_size": 7, "align": "center", "text_color": "#64748B" },
+        { "id": "box_teslim_alan", "type": "box", "x_mm": 98.0, "y_mm": 3.0, "w_mm": 88.0, "h_mm": 16.0, "border_color": "#CBD5E1" },
+        { "id": "lbl_teslim_alan", "type": "text", "text": "Teslim Alan (Kaşe / İmza)", "x_mm": 98.0, "y_mm": 14.5, "w_mm": 88.0, "h_mm": 4.0, "font_size": 7, "align": "center", "text_color": "#64748B" },
+        { "id": "txt_legal", "type": "text", "text": "İrsaliye tarih ve saatinde düzenlenmiştir. Malın nakliyesi sırasında araçta bulundurulması zorunludur.", "x_mm": 0.0, "y_mm": 19.5, "w_mm": 150.0, "h_mm": 4.0, "font_size": 6.5, "text_color": "#94A3B8" },
+        { "id": "val_sys_page", "type": "system_var", "field": "sistem.sayfa_no", "x_mm": 150.0, "y_mm": 19.5, "w_mm": 40.0, "h_mm": 4.0, "font_size": 7, "align": "right", "text_color": "#94A3B8" }
+      ]
+    }
+  ]
+}

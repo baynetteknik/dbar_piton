@@ -44,7 +44,10 @@ class ReportPrinterEngine:
 
         elif item.type == "data_field":
             val = self.expr.resolve_field(item.field, context)
-            return self.expr.format_value(val, item.format, item.format_mask)
+            out = self.expr.format_value(val, item.format, item.format_mask)
+            # `text` verilmişse etiket öneki olarak kullanılır ("VKN: 852...");
+            # değer boşsa dangling etiket basılmaz.
+            return f"{item.text}{out}" if (item.text and out) else out
 
         elif item.type == "expression":
             return self.expr.evaluate_expression(item.expression, context)
