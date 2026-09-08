@@ -287,6 +287,12 @@ class ActionBarWidget(QWidget):
         """Panelin açık olup olmadığını döndürür."""
         return self.edge_panel.is_open
 
+    def set_group_title(self, title: str):
+        """Aksiyonlar akordiyonunun başlığını günceller (örn. '... · 3 seçili')."""
+        self.group_title = title
+        if hasattr(self, "sec_actions"):
+            self.sec_actions.set_title(title)
+
     def add_custom_section(self, section: CollapsibleSection):
         """Sol sidebar altına özel bir akordiyon bölümü ekler (örn: Görünüm Profilleri)."""
         # Stretch'ten önce ekle

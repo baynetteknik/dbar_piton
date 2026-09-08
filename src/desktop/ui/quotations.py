@@ -1,6 +1,7 @@
 """Quotations and Orders Master 3-Panel Management Widgets with Accordion Sidebars."""
 
 import logging
+import os
 
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QAction, QStandardItem, QStandardItemModel
@@ -25,7 +26,10 @@ from src.desktop.services.excel_exporter import ExcelExporter
 from src.desktop.services.quotation_save_service import QuotationSaveService
 from src.desktop.services.quotation_service import QuotationService
 from src.desktop.ui.components.collapsible_section import CollapsibleSection
-from src.desktop.ui.components.filterable_table import FilterableTableView
+from src.desktop.ui.components.filterable_table import (
+    FilterableTableView,
+    value_matches_filter,
+)
 from src.desktop.ui.components.layout_hint_helper import register_layout_hint
 from src.desktop.ui.components.three_panel_base import ThreePanelBaseWidget
 from src.desktop.ui.dialogs.transaction_document_dialog import TransactionDocumentDialog
@@ -35,6 +39,17 @@ from src.desktop.ui.widgets.filter_widget import FilterWidget
 from src.desktop.ui.widgets.pagination_widget import PaginationWidget
 
 logger = logging.getLogger(__name__)
+
+# "Yeni / Düzenle" akışında yeni DocumentDetailScreen VARSAYILAN.
+# Eski TransactionDocumentDialog'a dönmek için: ortam değişkeni TOYA_OLD_DOC_DIALOG=1
+_OLD_DIALOG_FORCED = os.environ.get("TOYA_OLD_DOC_DIALOG", "").strip().lower() in (
+    "1", "true", "yes", "on",
+)
+USE_NEW_DOCUMENT_SCREEN = not _OLD_DIALOG_FORCED
+logger.info(
+    "Belge detay ekranı: %s",
+    "YENİ (DocumentDetailScreen)" if USE_NEW_DOCUMENT_SCREEN else "ESKİ (TransactionDocumentDialog, TOYA_OLD_DOC_DIALOG)",
+)
 
 
 class BaseQuotationOrderWidget(ThreePanelBaseWidget):
@@ -210,7 +225,12 @@ class BaseQuotationOrderWidget(ThreePanelBaseWidget):
             profile_key=self.profile_key,
             enable_profile_bar=False,
             parent=self,
+            select_column=0,
         )
+        self.filterable_table.checked_rows_changed.connect(self._on_checked_rows_changed)
+        # Grid üstündeki kolon filtre kutuları (örn. Genel Toplam'a ">100", "<=3000", "=1000")
+        # — daha önce yalnızca sinyal yayıp hiçbir yere bağlanmıyordu, hiçbir etkisi yoktu.
+        self.filterable_table.filter_changed.connect(lambda _f: self.on_filter_changed())
         self.table_view = self.filterable_table.table_view
         self.table_model = QStandardItemModel(self)
         headers = [self.headers_dict[i][0] for i in sorted(self.headers_dict.keys())]
@@ -302,21 +322,45 @@ class BaseQuotationOrderWidget(ThreePanelBaseWidget):
         # 2. GRUP: DOSYA & AKTARIM (ExportWidget)
         self.export_widget = ExportWidget(
             group_title="DOSYA & AKTARIM",
-            show_buttons=["export_excel", "report"],
+            show_buttons=["print", "export_pdf", "export_excel", "report"],
             initial_open=True,
             parent=self,
         )
+        self.export_widget.print_clicked.connect(self.on_print_clicked)
+        self.export_widget.export_pdf_clicked.connect(self.on_bulk_pdf_clicked)
         self.export_widget.export_excel_clicked.connect(self.on_excel_clicked)
         self.export_widget.report_clicked.connect(
             lambda: QMessageBox.information(self, "Rapor", "Evrak icmal ve detay raporu üretiliyor..."),
         )
         self.sec_sync = self.export_widget.section
-
         self.filter_widget.add_custom_section(self.export_widget)
+
+        # 3. GRUP: TOPLU İŞLEMLER (işaretli satırlara toplu yazdır / PDF / e-posta)
+        self.sec_bulk = CollapsibleSection("TOPLU İŞLEMLER", is_expanded=True)
+        self.lbl_bulk = QLabel("İşaretli belge yok")
+        self.lbl_bulk.setStyleSheet("font-size:11px;color:#64748b;font-weight:600;")
+        self.sec_bulk.add_widget(self.lbl_bulk)
+        self._bulk_buttons = {}
+        for key, text, slot in (
+            ("print", "👁️ Seçilenleri Önizle", self.on_preview_clicked),
+            ("print", "🖨️ Seçilenleri Yazdır", self.on_print_clicked),
+            ("print", "📄 Seçilenleri PDF Kaydet", self.on_bulk_pdf_clicked),
+            ("send", "✉️ Seçilenleri E-Posta Gönder", self.on_bulk_email_clicked),
+        ):
+            b = QPushButton(text)
+            b.setStyleSheet(self.toolbar_btn_style())
+            b.clicked.connect(slot)
+            self.sec_bulk.add_widget(b)
+            self._bulk_buttons[text] = (b, key)
+        self.filter_widget.add_custom_section(self.sec_bulk)
+
         main_layout.addWidget(self.filter_widget)
 
         # Sidebar profilleri yükle
         self.load_sidebar_profiles()
+
+        # Rol yetkilerine göre buton görünürlüğü
+        self._apply_permissions()
 
         # F5 kısayolu — en sona, layout bittikten sonra
         from PyQt6.QtGui import QKeySequence, QShortcut
@@ -441,6 +485,39 @@ class BaseQuotationOrderWidget(ThreePanelBaseWidget):
             self.current_page = total_pages
             self.refresh_table()
 
+    def _row_field_values(self, q) -> dict:
+        """Bir Quotation kaydından, hem grid hücrelerinde gösterilen hem de kolon
+        filtrelerinde kıyaslanan alan değerlerini tek yerden üretir."""
+        cust_name = q.customer.fullname if q.customer else (q.customer_name_free or "-")
+        if q.issue_date:
+            c_date = q.issue_date.strftime("%d.%m.%Y")
+        elif q.date:
+            c_date = q.date.strftime("%d.%m.%Y")
+        elif q.created_at:
+            c_date = q.created_at.strftime("%d.%m.%Y")
+        else:
+            c_date = "-"
+        v_date = q.valid_until.strftime("%d.%m.%Y") if q.valid_until else "-"
+        return {
+            "id": q.id,
+            "quotation_number": q.quotation_number or "-",
+            "title": q.title or q.customer_name_free or "-",
+            "customer_name": cust_name,
+            "issue_date": c_date,
+            "expiry_date": v_date,
+            "grand_total": float(q.grand_total or 0),
+            "currency": q.currency or "TRY",
+            "status": q.status or "draft",
+        }
+
+    def _passes_column_filters(self, field_values: dict, column_filters: dict[str, str]) -> bool:
+        """Grid üstündeki kolon filtre kutularının (fiyat sütununda ">100", "=1000",
+        "<=3000" gibi operatörler dahil) hepsiyle eşleşiyor mu diye bakar."""
+        return all(
+            value_matches_filter(field_values.get(field), raw_text)
+            for field, raw_text in column_filters.items()
+        )
+
     def refresh_table(self):
         self.table_model.removeRows(0, self.table_model.rowCount())
         if not self.db:
@@ -503,7 +580,20 @@ class BaseQuotationOrderWidget(ThreePanelBaseWidget):
             stmt = stmt.where(Quotation.status == st_key)
 
         records = self.db.scalars(stmt).all()
-        self.total_records = len(records)
+        unfiltered_total = len(records)
+
+        # Grid üstündeki kolon filtreleri (Evrak No, Genel Toplam ">100" vb.) — kayıtlar
+        # zaten tek seferde belleğe alındığı için Python tarafında uygulanıyor.
+        column_filters = {
+            field: text
+            for field, text in getattr(self.filterable_table, "filters", {}).items()
+            if (text or "").strip()
+        }
+        rows = [(q, self._row_field_values(q)) for q in records]
+        if column_filters:
+            rows = [(q, fv) for q, fv in rows if self._passes_column_filters(fv, column_filters)]
+
+        self.total_records = len(rows)
 
         if hasattr(self, "pagination_widget"):
             self.pagination_widget.set_total(self.total_records)
@@ -513,8 +603,9 @@ class BaseQuotationOrderWidget(ThreePanelBaseWidget):
             self.lbl_page_info.setText(f"Sayfa {self.current_page} / {total_pages} (Toplam: {self.total_records})")
 
 
-        # DB varsa ama kayıt yoksa demo verisi göster
-        if self.total_records == 0:
+        # DB'de bu türe ait hiç kayıt yoksa demo verisi göster (kolon filtresi nedeniyle
+        # 0 sonuç dönmesi farklıdır — o durumda kullanıcı gerçekten "sonuç yok" görmeli).
+        if unfiltered_total == 0:
             demo_items = [
                 ("1", "TEK-DEMO-001", "Örnek Teklif — Yeni kayıt eklemek için ➕ Yeni butonuna tıklayın", "Demo Müşteri A.Ş.", "27.08.2026", "26.09.2026", "10.000,00 ₺", "TRY", "draft"),
                 ("2", "TEK-DEMO-002", "İkinci Örnek Teklif", "Test Cari Ltd.", "27.08.2026", "10.09.2026", "5.500,00 ₺", "TRY", "sent"),
@@ -534,43 +625,30 @@ class BaseQuotationOrderWidget(ThreePanelBaseWidget):
 
         start = (self.current_page - 1) * self.per_page
         end = start + self.per_page
-        page_records = records[start:end]
+        page_rows = rows[start:end]
 
-        for q in page_records:
-            cust_name = q.customer.fullname if q.customer else (q.customer_name_free or "-")
-            if q.issue_date:
-                c_date = q.issue_date.strftime("%d.%m.%Y")
-            elif q.date:
-                c_date = q.date.strftime("%d.%m.%Y")
-            elif q.created_at:
-                c_date = q.created_at.strftime("%d.%m.%Y")
-            else:
-                c_date = "-"
-            v_date = q.valid_until.strftime("%d.%m.%Y") if q.valid_until else "-"
-
+        for q, fv in page_rows:
             chk_item = QStandardItem("")
             chk_item.setCheckable(True)
             chk_item.setCheckState(Qt.CheckState.Unchecked)
 
-            id_item = QStandardItem(str(q.id))
-            id_item.setData(int(q.id), Qt.ItemDataRole.UserRole)
+            id_item = QStandardItem(str(fv["id"]))
+            id_item.setData(int(fv["id"]), Qt.ItemDataRole.UserRole)
 
-            tot_item = QStandardItem(f"{float(q.grand_total or 0):,.2f} ₺")
-            tot_item.setData(float(q.grand_total or 0), Qt.ItemDataRole.UserRole)
-
-            doc_title = q.title or q.customer_name_free or "-"
+            tot_item = QStandardItem(f"{fv['grand_total']:,.2f} ₺")
+            tot_item.setData(fv["grand_total"], Qt.ItemDataRole.UserRole)
 
             row = [
                 chk_item,
                 id_item,
-                QStandardItem(q.quotation_number or "-"),
-                QStandardItem(doc_title),
-                QStandardItem(cust_name),
-                QStandardItem(c_date),
-                QStandardItem(v_date),
+                QStandardItem(fv["quotation_number"]),
+                QStandardItem(fv["title"]),
+                QStandardItem(fv["customer_name"]),
+                QStandardItem(fv["issue_date"]),
+                QStandardItem(fv["expiry_date"]),
                 tot_item,
-                QStandardItem(q.currency or "TRY"),
-                QStandardItem(q.status or "draft"),
+                QStandardItem(fv["currency"]),
+                QStandardItem(fv["status"]),
             ]
             self.table_model.appendRow(row)
 
@@ -601,7 +679,24 @@ class BaseQuotationOrderWidget(ThreePanelBaseWidget):
         }
         return type_map.get(self.quotation_type, 5)
 
+    def _open_new_document_screen(self, doc_id=None):
+        """Yeni DocumentDetailScreen'i maksimize dialog içinde açar."""
+        from src.desktop.ui.screens.document_detail_screen import DocumentDetailScreen
+        dlg = DocumentDetailScreen.open_as_dialog(
+            parent=self,
+            db_session=self.db,
+            doc_id=doc_id,
+            initial_type_idx=0,
+            company_id=self.company_id,
+        )
+        dlg.screen.document_saved.connect(self._on_document_saved)
+        dlg.exec()
+        self.refresh_table()
+
     def on_new_clicked(self):
+        if USE_NEW_DOCUMENT_SCREEN:
+            self._open_new_document_screen(doc_id=None)
+            return
         dlg = TransactionDocumentDialog(
             db_session=self.db,
             company_id=self.company_id,
@@ -625,6 +720,10 @@ class BaseQuotationOrderWidget(ThreePanelBaseWidget):
         selected_id = self._get_selected_id()
         if not selected_id:
             QMessageBox.information(self, "Uyarı", "Düzenlenecek kaydı seçin.")
+            return
+
+        if USE_NEW_DOCUMENT_SCREEN:
+            self._open_new_document_screen(doc_id=selected_id)
             return
 
         dlg = TransactionDocumentDialog(
@@ -651,23 +750,78 @@ class BaseQuotationOrderWidget(ThreePanelBaseWidget):
         elif hasattr(self, "status_message"):
             self.status_message.emit(f"Kaydedildi: {teklif_no}")
 
+    def _on_checked_rows_changed(self, count: int):
+        """İşaretli satır sayısı değiştiğinde aksiyon çubuğunu bilgilendir."""
+        title = "TEKLİF İŞLEMLERİ" if self.quotation_type == "Quotation" else "SİPARİŞ İŞLEMLERİ"
+        if count > 0:
+            title = f"{title}  ·  {count} seçili"
+        if hasattr(self, "action_bar") and hasattr(self.action_bar, "set_group_title"):
+            self.action_bar.set_group_title(title)
+        if hasattr(self, "lbl_bulk"):
+            self.lbl_bulk.setText(
+                f"{count} belge işaretli" if count else "İşaretli belge yok",
+            )
+
+    @property
+    def _perm_prefix(self) -> str:
+        return {"Quotation": "teklif", "Order": "siparis",
+                "Invoice": "fatura"}.get(self.quotation_type, "teklif")
+
+    def _apply_permissions(self) -> None:
+        """Aktif kullanıcının rol yetkilerine göre aksiyon butonlarını ayarlar."""
+        from src.desktop.security.gate import gate
+        p = self._perm_prefix
+        for btn, code in (
+            (self.btn_new, f"{p}.create"),
+            (self.btn_edit, f"{p}.edit"),
+            (self.btn_duplicate, f"{p}.create"),
+            (self.btn_delete, f"{p}.delete"),
+            (self.btn_convert, f"{p}.convert"),
+            (self.btn_excel, f"{p}.print"),
+        ):
+            gate(btn, code, hide=True)
+        for text, (b, key) in getattr(self, "_bulk_buttons", {}).items():
+            gate(b, f"{p}.{key}", hide=True)
+
+    def _get_target_ids(self) -> list[int]:
+        """Silme/işlem hedefi: önce işaretli satırlar, yoksa o an seçili satır."""
+        checked = self.get_checked_ids()
+        if checked:
+            return checked
+        one = self._get_selected_id()
+        return [one] if one else []
+
     def on_delete_clicked(self):
-        q_id = self._get_selected_id()
-        if not q_id or not self.db:
+        if not self.db:
             return
+        target_ids = self._get_target_ids()
+        if not target_ids:
+            QMessageBox.information(self, "Uyarı", "Silmek için satır işaretleyin veya seçin.")
+            return
+
+        if len(target_ids) == 1:
+            msg = "Seçili kaydı silmek istediğinizden emin misiniz?"
+        else:
+            msg = f"İşaretli {len(target_ids)} kaydı silmek istediğinizden emin misiniz?"
         confirm = QMessageBox.question(
             self,
             "Silme Onayı",
-            "Seçili kaydı silmek istediğinizden emin misiniz?",
+            msg,
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
         )
-        if confirm == QMessageBox.StandardButton.Yes:
+        if confirm != QMessageBox.StandardButton.Yes:
+            return
+
+        deleted = 0
+        for q_id in target_ids:
             q = self.service.get_quotation(q_id)
             if q:
                 q.is_deleted = True
-                self.db.commit()
-                QMessageBox.information(self, "Başarılı", "Kayıt silindi.")
-                self.refresh_table()
+                deleted += 1
+        if deleted:
+            self.db.commit()
+        QMessageBox.information(self, "Başarılı", f"{deleted} kayıt silindi.")
+        self.refresh_table()
 
     def on_duplicate_clicked(self):
         q_id = self._get_selected_id()
@@ -719,13 +873,118 @@ class BaseQuotationOrderWidget(ThreePanelBaseWidget):
             if ExcelExporter.export_quotation_to_excel(fpath, q):
                 QMessageBox.information(self, "Başarılı", f"Excel dosyası oluşturuldu:\n{fpath}")
 
+    # ------------------------------------------------------------------
+    # YAZDIRMA / BASKI  (tekli + çoklu)
+    # ------------------------------------------------------------------
+    def _print_service(self):
+        from src.desktop.designer.services.teklif_print_service import (
+            TeklifPrintService,
+        )
+        return TeklifPrintService(db_session=self.db)
+
+    def on_preview_clicked(self):
+        """İşaretli (yoksa seçili) belgeleri baskı önizlemede açar — çoklu ise art arda."""
+        ids = self._get_target_ids()
+        if not ids:
+            QMessageBox.information(self, "Uyarı", "Önizlenecek belgeyi seçin veya işaretleyin.")
+            return
+        try:
+            svc = self._print_service()
+            if len(ids) == 1:
+                svc.show_preview(ids[0], parent=self)
+            else:
+                svc.preview_many(ids, parent=self)
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("Baskı önizleme açılamadı")
+            QMessageBox.critical(self, "Baskı Hatası", f"Önizleme açılamadı:\n{exc}")
+
+    def on_print_clicked(self):
+        """Yazdır — önizleme penceresini açar; kullanıcı oradan yazıcıya gönderir."""
+        self.on_preview_clicked()
+
+    def on_bulk_pdf_clicked(self):
+        """İşaretli belgeleri tek PDF veya klasöre ayrı ayrı PDF olarak kaydeder (çoklu kaydetme)."""
+        ids = self._get_target_ids()
+        if not ids:
+            QMessageBox.information(self, "Uyarı", "PDF için belgeyi seçin veya işaretleyin.")
+            return
+        try:
+            svc = self._print_service()
+            if len(ids) == 1:
+                path, _ = QFileDialog.getSaveFileName(
+                    self, "PDF Kaydet", f"belge_{ids[0]}.pdf", "PDF (*.pdf)",
+                )
+                if path and svc.export_pdf(path, ids[0]):
+                    QMessageBox.information(self, "PDF", f"Kaydedildi:\n{path}")
+                return
+            box = QMessageBox(self)
+            box.setWindowTitle("Toplu PDF")
+            box.setText(f"{len(ids)} belge için PDF nasıl kaydedilsin?")
+            b_single = box.addButton("Tek PDF Dosyası", QMessageBox.ButtonRole.AcceptRole)
+            b_multi = box.addButton("Klasöre Ayrı Ayrı", QMessageBox.ButtonRole.AcceptRole)
+            box.addButton("Vazgeç", QMessageBox.ButtonRole.RejectRole)
+            box.exec()
+            clicked = box.clickedButton()
+            if clicked is b_single:
+                path, _ = QFileDialog.getSaveFileName(
+                    self, "Tek PDF Kaydet", "belgeler.pdf", "PDF (*.pdf)",
+                )
+                if path and svc.export_pdf_many(ids, path):
+                    QMessageBox.information(
+                        self, "PDF", f"{len(ids)} belge tek PDF'e kaydedildi:\n{path}",
+                    )
+            elif clicked is b_multi:
+                folder = QFileDialog.getExistingDirectory(self, "PDF Klasörü Seç")
+                if folder:
+                    written = svc.export_each_pdf(ids, folder)
+                    QMessageBox.information(
+                        self, "PDF", f"{len(written)}/{len(ids)} PDF dosyası oluşturuldu:\n{folder}",
+                    )
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("Toplu PDF hatası")
+            QMessageBox.critical(self, "PDF Hatası", str(exc))
+
+    def on_bulk_email_clicked(self):
+        """İşaretli belgeleri PDF ekiyle carilerinin e-posta adresine gönderir (çoklu mail)."""
+        ids = self._get_target_ids()
+        if not ids:
+            QMessageBox.information(self, "Uyarı", "E-posta için belgeyi seçin veya işaretleyin.")
+            return
+        if QMessageBox.question(
+            self, "Toplu E-Posta",
+            f"{len(ids)} belge, ilgili carinin e-posta adresine PDF ekiyle gönderilecek.\n\nDevam edilsin mi?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        ) != QMessageBox.StandardButton.Yes:
+            return
+        try:
+            from src.desktop.reports.teklif_report_service import TeklifReportService
+            rs = TeklifReportService(db_session=self.db, company_id=self.company_id)
+            sent, failed = 0, []
+            for tid in ids:
+                try:
+                    ok, info = rs.send_email(tid)
+                    if ok:
+                        sent += 1
+                    else:
+                        failed.append(f"#{tid}: {info}")
+                except Exception as e:  # noqa: BLE001
+                    failed.append(f"#{tid}: {e}")
+            msg = f"{sent}/{len(ids)} belge gönderildi."
+            if failed:
+                msg += "\n\nGönderilemeyenler:\n" + "\n".join(failed[:10])
+            QMessageBox.information(self, "Toplu E-Posta", msg)
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("Toplu e-posta hatası")
+            QMessageBox.critical(self, "E-Posta Hatası", str(exc))
+
     def show_context_menu(self, pos):
         from src.desktop.managers.theme_manager import ThemeManager
         index = self.table_view.indexAt(pos)
         menu = QMenu(self)
         menu.setStyleSheet(ThemeManager().get_context_menu_stylesheet())
 
-        act_new = QAction("➕ Ekle", self)
+        act_new = QAction("➕ Yeni", self)
         act_new.triggered.connect(self.on_new_clicked)
         menu.addAction(act_new)
 
@@ -755,6 +1014,28 @@ class BaseQuotationOrderWidget(ThreePanelBaseWidget):
             menu.addAction(act_conv)
             menu.addAction(act_xls)
 
+        # ---- Yazdırma / Baskı (tekli + çoklu) ----
+        checked = self.get_checked_ids()
+        n = len(checked)
+        menu.addSeparator()
+        if n > 1:
+            act_prev = QAction(f"👁️ Seçili {n} Belgeyi Önizle", self)
+            act_prn = QAction(f"🖨️ Seçili {n} Belgeyi Yazdır", self)
+            act_pdf = QAction(f"📄 Seçili {n} Belgeyi PDF Kaydet", self)
+            act_mail = QAction(f"✉️ Seçili {n} Belgeyi E-Posta Gönder", self)
+        else:
+            act_prev = QAction("👁️ Önizle", self)
+            act_prn = QAction("🖨️ Yazdır", self)
+            act_pdf = QAction("📄 PDF Olarak Kaydet", self)
+            act_mail = QAction("✉️ E-Posta Gönder", self)
+        act_prev.triggered.connect(self.on_preview_clicked)
+        act_prn.triggered.connect(self.on_print_clicked)
+        act_pdf.triggered.connect(self.on_bulk_pdf_clicked)
+        act_mail.triggered.connect(self.on_bulk_email_clicked)
+        for a in (act_prev, act_prn, act_pdf, act_mail):
+            a.setEnabled(bool(index.isValid() or checked))
+            menu.addAction(a)
+
         menu.addSeparator()
         act_sel_all = QAction("☑️ Tüm Satırları Seç", self)
         act_sel_all.triggered.connect(self.select_all_rows)
@@ -765,6 +1046,25 @@ class BaseQuotationOrderWidget(ThreePanelBaseWidget):
         menu.addAction(act_desel_all)
 
         self.filterable_table.add_column_actions_to_menu(menu)
+
+        # --- Yetkiye göre eylemleri kısıtla ---
+        from src.desktop.security.gate import can
+        p = self._perm_prefix
+        _perm = {
+            id(act_new): f"{p}.create",
+            id(act_prev): f"{p}.print", id(act_prn): f"{p}.print",
+            id(act_pdf): f"{p}.print", id(act_mail): f"{p}.send",
+        }
+        if index.isValid():
+            _perm.update({
+                id(act_edit): f"{p}.edit",
+                id(act_del): f"{p}.delete", id(act_dup): f"{p}.create",
+                id(act_conv): f"{p}.convert", id(act_xls): f"{p}.print",
+            })
+        for a in menu.actions():
+            code = _perm.get(id(a))
+            if code and not can(code):
+                a.setVisible(False)
 
         menu.exec(self.table_view.viewport().mapToGlobal(pos))
 

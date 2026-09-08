@@ -297,13 +297,25 @@ class QuotationSaveService:
     _read_row_manually = _read_row
 
     def _generate_number(self, quotation_id: int | None = None) -> str:
-        """Otomatik teklif evrak numarası üretir."""
+        """
+        Çakışmaya karşı güvenli otomatik teklif evrak numarası üretir.
+        Aynı numara varsa bir sonraki boşta olan sıraya geçer.
+        """
         now = datetime.now()
-        if quotation_id is None or quotation_id == 0:
+        prefix = f"TEK-{now.year}{now.month:02d}-"
+        seq = quotation_id if (quotation_id and quotation_id > 0) else None
+        if seq is None:
             from sqlalchemy import func
-            max_id = self.db.scalar(select(func.max(Quotation.id))) or 0
-            quotation_id = max_id + 1
-        return f"TEK-{now.year}{now.month:02d}-{quotation_id:04d}"
+            seq = (self.db.scalar(select(func.max(Quotation.id))) or 0) + 1
+        for _ in range(10_000):
+            candidate = f"{prefix}{seq:04d}"
+            exists = self.db.scalar(
+                select(Quotation.id).where(Quotation.quotation_number == candidate),
+            )
+            if not exists:
+                return candidate
+            seq += 1
+        return f"{prefix}{now.strftime('%d%H%M%S')}"
 
     def update_status(self, quotation_id: int, new_status: str) -> SaveResult:
         """Teklif durumunu günceller."""
@@ -491,3 +503,250 @@ class QuotationSaveService:
         except Exception as e:
             logger.error(f"Yükleme hatası: {e}", exc_info=True)
             return False
+
+    # ------------------------------------------------------------------
+    # Yeni DocumentDetailScreen için temiz payload tabanlı kayıt/yükleme
+    # (widget introspection yok; ekran hazır bir dict verir)
+    # ------------------------------------------------------------------
+    @staticmethod
+    def _doc_type_to_quotation_type(doc_type: str) -> str:
+        t = (doc_type or "").upper()
+        if "SİPARİŞ" in t or "SIPARIS" in t or "ORDER" in t:
+            return "Order"
+        return "Quotation"
+
+    # Teklif Durumu (DocumentDetailScreen üst bar rozeti) <-> Quotation.status kodu
+    _STATUS_TR_TO_CODE = {"Taslak": "draft", "Kabul Edildi": "accepted", "Reddedildi": "rejected"}
+    _STATUS_CODE_TO_TR = {v: k for k, v in _STATUS_TR_TO_CODE.items()}
+
+    @classmethod
+    def _status_to_code(cls, status_tr: str) -> str | None:
+        return cls._STATUS_TR_TO_CODE.get(status_tr)
+
+    @classmethod
+    def _status_to_tr(cls, code: str) -> str:
+        return cls._STATUS_CODE_TO_TR.get(code or "", "Taslak")
+
+    @staticmethod
+    def _parse_date(text: str):
+        for fmt in ("%Y-%m-%d", "%d.%m.%Y", "%d/%m/%Y"):
+            try:
+                return datetime.strptime((text or "").strip(), fmt)
+            except (ValueError, TypeError):
+                continue
+        return None
+
+    def save_payload(self, payload: dict, doc_id: int | None = None) -> SaveResult:
+        """DocumentDetailScreen'in ürettiği dict'i Quotation + QuotationLine olarak kaydeder."""
+        if not self.db:
+            return SaveResult(success=False, error="Veritabanı bağlantısı yok.")
+        try:
+            with self.db.no_autoflush:
+                q = self.db.get(Quotation, doc_id) if doc_id else None
+                is_new = q is None
+                if is_new:
+                    q = Quotation(quotation_number="", company_id=self.company_id)
+                    self.db.add(q)
+                    self.db.flush()
+
+                cari = payload.get("cari", {}) or {}
+                belge = payload.get("belge_vade", {}) or {}
+                finans = payload.get("finans", {}) or {}
+                toplam = payload.get("toplam", {}) or {}
+                notlar = payload.get("notlar") or ("", "")
+
+                q.quotation_type = self._doc_type_to_quotation_type(payload.get("doc_type", ""))
+                doc_no = (payload.get("doc_no") or belge.get("belge_no") or "").strip()
+                resolved = doc_no or q.quotation_number or self._generate_number(q.id)
+                # Başka bir kayıtta aynı numara varsa çakışmayı önle (yeni numara üret).
+                clash = self.db.scalar(
+                    select(Quotation.id).where(
+                        Quotation.quotation_number == resolved,
+                        Quotation.id != q.id,
+                    ),
+                )
+                q.quotation_number = self._generate_number(q.id) if clash else resolved
+
+                customer = cari.get("customer") or {}
+                q.customer_id = customer.get("id") if isinstance(customer, dict) else None
+                q.customer_name_free = cari.get("name", "")
+                q.tax_office_free = cari.get("tax_office", "")
+                q.tax_number_free = cari.get("tax_no", "")
+                q.title = q.title or cari.get("name", "")
+
+                q.currency = finans.get("doviz_kod", "TRY")
+                try:
+                    q.exchange_rate = float(finans.get("doviz_kur", 1.0) or 1.0)
+                except (ValueError, TypeError):
+                    q.exchange_rate = 1.0
+                q.payment_plan = belge.get("odeme_plani", "") or None
+
+                iss = self._parse_date(belge.get("tarih", ""))
+                if iss:
+                    q.issue_date = iss
+                    q.date = iss
+                val = self._parse_date(belge.get("vade", ""))
+                if val:
+                    q.valid_until = val
+
+                # NOT: payload["expenses"] (DocumentExpensesGrid satırları) burada kalıcı
+                # olarak saklanmıyor — sadece aşağıdaki toplam alanları yazılıyor. Satır
+                # bazlı indirim/masraf kalıcılığı (yeni tablo + migration) ayrı bir iş
+                # olarak planlanacak.
+                q.subtotal = float(toplam.get("ara_toplam", 0.0) or 0.0)
+                q.total_discount = float(toplam.get("iskonto", 0.0) or 0.0)
+                q.discount_total = q.total_discount
+                q.total_expense = float(toplam.get("masraflar", 0.0) or 0.0)
+                q.tax_base = float(toplam.get("kdv_matrahi", toplam.get("net_toplam", 0.0)) or 0.0)
+                q.total_vat = float(toplam.get("kdv_toplam", 0.0) or 0.0)
+                q.vat_total = q.total_vat
+                q.grand_total = float(toplam.get("genel_toplam", 0.0) or 0.0)
+                q.notes = "\n".join(str(n) for n in notlar if n).strip() or None
+
+                status_code = self._status_to_code(payload.get("status", ""))
+                q.status = status_code or q.status or "draft"
+
+                # Kalemleri sıfırla ve yeniden yaz
+                for old in list(q.lines):
+                    self.db.delete(old)
+                self.db.flush()
+
+                for i, ln in enumerate(payload.get("lines", []), start=1):
+                    num = ln.get("_num", {})
+                    kod = ln.get("kod", "")
+                    ad = ln.get("aciklama", "")
+                    if not (kod or ad):
+                        continue
+                    qty = float(num.get("miktar", parse_safe(ln.get("miktar"))))
+                    price = float(num.get("birim_fiyat", parse_safe(ln.get("birim_fiyat"))))
+                    vat = float(num.get("kdv_yuzde", parse_safe(ln.get("kdv_yuzde")) or 20))
+                    birim = ln.get("birim", "Adet")
+
+                    product = self._ensure_product_card(ln, kod, ad, price, vat, birim)
+
+                    self.db.add(QuotationLine(
+                        quotation_id=q.id,
+                        product_id=product.id if product else None,
+                        line_order=i,
+                        sku=kod,
+                        product_code_free=kod,
+                        name=ad,
+                        product_name_free=ad,
+                        note2=ln.get("barkod", ""),
+                        unit=birim,
+                        quantity=qty,
+                        unit_price=price,
+                        discount_rate=float(num.get("iskonto_yuzde", parse_safe(ln.get("iskonto_yuzde")))),
+                        vat_rate=vat,
+                        currency=q.currency,
+                        total_amount=float(num.get("net_tutar", 0.0)),
+                        total_price=float(num.get("net_tutar", 0.0)),
+                    ))
+
+                self.db.commit()
+                return SaveResult(
+                    success=True, quotation_id=q.id, quotation_number=q.quotation_number,
+                )
+        except Exception as e:
+            self.db.rollback()
+            logger.error("save_payload hatası: %s", e, exc_info=True)
+            return SaveResult(success=False, error=str(e))
+
+    def _ensure_product_card(self, ln: dict, kod: str, ad: str,
+                             price: float, vat: float, birim: str):
+        """'stoga_ekle' işaretli satırlar için stok kartı bulur/oluşturur."""
+        if not kod:
+            return None
+        existing = self.db.scalar(
+            select(Product).where(Product.sku == kod, Product.is_deleted == False),  # noqa: E712
+        )
+        if existing:
+            return existing
+        if not ln.get("stoga_ekle"):
+            return None
+        try:
+            p = Product(
+                sku=kod,
+                name=ad or kod,
+                base_price=price,
+                price=price,
+                unit=birim or "Adet",
+                vat_rate=int(vat or 20),
+                stock=0,
+                company_id=self.company_id,
+            )
+            self.db.add(p)
+            self.db.flush()
+            logger.info("Yeni stok kartı oluşturuldu: %s", kod)
+            return p
+        except Exception as e:
+            logger.warning("Stok kartı oluşturulamadı (%s): %s", kod, e)
+            return None
+
+    def load_payload(self, doc_id: int) -> dict | None:
+        """Kayıtlı belgeyi DocumentDetailScreen'in beklediği dict biçiminde döndürür."""
+        if not self.db:
+            return None
+        q = self.db.get(Quotation, doc_id)
+        if not q:
+            return None
+        lines = []
+        for ln in sorted(q.lines, key=lambda x: x.line_order or 0):
+            lines.append({
+                "kod": ln.sku or ln.product_code_free or "",
+                "barkod": ln.note2 or "",
+                "aciklama": ln.name or ln.product_name_free or "",
+                "miktar": _fmt(ln.quantity),
+                "birim": ln.unit or "Adet",
+                "birim_fiyat": _fmt(ln.unit_price),
+                "iskonto_yuzde": _fmt(ln.discount_rate),
+                "kdv_yuzde": _fmt(ln.vat_rate),
+            })
+        return {
+            "doc_id": q.id,
+            "doc_type": q.quotation_type,
+            "doc_no": q.quotation_number,
+            "cari": {
+                "code": "",
+                "name": q.customer_name_free or (q.customer.fullname if q.customer else ""),
+                "tax_office": q.tax_office_free or "",
+                "tax_no": q.tax_number_free or "",
+                "customer": {"id": q.customer_id} if q.customer_id else None,
+            },
+            "belge_vade": {
+                "belge_no": q.quotation_number,
+                "tarih": q.issue_date.strftime("%Y-%m-%d") if q.issue_date else "",
+                "vade": q.valid_until.strftime("%Y-%m-%d") if q.valid_until else "",
+                "odeme_plani": q.payment_plan or "",
+            },
+            "finans": {
+                "doviz_kod": q.currency or "TRY",
+                "doviz_kur": q.exchange_rate or 1.0,
+            },
+            "lines": lines,
+            "notlar": tuple((q.notes or "").split("\n", 1)) if q.notes else ("", ""),
+            "status": self._status_to_tr(q.status),
+        }
+
+
+def parse_safe(text) -> float:
+    """Türkçe/düz sayı ayrıştırma (servis içi yardımcı)."""
+    if text is None or text == "":
+        return 0.0
+    s = str(text).strip().replace(" ", "")
+    if "," in s:
+        s = s.replace(".", "").replace(",", ".")
+    try:
+        return float(s)
+    except ValueError:
+        return 0.0
+
+
+def _fmt(value) -> str:
+    if value is None or value == "":
+        return ""
+    try:
+        f = float(value)
+        return str(int(f)) if f == int(f) else f"{f:g}"
+    except (ValueError, TypeError):
+        return str(value)

@@ -22,6 +22,7 @@ from PyQt6.QtWidgets import (
     QFrame,
     QGridLayout,
     QLabel,
+    QSizePolicy,
     QVBoxLayout,
     QWidget,
 )
@@ -77,6 +78,38 @@ class ToplamWidget(QFrame):
 
         self._init_ui()
 
+        # Toplam paneli kritik bilgi taşır: dikeyde asla sıkıştırılmamalı.
+        # QVBoxLayout, alan daralınca sabit yükseklikli QLabel'ları alttan
+        # kırpıp KDV / Genel Toplam satırlarını okunmaz hale getiriyordu.
+        # Sabit bir dikey minimum ile satırlar her zaman görünür kalır; yer
+        # kalmadığında üstteki kalem gridi (stretch=1) küçülür.
+        # NOT: burada layout'a SetMinimumSize KISITI VERİLMEZ — o kısıt widget'ın
+        # yatay minimumunu da içeriğe indirip, ebeveynin setFixedWidth(...)
+        # ayarını ezerek Toplam panelini enden sıkıştırıyordu.
+        self._min_content_h = self._calc_min_height()
+        self.setMinimumHeight(self._min_content_h)
+        self.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Minimum)
+
+    def _calc_min_height(self) -> int:
+        """İçeriğin kırpılmadan görünmesi için gereken en küçük yüksekliği hesaplar."""
+        m = self.layout().contentsMargins()
+        spacing = self.layout().spacing()
+        # sırayla: başlık ızgarası + ayırıcı + değer ızgarası + ayırıcı + G.Toplam
+        hdr_h  = 14
+        sep_h  = 3
+        grid_h = (
+            len(self.ROWS) * self.ROW_H
+            + (len(self.ROWS) - 1) * self._grid.spacing()
+            + self._grid.contentsMargins().top()
+            + self._grid.contentsMargins().bottom()
+        )
+        gt_h = 28
+        return (
+            m.top() + m.bottom()
+            + hdr_h + sep_h + grid_h + sep_h + gt_h
+            + spacing * 4
+        )
+
     # ─────────────────────────────────────────────
     # UI
     # ─────────────────────────────────────────────
@@ -128,6 +161,7 @@ class ToplamWidget(QFrame):
         for r, (key, baslik, renk) in enumerate(self.ROWS):
             lbl_b = QLabel(f"{baslik}")
             lbl_b.setStyleSheet(self.LBL_STYLE)
+            lbl_b.setFixedHeight(self.ROW_H)
 
             lbl_tl = QLabel("0,00 ₺")
             lbl_tl.setAlignment(
@@ -137,13 +171,18 @@ class ToplamWidget(QFrame):
                 f"font-size:11px; font-weight:700; "
                 f"color:{renk}; padding-right:4px;",
             )
+            lbl_tl.setFixedHeight(self.ROW_H)
 
             lbl_dov = QLabel("0,00 $")
             lbl_dov.setAlignment(
                 Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter,
             )
             lbl_dov.setStyleSheet(self.DOV_STYLE)
+            lbl_dov.setFixedHeight(self.ROW_H)
 
+            # Pencere dikey olarak daraltıldığında bu satırların birbirine
+            # girmesini (metinlerin üst üste binmesini) engeller — QLabel
+            # varsayılan Preferred boyut politikasıyla ROW_H altına sıkışabiliyordu.
             self._grid.addWidget(lbl_b,   r, 0)
             self._grid.addWidget(lbl_tl,  r, 1)
             self._grid.addWidget(lbl_dov, r, 2)

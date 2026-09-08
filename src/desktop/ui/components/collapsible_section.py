@@ -18,56 +18,66 @@ class CollapsibleSection(QWidget):
 
     toggled = pyqtSignal(bool)
 
-    def __init__(self, title: str, is_expanded: bool = True, parent: QWidget | None = None):
+    def __init__(self, title: str, is_expanded: bool = True, parent: QWidget | None = None,
+                 compact: bool = False):
         super().__init__(parent)
         self.title_text = title
         self.is_expanded = is_expanded
+        self.compact = compact
 
         main_layout = QVBoxLayout(self)
-        main_layout.setContentsMargins(0, 0, 0, 4)
+        main_layout.setContentsMargins(0, 0, 0, 2 if compact else 4)
         main_layout.setSpacing(0)
 
         # Başlık Butonu
         self.header_btn = QPushButton()
         self.header_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.header_btn.clicked.connect(self.toggle)
+        if compact:
+            self.header_btn.setFixedHeight(22)
         main_layout.addWidget(self.header_btn)
 
         # Gövde Çerçevesi
         self.content_frame = QFrame()
         self.content_frame.setObjectName("CollapsibleContentFrame")
         self.content_layout = QVBoxLayout(self.content_frame)
-        self.content_layout.setContentsMargins(6, 8, 6, 8)
-        self.content_layout.setSpacing(5)
+        m = (4, 4, 4, 4) if compact else (6, 8, 6, 8)
+        self.content_layout.setContentsMargins(*m)
+        self.content_layout.setSpacing(3 if compact else 5)
         main_layout.addWidget(self.content_frame)
 
         self.update_style()
         self.content_frame.setVisible(self.is_expanded)
 
     def update_style(self):
-        icon = "➖" if self.is_expanded else "➕"
-        self.header_btn.setText(f"{icon}  {self.title_text}")
+        icon = "▾" if self.is_expanded else "▸"
+        # QPushButton '&' karakterini kısayol işareti sayar ("&A" -> altı çizili A,
+        # görünürde "_A"). Başlıkta '&' düz metin olarak görünsün diye '&&' yaz.
+        safe_title = self.title_text.replace("&", "&&")
+        self.header_btn.setText(f"{icon}  {safe_title}")
+        pad = "3px 8px" if self.compact else "8px 10px"
+        fsz = "10px" if self.compact else "11px"
 
         if self.is_expanded:
-            self.header_btn.setStyleSheet("""
-                QPushButton {
+            self.header_btn.setStyleSheet(f"""
+                QPushButton {{
                     background-color: #e0e7ff;
                     color: #1e3a8a;
                     font-weight: 800;
-                    font-size: 11px;
+                    font-size: {fsz};
                     font-family: 'Segoe UI';
                     text-align: left;
-                    padding: 8px 10px;
+                    padding: {pad};
                     border: 1px solid #cbd5e1;
                     border-bottom: none;
                     border-top-left-radius: 6px;
                     border-top-right-radius: 6px;
                     border-bottom-left-radius: 0px;
                     border-bottom-right-radius: 0px;
-                }
-                QPushButton:hover {
+                }}
+                QPushButton:hover {{
                     background-color: #c7d2fe;
-                }
+                }}
             """)
             self.content_frame.setStyleSheet("""
                 QFrame#CollapsibleContentFrame {
@@ -79,22 +89,22 @@ class CollapsibleSection(QWidget):
                 }
             """)
         else:
-            self.header_btn.setStyleSheet("""
-                QPushButton {
+            self.header_btn.setStyleSheet(f"""
+                QPushButton {{
                     background-color: #f8fafc;
                     color: #334155;
                     font-weight: 700;
-                    font-size: 11px;
+                    font-size: {fsz};
                     font-family: 'Segoe UI';
                     text-align: left;
-                    padding: 8px 10px;
+                    padding: {pad};
                     border: 1px solid #cbd5e1;
                     border-radius: 6px;
-                }
-                QPushButton:hover {
+                }}
+                QPushButton:hover {{
                     background-color: #e2e8f0;
                     border-color: #94a3b8;
-                }
+                }}
             """)
 
     def toggle(self):
@@ -107,6 +117,11 @@ class CollapsibleSection(QWidget):
             self.content_frame.setVisible(self.is_expanded)
             self.update_style()
             self.toggled.emit(self.is_expanded)
+
+    def set_title(self, title: str):
+        """Bölüm başlık metnini günceller."""
+        self.title_text = title
+        self.update_style()
 
     def add_widget(self, widget: QWidget):
         """İçerik alanına yeni bir bileşen ekler."""

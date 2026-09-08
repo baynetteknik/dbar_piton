@@ -16,10 +16,104 @@ from PyQt6.QtWidgets import (
 
 from src.desktop.managers.profile_manager import ProfileManager
 from src.desktop.models.profile_models import IndividualColumn, ViewProfile
+from src.desktop.ui.components.checkable_header_view import CheckableHeaderView
 from src.desktop.ui.components.profile_style_delegate import ProfileStyleDelegate
 from src.desktop.ui.components.view_profile_bar import ViewProfileBar
 
 logger = logging.getLogger(__name__)
+
+_FILTER_OPERATORS = {
+    ">=": "gte", "<=": "lte", ">": "gt", "<": "lt", "=": "eq",
+}
+
+
+def parse_filter_expression(raw: str) -> tuple[str, str]:
+    """Kolon filtre kutusuna girilen metni operatör ve değere ayırır.
+
+    Desteklenen önekler: ">", ">=", "<", "<=", "=" (örn. ">100", "<=3000", "=1000").
+    Önek yoksa "contains" (alt-dize / içerir) olarak yorumlanır.
+    Not: ">=" ve "<=" iki karakterli oldukları için tek karakterli ">" / "<" 'den
+    önce kontrol edilmelidir, aksi halde "=" kısmı değere karışır.
+    """
+    text = (raw or "").strip()
+    if not text:
+        return "contains", ""
+    for prefix in (">=", "<=", ">", "<", "="):
+        if text.startswith(prefix):
+            return _FILTER_OPERATORS[prefix], text[len(prefix):].strip()
+    return "contains", text
+
+
+def _parse_filter_number(text: str) -> float | None:
+    """Filtre değerini Türkçe ('1.234,56') veya düz ondalık ayraçlı sayıya çevirir."""
+    t = (text or "").strip().replace("₺", "").replace("$", "").replace("€", "").replace(" ", "")
+    if not t:
+        return None
+    if "," in t:
+        t = t.replace(".", "").replace(",", ".")
+    try:
+        return float(t)
+    except ValueError:
+        return None
+
+
+def value_matches_filter(value, raw_filter: str) -> bool:
+    """Bir hücre/alan değerinin, kolon filtre kutusuna girilen metinle eşleşip eşleşmediğini bulur.
+
+    Sayısal değerler (int/float) için ">", ">=", "<", "<=", "=" operatörlerini destekler
+    (örn. fiyat sütununda ">100", "=1000", "<=3000"); operatör verilmemişse sayı da olsa
+    metin sütunlarıyla tutarlı şekilde alt-dize araması yapılır. Metin sütunlarında filtre
+    her zaman büyük/küçük harf duyarsız alt-dize (contains) aramasıdır.
+    """
+    op, val_text = parse_filter_expression(raw_filter)
+    if not val_text and op == "contains":
+        return True
+
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        num = _parse_filter_number(val_text)
+        if num is None:
+            # Sayısal sütuna operatörsüz/sayısal-olmayan metin girildi -> biçimlendirilmiş
+            # metin üzerinden alt-dize araması yap.
+            return val_text.lower() in str(value).lower()
+        if op == "contains":
+            return val_text in f"{value:g}" or val_text in str(value)
+        if op == "eq":
+            return abs(value - num) < 1e-9
+        if op == "gt":
+            return value > num
+        if op == "gte":
+            return value >= num
+        if op == "lt":
+            return value < num
+        if op == "lte":
+            return value <= num
+        return True
+
+    text = "" if value is None else str(value)
+    return val_text.lower() in text.lower()
+
+
+class _ModelAwareTableView(QTableView):
+    """setModel çağrıldığında haber veren QTableView (seçim durumu senkronu için)."""
+
+    model_attached = pyqtSignal()
+
+    def setModel(self, model):  # noqa: N802
+        super().setModel(model)
+        self.model_attached.emit()
+
+
+_CHECKED_VALUE = int(Qt.CheckState.Checked.value)
+
+
+def _is_checked(value) -> bool:
+    """CheckStateRole değerini (int veya enum olabilir) güvenli biçimde yorumlar."""
+    if value is None:
+        return False
+    try:
+        return int(value) == _CHECKED_VALUE
+    except (TypeError, ValueError):
+        return value == Qt.CheckState.Checked
 
 
 class FilterableTableView(QWidget):
@@ -27,6 +121,7 @@ class FilterableTableView(QWidget):
 
     filter_changed = pyqtSignal(dict)  # Aktif filtre sözlüğünü yayar
     column_visibility_changed = pyqtSignal(int, bool)  # Sütun göster/gizle durumunu yayar (col_idx, visible)
+    checked_rows_changed = pyqtSignal(int)  # İşaretli satır sayısını yayar (select_column verildiyse)
 
     MANDATORY_COLUMNS = set()  # Kullanıcı istediği sütunu (ID dahil) gizleyebilmeli
 
@@ -36,6 +131,8 @@ class FilterableTableView(QWidget):
         profile_key="customers",
         enable_profile_bar=False,
         parent=None,
+        select_column: int | None = None,
+        mode: str = "list",
     ):
         super().__init__(parent)
         self.headers_dict = headers_dict  # {col_idx: (label, field_name)}
@@ -43,6 +140,13 @@ class FilterableTableView(QWidget):
         self.enable_profile_bar = enable_profile_bar
         self.filters = {}
         self.filter_widgets = {}
+        # İşaretlenebilir seçim kolonu (opt-in). None ise davranış eskisi gibi.
+        self.select_column = select_column
+        self._checkable_header: CheckableHeaderView | None = None
+        # "list" = klasik liste (filtre satırı, sıralama, salt-okunur)
+        # "entry" = veri girişi (kalemler): filtre satırı gizli, sıralama kapalı,
+        #           hücreler düzenlenebilir. Belge detay kalem gridleri bunu kullanır.
+        self.mode = mode
 
         self.setObjectName("FilterableTableContainer")
         self.init_ui()
@@ -122,18 +226,37 @@ class FilterableTableView(QWidget):
                 self.filter_widgets[col_idx] = le
 
         layout.addWidget(self.filter_bar_container)
+        if self.mode == "entry":
+            # Kalem girişinde kolon-filtre satırı yok
+            self.filter_bar_container.setVisible(False)
 
         # 3. Asıl QTableView
-        self.table_view = QTableView()
+        self.table_view = _ModelAwareTableView()
         self.table_view.setObjectName("MainTableView")
-        self.table_view.setSortingEnabled(True)  # ARTAN / AZALAN SIRALAMA AKTİF
-        
+        self.table_view.setSortingEnabled(self.mode != "entry")  # entry'de sıralama kapalı
+
+        # Opt-in: seçim kolonu başlığına üç durumlu onay kutusu tak
+        if self.select_column is not None:
+            self._checkable_header = CheckableHeaderView(
+                Qt.Orientation.Horizontal, self.select_column, self.table_view,
+            )
+            self.table_view.setHorizontalHeader(self._checkable_header)
+            self._checkable_header.select_all_toggled.connect(self._on_select_all_toggled)
+            self.table_view.model_attached.connect(self._bind_selection_model)
+
         hheader = self.table_view.horizontalHeader()
         hheader.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         hheader.customContextMenuRequested.connect(self.show_header_context_menu)
         hheader.setSortIndicatorShown(True)
         hheader.setSectionsClickable(True)
+        hheader.setSectionsMovable(True)  # Kullanıcı sütunları sürükleyip sırasını değiştirebilir
         hheader.setFixedHeight(26)  # Başlık yüksekliği sabit 26px
+
+        # Kendi "Sıra" kolonu olmayan gridlerde bile satır konumunu göstermek için
+        # Qt'nin varsayılan sol satır numarası şeridi kalır; ancak genişliği fare ile
+        # ayarlanamadığı ve "select"/"Sıra" kolonlarıyla çakıştığı için gizliyoruz
+        # (uygulamadaki diğer tüm gridlerle [quotations.py, app_grid.py] aynı kural).
+        self.table_view.verticalHeader().setVisible(False)
         
         # Sütun ayırıcı çizgileri ve hover efektini QHeaderView stili ile uygulayalım
         hheader.setStyleSheet("""
@@ -164,6 +287,15 @@ class FilterableTableView(QWidget):
             row_h = 26
         self.table_view.verticalHeader().setDefaultSectionSize(row_h)
         self.table_view.verticalHeader().setMinimumSectionSize(row_h)
+
+        if self.mode == "entry":
+            from PyQt6.QtWidgets import QAbstractItemView
+            self.table_view.setEditTriggers(
+                QAbstractItemView.EditTrigger.DoubleClicked
+                | QAbstractItemView.EditTrigger.EditKeyPressed
+                | QAbstractItemView.EditTrigger.AnyKeyPressed,
+            )
+            self.table_view.setTabKeyNavigation(True)
 
         layout.addWidget(self.table_view, 1)
 
@@ -264,6 +396,98 @@ class FilterableTableView(QWidget):
                 w.blockSignals(False)
         self.filter_changed.emit(self.filters)
 
+    # ------------------------------------------------------------------
+    # İşaretli satır seçimi (yalnızca select_column verildiyse aktif)
+    # ------------------------------------------------------------------
+    def _bind_selection_model(self):
+        """setModel sonrası model sinyallerini seçim senkronuna bağlar."""
+        model = self.table_view.model()
+        if model is None:
+            return
+        for sig_name in ("dataChanged", "rowsInserted", "rowsRemoved", "modelReset", "layoutChanged"):
+            sig = getattr(model, sig_name, None)
+            if sig is not None:
+                try:
+                    sig.connect(self._refresh_selection_state)
+                except TypeError:
+                    pass
+        self._refresh_selection_state()
+
+    def _on_select_all_toggled(self, checked: bool):
+        """Başlık kutusuna tıklandığında tüm görünür satırları işaretler / bırakır."""
+        model = self.table_view.model()
+        if model is None or self.select_column is None:
+            return
+        state = Qt.CheckState.Checked if checked else Qt.CheckState.Unchecked
+        for row in range(model.rowCount()):
+            idx = model.index(row, self.select_column)
+            if model.flags(idx) & Qt.ItemFlag.ItemIsUserCheckable:
+                model.setData(idx, state, Qt.ItemDataRole.CheckStateRole)
+        self._refresh_selection_state()
+
+    def _refresh_selection_state(self, *args):
+        """Başlık kutusu üç durumunu ve işaretli satır görsellerini günceller."""
+        if self.select_column is None:
+            return
+        model = self.table_view.model()
+        if model is None:
+            return
+        total = model.rowCount()
+        checked_rows = set()
+        for row in range(total):
+            idx = model.index(row, self.select_column)
+            if _is_checked(model.data(idx, Qt.ItemDataRole.CheckStateRole)):
+                checked_rows.add(row)
+
+        if self._checkable_header is not None:
+            if not checked_rows:
+                self._checkable_header.set_check_state(Qt.CheckState.Unchecked)
+            elif len(checked_rows) == total:
+                self._checkable_header.set_check_state(Qt.CheckState.Checked)
+            else:
+                self._checkable_header.set_check_state(Qt.CheckState.PartiallyChecked)
+
+        if hasattr(self, "style_delegate"):
+            self.style_delegate.set_marked_rows(checked_rows, self.select_column)
+            self.table_view.viewport().update()
+
+        self.checked_rows_changed.emit(len(checked_rows))
+
+    def get_checked_rows(self) -> list[int]:
+        """İşaretli satırların model satır indekslerini döner."""
+        if self.select_column is None:
+            return []
+        model = self.table_view.model()
+        if model is None:
+            return []
+        rows = []
+        for row in range(model.rowCount()):
+            idx = model.index(row, self.select_column)
+            if _is_checked(model.data(idx, Qt.ItemDataRole.CheckStateRole)):
+                rows.append(row)
+        return rows
+
+    def get_checked_values(self, value_column: int, role=Qt.ItemDataRole.UserRole) -> list:
+        """İşaretli satırlarda belirtilen kolonun değerini (varsayılan UserRole) döner."""
+        model = self.table_view.model()
+        if model is None:
+            return []
+        out = []
+        for row in self.get_checked_rows():
+            idx = model.index(row, value_column)
+            val = model.data(idx, role)
+            if val is None:
+                val = model.data(idx, Qt.ItemDataRole.DisplayRole)
+            out.append(val)
+        return out
+
+    def checked_count(self) -> int:
+        return len(self.get_checked_rows())
+
+    def set_all_checked(self, checked: bool):
+        """Programatik olarak tümünü işaretle / bırak."""
+        self._on_select_all_toggled(checked)
+
     def get_mandatory_columns(self) -> set[str]:
         """Returns mandatory column field names for this table."""
         table_fields = {field for _label, field in self.headers_dict.values()}
@@ -317,12 +541,14 @@ class FilterableTableView(QWidget):
                 header.moveSection(current_v_idx, target_v_idx)
 
         # 2. Apply column visibilities and widths
+        # Not: Zorunlu (mandatory) kolonlar asla gizlenemez, ama genişlikleri yine de
+        # profildeki kayıtlı değere göre uygulanmalı — aksi halde (ör. "select" kolonu)
+        # kullanıcı her daralttığında bir sonraki açılışta varsayılan genişliğe döner.
         for col_idx, (_label, field_name) in self.headers_dict.items():
-            if field_name in mandatory_cols:
-                self.set_column_hidden(col_idx, False)
-            elif field_name in profile.column_settings.individual_columns:
+            is_mandatory = field_name in mandatory_cols
+            if field_name in profile.column_settings.individual_columns:
                 indiv = profile.column_settings.individual_columns[field_name]
-                self.set_column_hidden(col_idx, not indiv.visible)
+                self.set_column_hidden(col_idx, False if is_mandatory else not indiv.visible)
                 if indiv.width > 0:
                     self.table_view.setColumnWidth(col_idx, indiv.width)
             else:
@@ -365,7 +591,6 @@ class FilterableTableView(QWidget):
         quotations.py ve diğer liste ekranları tarafından çağrılır.
         """
         from PyQt6.QtGui import QAction
-        from PyQt6.QtWidgets import QMenu
 
         col_menu = menu.addMenu("👁️ Sütunlar")
         col_menu.setStyleSheet("""
@@ -382,11 +607,11 @@ class FilterableTableView(QWidget):
             label, _ = self.headers_dict[col_idx]
             is_visible = not header.isSectionHidden(col_idx)
             act = QAction(
-                f"{'✅' if is_visible else '☐'} {label}", self
+                f"{'✅' if is_visible else '☐'} {label}", self,
             )
             act.triggered.connect(
                 lambda checked, c=col_idx, v=is_visible:
-                self.set_column_hidden(c, v)
+                self.set_column_hidden(c, v),
             )
             col_menu.addAction(act)
 
@@ -396,7 +621,7 @@ class FilterableTableView(QWidget):
             lambda: [
                 self.set_column_hidden(c, False)
                 for c in self.headers_dict.keys()
-            ]
+            ],
         )
         col_menu.addAction(act_show_all)
 
