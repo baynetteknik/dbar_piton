@@ -41,10 +41,11 @@ TOYA ERP'nin `src/desktop/ui/widgets/widget_registry.py` merkezi kataloğu ile t
 3. F9 / "📄 Önizle-Yazdır" hâlâ tam ekran modalı açar (detaylı inceleme + fiziksel yazdırma / PDF için).
 4. Testler: `tests/test_document_detail_screen.py` içine mini önizleme (kapalı-varsayılan, açılışta render, debounce + guard) testleri eklendi.
 
-### 🔹 Adım 3: Ekran Tasarımcısı (UI Screen Designer) Modu (Seviye 2)
-1. Tasarımcının sol panelindeki Araç Kutusuna *"Masaüstü Ekran Tasarımı"* sekmesinin eklenmesi.
-2. `WIDGET_REGISTRY` içerisindeki atomik parçaların (`widget_cari_kunyesi`, `widget_belge_vade`, `widget_hareket_kalemleri`, `widget_finans` vb.) listelenmesi.
-3. Kullanıcının bu widget'ları tuvale sürükleyip bırakarak kendi özel ekran şablonunu (`scr_evrak_ozel.json`) oluşturabilmesi.
+### ✅ Adım 3: Ekran Tasarımcısı (UI Screen Designer) Modu (Seviye 2) — TAMAMLANDI
+1. **`ScreenDesignerWidget`** (`src/desktop/ui/screens/screen_designer_widget.py`): baskı tasarımcısı bant tabanlı olduğu için ekran tasarımı için ayrı, bölge tabanlı bir tasarımcı yazıldı. `ReportDesignerWindow` artık iki sekmeli: **"📄 Form & Rapor Tasarımı"** ve **"🖥️ Masaüstü Ekran Tasarımı"** (pencere seviyesinde sekme — sol panel yerine; ekran tasarımcısının kendi üç paneli var).
+2. Sol palet, `WIDGET_REGISTRY` öğelerini **varsayılan bölgesine göre gruplar**; öğeye tıklamak onu ilgili bölgeye ekler.
+3. Tuval, 5 bölge (ÜST FORM / GÖVDE / ALT FORM / SOL KENAR / SAĞ KENAR) için bırakma listeleri sunar — listeler arası **sürükle-bırak ile taşıma**, ↑/↓ sırala, ✕ kaldır. Sağ panel: ekran ID, başlık, taban şablon, bölge görünürlükleri, satır/başlık yüksekliği.
+4. **Kaydet** → `register_screen_definition(screen_id, {...})` ile `screen_registry` biçiminde (`components` = `{bölge: [widget_id,...]}` + `regions` + `base_template`) `data/screen_definitions.json`'a yazar; sistem şablonlarının üzerine yazılmaz. Testler: `tests/test_screen_designer_widget.py`.
 
 ### ✅ Adım 4: Yeni Hazır Belge Şablonları — TAMAMLANDI
 1. **`tpl_fatura_kurumsal_a4.json`** — e-Fatura A4: senaryo / fatura tipi / ETTN künyesi, sağ üstte karekod (`barcode` öğesi — motor şu an QR yer tutucu kutusu çiziyor), alıcı VKN/vergi dairesi, kalem tablosunda iskonto + KDV sütunları, KDV matrahı → ödenecek tutar icmali, YAZIYLA.

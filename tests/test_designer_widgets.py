@@ -36,7 +36,9 @@ def test_designer_window_embeds_widget(qapp):
     from src.desktop.designer.ui.designer_window import ReportDesignerWindow
 
     win = ReportDesignerWindow()
-    assert isinstance(win.centralWidget(), ReportDesignerWidget)
+    # pencere artık sekmeli; form tasarımcısı ilk sekme
+    assert isinstance(win.designer, ReportDesignerWidget)
+    assert win.tabs.widget(0) is win.designer
     # eski çağıranlar .template / .canvas okuyor
     assert win.template is win.designer.template
     assert win.canvas is win.designer.canvas
