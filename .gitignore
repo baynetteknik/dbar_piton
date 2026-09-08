@@ -11,3 +11,9 @@ logs/
 *.db
 *.log
 aknsoft/
+
+# MailArchiveSystem (ayrı proje) kurulum/derleme artefaktları — bu depoya ait değil
+installer/
+releases/
+*.exe
+MailArchiveSystem_*
