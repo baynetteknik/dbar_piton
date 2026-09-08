@@ -23,7 +23,7 @@ from __future__ import annotations
 
 import logging
 
-from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtCore import Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import (
     QAction,
     QKeySequence,
@@ -581,6 +581,33 @@ class DocumentDetailScreen(QWidget):
             sec_print.add_widget(b)
         lyt.addWidget(sec_print)
 
+        # CANLI BASKI ÖNİZLEME — seçili şablon + ekrandaki güncel veri.
+        # Varsayılan kapalı: açılınca ilk kez çizilir, açıkken form değiştikçe
+        # (kalem / cari / durum / not) ~%400 ms gecikmeli tazelenir.
+        from src.desktop.designer.ui.preview_widget import ReportPreviewWidget
+
+        self.sec_mini_preview = CollapsibleSection(
+            "CANLI BASKI ÖNİZLEME", is_expanded=False,
+        )
+        self.mini_preview = ReportPreviewWidget(compact=True)
+        self.mini_preview.setMinimumHeight(340)
+        b_expand = _btn("⤢", "#0284c7", "#ffffff", "#0369a1", "#0369a1")
+        b_expand.setToolTip("Tam ekran önizleme ve yazdırma")
+        b_expand.setFixedWidth(30)
+        b_expand.clicked.connect(self._on_preview)
+        self.mini_preview.add_toolbar_widget(b_expand)
+        self.sec_mini_preview.add_widget(self.mini_preview)
+        self.sec_mini_preview.toggled.connect(self._on_mini_preview_toggled)
+        lyt.addWidget(self.sec_mini_preview)
+
+        self._preview_timer = QTimer(self)
+        self._preview_timer.setSingleShot(True)
+        self._preview_timer.setInterval(400)
+        self._preview_timer.timeout.connect(self._refresh_mini_preview)
+        self._tpl_selector.currentIndexChanged.connect(
+            lambda _i: self._schedule_preview_refresh(),
+        )
+
         # EVRAK ÖZETİ
         self.sec_summary = CollapsibleSection("EVRAK ÖZETİ", is_expanded=True)
         self.lbl_sum_cari = QLabel("👤 —")
@@ -777,6 +804,7 @@ class DocumentDetailScreen(QWidget):
         self.cari.balance_requested.connect(
             lambda code: logger.info("Bakiye istendi: %s", code),
         )
+        self.notlar.notes_changed.connect(self._schedule_preview_refresh)
 
     # ------------------------------------------------------------------
     def _on_lines_totals(self, t: dict):
@@ -839,6 +867,7 @@ class DocumentDetailScreen(QWidget):
         self.lbl_sum_cari.setText(f"👤 {cari}")
         self.lbl_sum_total.setText(f"💰 {fmt_num(self.toplam.get_grand_total())} ₺")
         self.lbl_sum_status.setText(f"Durum: {self.status_label()}")
+        self._schedule_preview_refresh()
 
     # ------------------------------------------------------------------
     def _collect_payload(self) -> dict:
@@ -1194,6 +1223,36 @@ class DocumentDetailScreen(QWidget):
                 self, "Baskı Hatası",
                 f"Baskı önizlemesi açılamadı:\n{exc}",
             )
+
+    # ---- Canlı mini önizleme (sağ panel) ----------------------------
+    def _on_mini_preview_toggled(self, expanded: bool):
+        """Bölüm açıldığında ilk çizimi yap; kapalıyken boşuna render etme."""
+        if expanded:
+            self._refresh_mini_preview()
+
+    def _schedule_preview_refresh(self):
+        """Form değişince mini önizlemeyi gecikmeli (coalesced) tazele."""
+        timer = getattr(self, "_preview_timer", None)
+        sec = getattr(self, "sec_mini_preview", None)
+        if timer is not None and sec is not None and sec.is_expanded:
+            timer.start()
+
+    def _refresh_mini_preview(self):
+        """Seçili şablon + ekrandaki güncel veriyle mini önizlemeyi çizer."""
+        sec = getattr(self, "sec_mini_preview", None)
+        if sec is None or not sec.is_expanded:
+            return
+        try:
+            from src.desktop.designer.services.teklif_print_service import (
+                TeklifPrintService,
+            )
+            tpl_path = self._tpl_selector.currentData() if self._tpl_selector.count() else None
+            service = TeklifPrintService(db_session=self.db, template_path=tpl_path)
+            self.mini_preview.set_document(
+                service.get_template(), data=self._build_print_data(),
+            )
+        except Exception:  # noqa: BLE001 - önizleme kritik değil, sessiz geç
+            logger.exception("Mini baskı önizlemesi tazelenemedi")
 
     def _build_print_data(self) -> dict:
         """

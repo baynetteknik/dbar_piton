@@ -368,6 +368,39 @@ def test_save_print_confirms_when_unsaved(qapp, db, monkeypatch):
     assert s.doc_id is not None  # kaydedildi
 
 
+def test_mini_preview_collapsed_by_default_and_renders_on_expand(qapp, db):
+    from src.desktop.designer.ui.preview_widget import ReportPreviewWidget
+
+    s = DocumentDetailScreen(db_session=db)
+    s.lines.clear_rows()
+    s.lines.add_row({"kod": "K1", "aciklama": "Kalem", "miktar": "2",
+                     "birim_fiyat": "100", "kdv_yuzde": "20"})
+    s.lines._emit_totals()
+
+    assert isinstance(s.mini_preview, ReportPreviewWidget)
+    assert s.mini_preview.compact is True
+    # kapalıyken çizim yok (boşuna render maliyeti alınmaz)
+    assert s.sec_mini_preview.is_expanded is False
+    assert s.mini_preview.rendered_pages == []
+
+    s.sec_mini_preview.set_expanded(True)
+    assert len(s.mini_preview.rendered_pages) >= 1
+
+
+def test_mini_preview_refresh_is_debounced_and_guarded(qapp, db):
+    s = DocumentDetailScreen(db_session=db)
+    # kapalıyken tetikleme timer'ı başlatmaz
+    s._schedule_preview_refresh()
+    assert not s._preview_timer.isActive()
+
+    s.sec_mini_preview.set_expanded(True)
+    s.cari.txt_cari_unvan.setText("Yeni Cari")  # _refresh_summary -> schedule
+    assert s._preview_timer.isActive()
+    s._preview_timer.stop()
+    s._refresh_mini_preview()
+    assert s._build_print_data()["musteri"]["adi"] == "Yeni Cari"
+
+
 def test_save_and_reload_payload(qapp, db):
     s = DocumentDetailScreen(db_session=db)
     s.cari.txt_cari_unvan.setText("ACME LTD")

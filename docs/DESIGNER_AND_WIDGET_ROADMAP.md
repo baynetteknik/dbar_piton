@@ -35,9 +35,11 @@ TOYA ERP'nin `src/desktop/ui/widgets/widget_registry.py` merkezi kataloğu ile t
 2. **`ReportPreviewWidget` (`designer/ui/preview_widget.py`):** Baskı önizleme tuvali gömülebilir `QWidget`. `compact=True` modunda yazdır/PDF butonları gizli, varsayılan zoom "genişliğe sığdır" (evrak ekranı sağ paneli için). `set_document(template, data|datas)` ile canlı yeniden besleme. `ReportPreviewDialog` artık bu widget'ı saran ince bir modal kabuk.
 3. `widget_registry.py`'ye eklendi: `widget_report_designer` (body) ve `widget_report_preview` (right_sidebar). `tests/test_designer_widgets.py` ile doğrulandı.
 
-### 🔹 Adım 2: Teklif Formu & Belge Detay Ekranı Entegrasyonu (sıradaki)
-1. `DocumentDetailScreen` veya `QuotationDialog` üzerindeki *"🖨️ Yazdır / Önizle (F9)"* eylemine `TeklifPrintService` bağlantısının yapılması.
-2. Formda girilen kalemler ve cari bilgileri değiştikçe önizlemenin dinamik beslenmesi.
+### ✅ Adım 2: Teklif Formu & Belge Detay Ekranı Entegrasyonu — TAMAMLANDI
+1. `DocumentDetailScreen` sağ paneline **"CANLI BASKI ÖNİZLEME"** katlanır bölümü eklendi — içinde `ReportPreviewWidget(compact=True)`. Varsayılan kapalı; ilk açılışta çizilir, `⤢` düğmesi tam ekran modal önizlemeyi açar.
+2. Form değiştikçe (kalem / cari / durum / belge türü / not / şablon seçimi) önizleme ~400 ms gecikmeli (debounce, `QTimer`) ve yalnızca bölüm açıkken `set_document()` ile tazelenir — `_build_print_data()` zaten modal önizleme ile aynı veri şemasını üretiyordu.
+3. F9 / "📄 Önizle-Yazdır" hâlâ tam ekran modalı açar (detaylı inceleme + fiziksel yazdırma / PDF için).
+4. Testler: `tests/test_document_detail_screen.py` içine mini önizleme (kapalı-varsayılan, açılışta render, debounce + guard) testleri eklendi.
 
 ### 🔹 Adım 3: Ekran Tasarımcısı (UI Screen Designer) Modu (Seviye 2)
 1. Tasarımcının sol panelindeki Araç Kutusuna *"Masaüstü Ekran Tasarımı"* sekmesinin eklenmesi.
