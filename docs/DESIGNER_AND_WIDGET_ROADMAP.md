@@ -58,10 +58,26 @@ TOYA ERP'nin `src/desktop/ui/widgets/widget_registry.py` merkezi kataloğu ile t
 
 ---
 
-## 🚀 3. Hızlı Başlatıcılar Listesi
+## 🧭 3. Aşama 3 Sonrası Durum
+
+Widget Mimarisi Entegrasyonu'nun dört adımı da tamamlandı:
+
+| Adım | Sonuç |
+|---|---|
+| 1 | `ReportDesignerWidget` + `ReportPreviewWidget` gömülebilir; `WIDGET_REGISTRY`'de kayıtlı |
+| 2 | Belge detay ekranı sağ panelinde canlı mini baskı önizleme (debounce'lu) |
+| 3 | `ScreenDesignerWidget` — bölge tabanlı ekran şablonu tasarımı, tasarımcı penceresinin 2. sekmesi |
+| 4 | Hazır şablonlar: fatura A4 (karekod), sevk irsaliyesi A4, 80mm termal fiş |
+
+**Açık kalan / sonraki turlar:**
+- `barcode` öğesi gerçek QR/Code128 üretmiyor (yer tutucu) — bir kodlayıcı eklenmeli.
+- `ScreenDesignerWidget` kaydı yalnız `data/screen_definitions.json`'a yazıyor; kaydedilen özel ekranların ana uygulama navigasyonunda otomatik açılması (menü kaydı) ayrı bir adım.
+- Belge türüne göre varsayılan baskı şablonu eşlemesi (fatura → `tpl_fatura_kurumsal_a4` vb.).
+
+## 🚀 4. Hızlı Başlatıcılar Listesi
 
 Proje kök dizininde hazır bulunan çalıştırıcılar:
-- **`TOYA_Teklif_Tasarimci.bat`:** Görsel Form & Rapor Tasarımcısı (Aşama 2 PoC).
+- **`TOYA_Teklif_Tasarimci.bat`:** Görsel Tasarımcı — Form & Rapor + Masaüstü Ekran Tasarımı sekmeleri.
 - **`TOYA_Teklif_Baski_Onizleme.bat`:** Tam sayfa vektörel baskı önizleme ve PDF çıktısı (Aşama 1 PoC).
 
 ---
