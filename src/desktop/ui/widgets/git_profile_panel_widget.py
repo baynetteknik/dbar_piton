@@ -27,11 +27,14 @@ class GitProfilePanelWidget(QWidget):
     changed = pyqtSignal()
     message = pyqtSignal(str, bool)  # metin, başarılı mı
 
-    def __init__(self, service: GitService | None = None, parent=None) -> None:
+    def __init__(self, service: GitService | None = None, parent=None, autoload: bool = True) -> None:
         super().__init__(parent)
         self.service = service or GitService()
         self._build_ui()
-        self.reload()
+        if autoload:
+            self.reload()
+        else:
+            self._refresh_buttons()
 
     def _build_ui(self) -> None:
         lay = QVBoxLayout(self)

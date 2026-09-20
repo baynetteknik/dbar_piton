@@ -5,6 +5,7 @@ başlık yükseklikleri (Header Height), satır yükseklikleri (Row Height) ve
 sağ tık menü (Context Menu) renk şablonları buradan okunur ve yönetilir.
 """
 
+from PyQt6 import sip
 from PyQt6.QtCore import QObject, pyqtSignal, QSettings
 from PyQt6.QtGui import QFont, QFontMetrics
 
@@ -18,7 +19,8 @@ class ThemeManager(QObject):
     header_height_changed = pyqtSignal(int)
 
     def __new__(cls, *args, **kwargs):
-        if cls._instance is None:
+        # QApplication yeniden oluşturulursa (testler) eski tekil nesnenin C++ tarafı silinmiş olabilir: yeniden kur.
+        if cls._instance is None or sip.isdeleted(cls._instance):
             cls._instance = super(ThemeManager, cls).__new__(cls)
             cls._instance._initialized = False
         return cls._instance

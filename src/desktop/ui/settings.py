@@ -55,6 +55,10 @@ from src.core.models import (
     WarehouseDefinition,
 )
 from src.desktop.services import currency_rate_service
+from src.desktop.core.grid_presets import GRID_PRESETS, register_preset
+from src.desktop.services import settings_menu as sm
+from src.desktop.ui.components.app_grid import AppGrid
+from src.desktop.ui.components.coded_button import CodedButton
 from src.desktop.ui.components.collapsible_section import CollapsibleSection
 from src.desktop.ui.components.edge_panel import EdgeTriggeredPanel
 from src.desktop.ui.components.filterable_table import FilterableTableView
@@ -72,6 +76,7 @@ from src.desktop.services.currency_catalog import CURRENCY_CATALOG, get_currency
 from src.desktop.ui.widgets.currency_picker_dialog import pick_currency
 from src.desktop.ui.widgets.currency_rate_report_widget import CurrencyRateReportWidget
 from src.desktop.ui.widgets.masked_decimal_field import MaskedDecimalField
+from src.desktop.ui.widgets.reorderable_sidebar import ReorderableSidebar
 from src.desktop.ui.widgets.serbest_piyasa_kaynak_widget import SerbestPiyasaKaynakField
 from src.desktop.ui.screen_definitions_manager import (
     ScreenDefinitionsManagerWidget,
@@ -1669,6 +1674,7 @@ class GeneralSettingsScreen(QWidget):
     def __init__(self, db_session=None, parent=None) -> None:
         super().__init__(parent)
         self.db = db_session
+        self.show_codes = sm.show_codes(db_session)
         self.active_panel_id: str | None = None
         self.panels: dict[str, QWidget] = {}
         self.menu_buttons: dict[str, QPushButton] = {}
@@ -1747,6 +1753,12 @@ class GeneralSettingsScreen(QWidget):
         self.chk_layout_hints.toggled.connect(self.on_layout_hints_toggled)
         lyt.addWidget(self.chk_layout_hints)
 
+        self.chk_show_codes = QCheckBox("🔢 Kodları Göster")
+        self.chk_show_codes.setStyleSheet("font-weight: bold; color: #7c3aed; font-size: 11px;")
+        self.chk_show_codes.setChecked(self.show_codes)
+        self.chk_show_codes.toggled.connect(self.set_codes_visible)
+        lyt.addWidget(self.chk_show_codes)
+
         self.chk_global_text_select = QCheckBox("🔍 Metinleri Seçilebilir Yap")
         self.chk_global_text_select.setStyleSheet(
             "font-weight: bold; color: #1e3a8a; font-size: 11px;",
@@ -1778,7 +1790,7 @@ class GeneralSettingsScreen(QWidget):
         container_lyt.addWidget(header_title)
 
         self.menu_search_input = QLineEdit()
-        self.menu_search_input.setPlaceholderText("🔍 Menü veya işlem ara...")
+        self.menu_search_input.setPlaceholderText("🔍 Menü adı veya kodu ara (örn. cari, 501)...")
         self.menu_search_input.setClearButtonEnabled(True)
         self.menu_search_input.setStyleSheet("""
             QLineEdit {
@@ -1811,36 +1823,28 @@ class GeneralSettingsScreen(QWidget):
 
         self.menu_sections = []
         self.menu_item_containers = {}
-        self.menu_sub_boxes = {}
 
-        # Menü Grupları (Tümü varsayılan KAPALI gelir)
+        # Menü Grupları (Tümü varsayılan KAPALI gelir). Alt eylemler artık burada değil: sağ panelde ve sağ tık menüsünde.
+        self._group_sections = []
         for grup_adi, ikon, menuler in self.MENU_STRUCTURE:
+            gcode = sm.GROUP_CODES.get(grup_adi, "")
             sec = CollapsibleSection(f"{ikon} {grup_adi}", is_expanded=False)
+            sec.set_code(gcode if self.show_codes else "")
             self.menu_sections.append(sec)
+            self._group_sections.append((sec, f"{ikon} {grup_adi}", gcode))
 
             for menu_adi, panel_id in menuler:
-                item_widget = QWidget()
-                item_lyt = QVBoxLayout(item_widget)
-                item_lyt.setContentsMargins(0, 0, 0, 0)
-                item_lyt.setSpacing(2)
-
-                btn = QPushButton(f"  {menu_adi}")
+                code = sm.item_code(panel_id)
+                btn = CodedButton(menu_adi, code, show_code=self.show_codes, left_padding=11)
                 btn.setStyleSheet(self.menu_btn_style())
                 btn.setCheckable(True)
+                btn.setToolTip(f"[{code}] {menu_adi}" if code else menu_adi)
                 btn.clicked.connect(
                     lambda _, pid=panel_id, b=btn: self.on_menu_clicked(pid, b),
                 )
                 self.menu_buttons[panel_id] = btn
-                item_lyt.addWidget(btn)
-
-                # Alt Eylemler Kutusu (Sub-Action Container)
-                sub_box = self._build_sub_action_box(panel_id)
-                sub_box.hide()
-                self.menu_sub_boxes[panel_id] = sub_box
-                item_lyt.addWidget(sub_box)
-
-                self.menu_item_containers[panel_id] = (item_widget, sec, menu_adi, grup_adi)
-                sec.add_widget(item_widget)
+                self.menu_item_containers[panel_id] = (btn, sec, menu_adi, grup_adi)
+                sec.add_widget(btn)
 
             lyt.addWidget(sec)
 
@@ -1851,25 +1855,9 @@ class GeneralSettingsScreen(QWidget):
         self.left_panel.set_content(container)
         return self.left_panel
 
-    def _build_sub_action_box(self, panel_id: str) -> QFrame:
-        """Menünün hemen altında açılan alt eylem butonlarını oluşturur."""
-        box = QFrame()
-        box.setStyleSheet("""
-            QFrame {
-                background-color: #f1f5f9;
-                border-left: 2px solid #3b82f6;
-                border-radius: 0px 4px 4px 0px;
-                margin-left: 8px;
-                margin-top: 2px;
-                margin-bottom: 4px;
-            }
-        """)
-        lyt = QVBoxLayout(box)
-        lyt.setContentsMargins(6, 4, 4, 4)
-        lyt.setSpacing(3)
-
-        # Tanımlara özel hızlı alt eylemler
-        actions_map = {
+    def _actions_map(self) -> dict:
+        """Menü (panel) başına işlemler: {panel_id: [(etiket, geri çağrı), ...]}. Sağ panel ve sağ tık menüsü AYNI kaynağı kullanır."""
+        return {
             "firma_bilgileri": [
                 ("➕ Yeni Firma", lambda: getattr(self, "firma_tab", None) and self.firma_tab.add_new()),
                 ("✏️ Düzenle", lambda: getattr(self, "firma_tab", None) and self.firma_tab.edit_selected()),
@@ -1927,13 +1915,13 @@ class GeneralSettingsScreen(QWidget):
                 ("💾 Listeleri Kaydet", lambda: self.save_current_panel()),
             ],
             "stok_kategoriler": [
-                ("➕ Yeni Kategori", lambda: self._add_table_row(getattr(self, "tbl_stok_kategori", None), ["", "", "Aktif"])),
-                ("🗑️ Seçiliyi Sil", lambda: self._delete_table_row(getattr(self, "tbl_stok_kategori", None))),
+                ("➕ Yeni Kategori", lambda: self._add_table_row(getattr(self, "tbl_kategori", None), ["", "", "Aktif"])),
+                ("🗑️ Seçiliyi Sil", lambda: self._delete_table_row(getattr(self, "tbl_kategori", None))),
                 ("💾 Kaydet", lambda: self.save_current_panel()),
             ],
             "stok_markalar": [
-                ("➕ Yeni Marka", lambda: self._add_table_row(getattr(self, "tbl_stok_marka", None), ["", "", "Aktif"])),
-                ("🗑️ Seçiliyi Sil", lambda: self._delete_table_row(getattr(self, "tbl_stok_marka", None))),
+                ("➕ Yeni Marka", lambda: self._add_table_row(getattr(self, "tbl_marka", None), ["", "", "Aktif"])),
+                ("🗑️ Seçiliyi Sil", lambda: self._delete_table_row(getattr(self, "tbl_marka", None))),
                 ("💾 Kaydet", lambda: self.save_current_panel()),
             ],
             "birim_tanimlari": [
@@ -1969,38 +1957,72 @@ class GeneralSettingsScreen(QWidget):
                 ("📐 Şablonları Yenile", lambda: getattr(self, "screen_defs_tab", None) and self.screen_defs_tab.load_screen_definitions()),
             ],
             "surum_git": [
-                ("🔄 Git Durumunu Yenile", lambda: getattr(self, "git_tracker_tab", None) and self.git_tracker_tab.refresh_all()),
+                ("🚀 Git'e Gönder (Push)", lambda: self._git_call("on_commit_push_clicked")),
+                ("🔄 Fetch (Durum Tara)", lambda: self._git_call("_start_worker", "fetch")),
+                ("📥 Değişiklikleri Çek (Pull)", lambda: self._git_call("_start_worker", "pull")),
+                ("📦 Stash", lambda: self._git_call("_start_worker", "stash")),
+                ("📦 Stash Pop", lambda: self._git_call("_start_worker", "stash_pop")),
+                ("📄 Rapor Üret (.md)", lambda: self._git_call("on_report_clicked")),
+                ("🔄 Git Durumunu Yenile", lambda: self._git_call("load_data")),
             ],
         }
 
-        items = actions_map.get(panel_id, [
+    def _git_call(self, method: str, *args) -> None:
+        """Sürüm & Git ekranındaki (gömülü) GitTrackerScreen yöntemini çağırır."""
+        tab = getattr(self, "git_tracker_tab", None)
+        screen = getattr(tab, "screen", None)
+        fn = getattr(screen, method, None)
+        if fn is None:
+            logger.warning("Git ekranı işlemi bulunamadı: %s", method)
+            return
+        fn(*args)
+
+    def _panel_actions(self, panel_id: str) -> list:
+        return self._actions_map().get(panel_id, [
             ("💾 Kaydet", lambda: self.save_current_panel()),
             ("➕ Yeni Ekle", lambda: self.new_current_panel()),
             ("❌ Sil", lambda: self.delete_current_panel()),
         ])
 
-        for label, callback in items:
-            btn = QPushButton(label)
-            btn.setStyleSheet("""
-                QPushButton {
-                    background-color: transparent;
-                    color: #334155;
-                    border: none;
-                    text-align: left;
-                    padding: 3px 6px;
-                    font-size: 10px;
-                    font-weight: 600;
-                    border-radius: 3px;
-                }
-                QPushButton:hover {
-                    background-color: #e2e8f0;
-                    color: #1d4ed8;
-                }
-            """)
-            btn.clicked.connect(callback)
-            lyt.addWidget(btn)
+    def _panel_context_actions(self) -> list:
+        """Sağ tık menüsü için (kodlu etiket, geri çağrı) listesi — aktif menünün işlemleri."""
+        pid = self.active_panel_id or ""
+        return [
+            (sm.with_code(label, sm.action_code(pid, i), self.show_codes), cb)
+            for i, (label, cb) in enumerate(self._panel_actions(pid), start=1)
+        ]
 
+    def _build_sub_action_box(self, panel_id: str) -> QFrame:
+        """Bir menünün işlem butonlarını (sağ paneldeki İŞLEMLER bölümünde) oluşturur. Her butonun bir kodu vardır."""
+        box = QFrame()
+        box.setStyleSheet("QFrame { background: transparent; border: none; }")
+        lyt = QVBoxLayout(box)
+        lyt.setContentsMargins(0, 0, 0, 0)
+        lyt.setSpacing(3)
+        box.action_buttons = []   # (buton, etiket, kod)
+        for i, (label, callback) in enumerate(self._panel_actions(panel_id), start=1):
+            code = sm.action_code(panel_id, i)
+            btn = CodedButton(label, code, show_code=self.show_codes)
+            btn.setToolTip(f"[{code}] {label}" if code else label)
+            btn.setStyleSheet(self.btn_style())
+            btn.clicked.connect(lambda _=False, cb=callback: cb())
+            lyt.addWidget(btn)
+            box.action_buttons.append((btn, label, code))
         return box
+
+    def set_codes_visible(self, on: bool) -> None:
+        """Menü / bölüm / işlem kod rozetlerini göster-gizle (tercih kaydedilir)."""
+        self.show_codes = on
+        sm.set_show_codes(self.db, on)
+        for sec, _base, code in getattr(self, "_group_sections", []):
+            sec.set_code(code if on else "")
+        for btn, *_rest in self.menu_item_containers.values():
+            btn.set_code_visible(on)
+        for box in getattr(self, "menu_sub_boxes", {}).values():
+            for btn, _label, _code in box.action_buttons:
+                btn.set_code_visible(on)
+        if hasattr(self, "right_sidebar"):
+            self.right_sidebar.set_show_codes(on)
 
     def show_sidebar_context_menu(self, pos):
         """Sol sidebar üzerinde sağ tıklandığında menü açar."""
@@ -2039,8 +2061,8 @@ class GeneralSettingsScreen(QWidget):
             sec.set_expanded(False)
 
     def filter_menu_tree(self, query: str):
-        """Menü arama kutusuna göre menü ağacını filtreler."""
-        q = query.strip().lower()
+        """Menü arama kutusu: menü adı, grup adı VE kodu (menü/grup) ile eşleşenleri gösterir."""
+        q = query.strip()
         if not q:
             for item_widget, _sec, _, _ in self.menu_item_containers.values():
                 item_widget.show()
@@ -2050,8 +2072,8 @@ class GeneralSettingsScreen(QWidget):
                 sec.set_expanded(True)
             return
 
-        for _panel_id, (item_widget, sec, menu_adi, grup_adi) in self.menu_item_containers.items():
-            matches = (q in menu_adi.lower()) or (q in grup_adi.lower())
+        for panel_id, (item_widget, sec, menu_adi, grup_adi) in self.menu_item_containers.items():
+            matches = sm.matches(q, menu_adi, grup_adi, sm.item_code(panel_id), sm.GROUP_CODES.get(grup_adi, ""))
             item_widget.setVisible(matches)
             if matches:
                 sec.set_expanded(True)
@@ -2063,13 +2085,6 @@ class GeneralSettingsScreen(QWidget):
             b.setStyleSheet(self.menu_btn_style(active=False))
         btn.setChecked(True)
         btn.setStyleSheet(self.menu_btn_style(active=True))
-
-        # Alt eylemler kutusunu aç ve diğerlerini kapat
-        for pid, sub_box in self.menu_sub_boxes.items():
-            if pid == panel_id:
-                sub_box.show()
-            else:
-                sub_box.hide()
 
         # Ait olduğu grubu genişlet
         if panel_id in self.menu_item_containers:
@@ -2125,109 +2140,120 @@ class GeneralSettingsScreen(QWidget):
             }
         """
 
+    def _current_user_key(self) -> str:
+        """Sıralama tercihi kullanıcıya göre saklanır (ana pencereden oturum kullanıcısı)."""
+        try:
+            return str((getattr(self.window(), "user_config", None) or {}).get("username", "") or "")
+        except Exception:  # noqa: BLE001
+            return ""
+
     def build_right_sidebar(self) -> QWidget:
-        """Sağ sidebar — Filtreleme, Yazdırma, PDF/Excel aktarımları ve Hızlı İşlemler."""
-        self.right_panel = EdgeTriggeredPanel(side="right", parent=self)
+        """Sağ sidebar — sürükle-bırak ile sıralanabilen, TÜMÜ KAPALI gelen, isim/kod aranabilen bölümler:
+        İşlemler (seçili menünün), Filtreleme, Yazdır & Aktar, Hızlı İşlemler, Döviz."""
+        self.right_panel = EdgeTriggeredPanel(side="right", default_width=300, parent=self)
+        store = sm.SidebarOrderStore(self.db, self._current_user_key())
+        self.right_sidebar = ReorderableSidebar(store, show_codes=self.show_codes)
+        sb = self.right_sidebar
+        lbl_style = "font-size:10px; font-weight:bold; color:#475569;"
 
-        scroll = QScrollArea()
-        scroll.setWidgetResizable(True)
-        scroll.setStyleSheet("QScrollArea { border:none; background:transparent; }")
+        def section(key: str, title: str) -> CollapsibleSection:
+            return CollapsibleSection(title, is_expanded=False)
 
-        frame = QFrame()
-        frame.setStyleSheet("background:transparent; border:none;")
-        lyt = QVBoxLayout(frame)
-        lyt.setContentsMargins(4, 4, 4, 4)
-        lyt.setSpacing(10)
+        def reg(key: str, items: list, widget, text: str) -> None:
+            """Bölüme ait aranabilir/kodlu bir öğe kaydeder (kod: sys.rp.<bölüm>.<sıra>)."""
+            code = f"{sm.SIDEBAR_SECTIONS[key][0]}.{len(items) + 1:02d}"
+            widget.setToolTip(f"[{code}] {text}")
+            items.append((widget, text, code))
 
-        # ── 1. FİLTRELEME & ARAMA ──
-        sec_filter = CollapsibleSection("🔍 FİLTRELEME & ARAMA", is_expanded=True)
+        # ── İŞLEMLER: seçili menünün işlemleri (menü değişince içerik değişir) ──
+        sec_ops = section("islemler", "⚡ İŞLEMLER")
+        # Yalnızca seçili menünün kutusu görünür (QStackedWidget en uzun sayfa kadar boşluk bırakırdı).
+        self.actions_stack = QWidget()
+        stack_lyt = QVBoxLayout(self.actions_stack)
+        stack_lyt.setContentsMargins(0, 0, 0, 0)
+        self.menu_sub_boxes = {}
+        for _grup, _ikon, menuler in self.MENU_STRUCTURE:
+            for _ad, panel_id in menuler:
+                box = self._build_sub_action_box(panel_id)
+                self.menu_sub_boxes[panel_id] = box
+                box.hide()
+                stack_lyt.addWidget(box)
+        sec_ops.add_widget(self.actions_stack)
+        sb.add_section("islemler", sec_ops, sm.SIDEBAR_SECTIONS["islemler"][0])
 
+        # ── FİLTRELEME & ARAMA ──
+        sec_filter = section("filtre", "🔍 FİLTRE & ARAMA")
+        items: list = []
         lbl_s = QLabel("Tablo İçi Canlı Arama:")
-        lbl_s.setStyleSheet("font-size:10px; font-weight:bold; color:#475569;")
+        lbl_s.setStyleSheet(lbl_style)
         self.txt_right_filter = QLineEdit()
         self.txt_right_filter.setPlaceholderText("Aktif tabloda ara...")
         self.txt_right_filter.setClearButtonEnabled(True)
         self.txt_right_filter.setStyleSheet("border: 1px solid #cbd5e1; border-radius: 4px; padding: 4px; background: white; font-size: 11px;")
         self.txt_right_filter.textChanged.connect(self.filter_active_table)
-        sec_filter.add_widget(lbl_s)
-        sec_filter.add_widget(self.txt_right_filter)
-
         lbl_st = QLabel("Durum:")
-        lbl_st.setStyleSheet("font-size:10px; font-weight:bold; color:#475569;")
+        lbl_st.setStyleSheet(lbl_style)
         self.cmb_right_status = QComboBox()
         self.cmb_right_status.addItems(["Tümü", "Aktif", "Pasif"])
         self.cmb_right_status.setStyleSheet("border: 1px solid #cbd5e1; border-radius: 4px; padding: 3px; background: white; font-size: 11px;")
         self.cmb_right_status.currentTextChanged.connect(self.filter_active_table_status)
-        sec_filter.add_widget(lbl_st)
-        sec_filter.add_widget(self.cmb_right_status)
-        lyt.addWidget(sec_filter)
+        for w in (lbl_s, self.txt_right_filter, lbl_st, self.cmb_right_status):
+            sec_filter.add_widget(w)
+        reg("filtre", items, self.txt_right_filter, "Tablo içi canlı arama")
+        reg("filtre", items, self.cmb_right_status, "Durum filtresi")
+        sb.add_section("filtre", sec_filter, sm.SIDEBAR_SECTIONS["filtre"][0], items)
 
-        # ── 2. YAZDIR & DIŞA/İÇE AKTAR ──
-        sec_export = CollapsibleSection("🖨️ YAZDIR & AKTAR", is_expanded=True)
+        # ── YAZDIR & AKTAR ──
+        sec_export = section("yazdir", "🖨️ YAZDIR & AKTAR")
+        items = []
+        for text, style, cb in (
+            ("🖨️ Yazdır / Önizleme", self.btn_style("#ffffff", "#0f172a"), self.print_active_panel),
+            ("📄 PDF Olarak Kaydet", self.btn_style("#ffffff", "#0f172a"), self.export_active_to_pdf),
+            ("📊 Excel'e Aktar (.xlsx)", self.btn_style("#f0fdf4", "#166534"), self.export_active_to_excel),
+            ("📥 Excel'den Al (.xlsx)", self.btn_style("#f0fdf4", "#166534"), self.import_active_from_excel),
+        ):
+            b = CodedButton(text, f"{sm.SIDEBAR_SECTIONS['yazdir'][0]}.{len(items) + 1:02d}", show_code=self.show_codes)
+            b.setStyleSheet(style)
+            b.clicked.connect(cb)
+            sec_export.add_widget(b)
+            reg("yazdir", items, b, text)
+        sb.add_section("yazdir", sec_export, sm.SIDEBAR_SECTIONS["yazdir"][0], items)
 
-        btn_print = QPushButton("🖨️ Yazdır / Önizleme")
-        btn_print.setStyleSheet(self.btn_style("#ffffff", "#0f172a"))
-        btn_print.clicked.connect(self.print_active_panel)
+        # ── HIZLI İŞLEMLER ── ("Kaydet" burada YOK: alt bar + F2 tek yer)
+        sec_tools = section("hizli", "⚡ HIZLI İŞLEMLER")
+        items = []
+        for text, style, cb in (
+            ("🔄 Verileri Yenile (F5)", self.btn_style(), self.refresh_active_panel),
+            ("⚙️ Sütunları Yapılandır", self.btn_style("#ffffff", "#475569"), self.open_active_column_manager),
+        ):
+            b = CodedButton(text, f"{sm.SIDEBAR_SECTIONS['hizli'][0]}.{len(items) + 1:02d}", show_code=self.show_codes)
+            b.setStyleSheet(style)
+            b.clicked.connect(cb)
+            sec_tools.add_widget(b)
+            reg("hizli", items, b, text)
+        sb.add_section("hizli", sec_tools, sm.SIDEBAR_SECTIONS["hizli"][0], items)
 
-        btn_pdf = QPushButton("📄 PDF Olarak Kaydet")
-        btn_pdf.setStyleSheet(self.btn_style("#ffffff", "#0f172a"))
-        btn_pdf.clicked.connect(self.export_active_to_pdf)
+        # ── DÖVİZ & KUR'A ÖZGÜ BÖLÜMLER — yalnız "Döviz & Kur" paneli aktifken görünür ──
+        sec_doviz = self._build_doviz_sag_panel_islemler()
+        sec_doviz.set_expanded(False)
+        sb.add_section("doviz", sec_doviz, sm.SIDEBAR_SECTIONS["doviz"][0])
+        sec_rapor = self._build_doviz_sag_panel_raporlar()
+        sb.add_section("kur_rapor", sec_rapor, sm.SIDEBAR_SECTIONS["kur_rapor"][0])
+        sb.set_section_visible("doviz", False)
+        sb.set_section_visible("kur_rapor", False)
 
-        btn_excel_export = QPushButton("📊 Excel'e Aktar (.xlsx)")
-        btn_excel_export.setStyleSheet(self.btn_style("#f0fdf4", "#166534"))
-        btn_excel_export.clicked.connect(self.export_active_to_excel)
-
-        btn_excel_import = QPushButton("📥 Excel'den Al (.xlsx)")
-        btn_excel_import.setStyleSheet(self.btn_style("#f0fdf4", "#166534"))
-        btn_excel_import.clicked.connect(self.import_active_from_excel)
-
-        sec_export.add_widget(btn_print)
-        sec_export.add_widget(btn_pdf)
-        sec_export.add_widget(btn_excel_export)
-        sec_export.add_widget(btn_excel_import)
-        lyt.addWidget(sec_export)
-
-        # ── 3. HIZLI İŞLEMLER & GÖRÜNÜM ──
-        sec_tools = CollapsibleSection("⚡ HIZLI İŞLEMLER", is_expanded=True)
-
-        btn_refresh = QPushButton("🔄 Verileri Yenile (F5)")
-        btn_refresh.setStyleSheet(self.btn_style())
-        btn_refresh.clicked.connect(self.refresh_active_panel)
-
-        # NOT: "Değişiklikleri Kaydet" burada YOK — Kaydet tek yerde (alt bar +
-        # sol menü bağlam eylemi). Sağ sidebarda tekrar etmesi F2'yi çiftliyordu.
-
-        btn_col_dia = QPushButton("⚙️ Sütunları Yapılandır")
-        btn_col_dia.setStyleSheet(self.btn_style("#ffffff", "#475569"))
-        btn_col_dia.clicked.connect(self.open_active_column_manager)
-
-        sec_tools.add_widget(btn_refresh)
-        sec_tools.add_widget(btn_col_dia)
-        lyt.addWidget(sec_tools)
-
-        # ── 4. DÖVİZ & KUR'A ÖZGÜ BÖLÜMLER — yalnız "Döviz & Kur" paneli
-        # aktifken görünür (bkz. switch_panel). Toplu Kur Çek ve Serbest
-        # Piyasa adres yönetimi sık kullanılan işlemler olmadığından ana
-        # araç çubuğundan buraya (ve sağ tık menüsüne) taşındı.
-        self.doviz_sag_panel_container = QWidget()
-        doviz_container_lyt = QVBoxLayout(self.doviz_sag_panel_container)
-        doviz_container_lyt.setContentsMargins(0, 0, 0, 0)
-        doviz_container_lyt.setSpacing(10)
-        doviz_container_lyt.addWidget(self._build_doviz_sag_panel_islemler())
-        doviz_container_lyt.addWidget(self._build_doviz_sag_panel_raporlar())
-        self.doviz_sag_panel_container.setVisible(False)
-        lyt.addWidget(self.doviz_sag_panel_container)
-
-        lyt.addStretch()
-        scroll.setWidget(frame)
-        self.right_panel.set_content(scroll)
+        wrap = QWidget()
+        wl = QVBoxLayout(wrap)
+        wl.setContentsMargins(4, 4, 4, 4)
+        wl.addWidget(sb)
+        self.right_panel.set_content(wrap)
         return self.right_panel
 
     def _build_doviz_sag_panel_islemler(self) -> QWidget:
         """Sağ panel > 💱 Döviz İşlemleri — Toplu Kur Çek/Sil ve Serbest Piyasa
         adres yönetimi burada toplanır; bunlar günlük değil, ara sıra
         yapılan işlemler olduğundan üst araç çubuğunu kalabalıklaştırmazlar."""
-        sec = CollapsibleSection("💱 DÖVİZ İŞLEMLERİ", is_expanded=True)
+        sec = CollapsibleSection("💱 DÖVİZ İŞLEMLERİ", is_expanded=False)
 
         lbl_style = "font-size:10px; font-weight:bold; color:#475569;"
 
@@ -2355,9 +2381,9 @@ class GeneralSettingsScreen(QWidget):
         elif self.active_panel_id == "fiyat_listeleri":
             return getattr(self, "tbl_fiyat", None)
         elif self.active_panel_id == "stok_kategoriler":
-            return getattr(self, "tbl_stok_kategori", None)
+            return getattr(self, "tbl_kategori", None)
         elif self.active_panel_id == "stok_markalar":
-            return getattr(self, "tbl_stok_marka", None)
+            return getattr(self, "tbl_marka", None)
         elif self.active_panel_id == "birim_tanimlari":
             return getattr(self, "tbl_birim", None)
         elif self.active_panel_id == "depo_tanimlari":
@@ -2714,8 +2740,30 @@ class GeneralSettingsScreen(QWidget):
             panel = builder()
             self.panels[panel_id] = panel
             self.stack.addWidget(panel)
+            self._install_panel_context_menu(panel)
 
         return self.stack
+
+    def _install_panel_context_menu(self, panel: QWidget) -> None:
+        """Düz (kendi bağlam menüsü olmayan) panellerin boş alanına sağ tık: seçili menünün işlemleri."""
+        if isinstance(panel, (AppGrid, QTableWidget)) or getattr(panel, "embedded", False):
+            return
+        panel.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        panel.customContextMenuRequested.connect(lambda pos, p=panel: self._show_panel_context_menu(p, pos))
+
+    def _show_panel_context_menu(self, source: QWidget, pos) -> None:
+        from src.desktop.managers.theme_manager import ThemeManager
+
+        menu = QMenu(self)
+        try:
+            menu.setStyleSheet(ThemeManager().get_context_menu_stylesheet())
+        except Exception:  # noqa: BLE001
+            pass
+        for label, cb in self._panel_context_actions():
+            act = menu.addAction(label)
+            act.triggered.connect(lambda _=False, c=cb: c())
+        if not menu.isEmpty():
+            menu.exec(source.mapToGlobal(pos))
 
     def switch_panel(self, panel_id: str) -> None:
         """Aktif paneli değiştirir."""
@@ -2724,8 +2772,9 @@ class GeneralSettingsScreen(QWidget):
             self.stack.setCurrentWidget(self.panels[panel_id])
 
         # Panele özgü sağ panel bölümleri — yalnız ilgili panel aktifken görünür.
-        if hasattr(self, "doviz_sag_panel_container"):
-            self.doviz_sag_panel_container.setVisible(panel_id == "doviz_kur")
+        if hasattr(self, "right_sidebar"):
+            self.right_sidebar.set_section_visible("doviz", panel_id == "doviz_kur")
+            self.right_sidebar.set_section_visible("kur_rapor", panel_id == "doviz_kur")
         if panel_id == "doviz_kur":
             self._maybe_prompt_initial_currencies()
             if getattr(self, "doviz_rapor_widget", None):
@@ -2738,13 +2787,12 @@ class GeneralSettingsScreen(QWidget):
                 b.setChecked(is_cur)
                 b.setStyleSheet(self.menu_btn_style(active=is_cur))
 
-        # Alt eylemler kutularını güncelle
-        if hasattr(self, "menu_sub_boxes"):
-            for pid, sub_box in self.menu_sub_boxes.items():
-                if pid == panel_id:
-                    sub_box.show()
-                else:
-                    sub_box.hide()
+        # İşlemler bölümünü seçili menünün işlemlerine çevir
+        if hasattr(self, "menu_sub_boxes") and panel_id in self.menu_sub_boxes:
+            for pid, other in self.menu_sub_boxes.items():
+                other.setVisible(pid == panel_id)
+            box = self.menu_sub_boxes[panel_id]
+            self.right_sidebar.set_items("islemler", [(b, label, code) for b, label, code in box.action_buttons])
 
         # Başlığı güncelle
         menu_name = next(
@@ -2758,7 +2806,8 @@ class GeneralSettingsScreen(QWidget):
         )
         if hasattr(self, "lbl_breadcrumb"):
             self.lbl_breadcrumb.setText(
-                f"⚙️ [sys.set.001] Genel Ayarlar > {menu_name}",
+                f"⚙️ [{sm.SCREEN_CODE}] Genel Ayarlar > {menu_name}"
+                + (f"  [{sm.item_code(panel_id)}]" if self.show_codes and sm.item_code(panel_id) else ""),
             )
 
         self._update_bottom_count()
@@ -2817,40 +2866,21 @@ class GeneralSettingsScreen(QWidget):
                 n = t.rowCount()
         self.lbl_bottom_count.setText(f"📊 {n} kayıt" if n is not None else "")
 
-    def _setup_table_style(self, table: QTableWidget) -> None:
-        """Tablolara TOYA kurumsal görünüm stili uygular."""
-        table.setAlternatingRowColors(True)
-        table.setSelectionBehavior(
-            QAbstractItemView.SelectionBehavior.SelectRows,
-        )
-        table.verticalHeader().setDefaultSectionSize(28)
-        table.setStyleSheet("""
-            QTableWidget {
-                border: 1px solid #cbd5e1;
-                background-color: white;
-                gridline-color: #f1f5f9;
-                border-radius: 6px;
-                font-size: 12px;
-                color: #334155;
-                alternate-background-color: #f8fafc;
-            }
-            QTableWidget::item { padding: 4px 8px; }
-            QTableWidget::item:selected {
-                background-color: #eff6ff;
-                color: #1d4ed8;
-                font-weight: 600;
-            }
-            QHeaderView::section {
-                background-color: #f8fafc;
-                color: #475569;
-                padding: 6px 8px;
-                border: none;
-                border-right: 1px solid #cbd5e1;
-                border-bottom: 2px solid #cbd5e1;
-                font-weight: bold;
-                font-size: 11px;
-            }
-        """)
+    @staticmethod
+    def _tr_upper(text: str) -> str:
+        return text.replace("i", "İ").replace("ı", "I").upper()
+
+    def _new_grid(self, name: str, labels: list[str], stretch: int | None = None, editable: bool = True) -> AppGrid:
+        """Standart proje grid'i (AppGrid): merkezi tema renk/yazı tipi/satır yüksekliği, başlık sağ tık menüsü ve
+        sağ tık işlemleri. `stretch` sütunu diğerlerinin 3 katı genişlik alır."""
+        weights = [3.0 if i == stretch else 1.0 for i in range(len(labels))]
+        total = sum(weights)
+        pid = f"dbgrid_ayar_{name}"
+        GRID_PRESETS.pop(pid, None)   # yetki matrisi gibi dinamik sütunlar için her seferinde yeniden kaydedilir
+        register_preset(pid, [self._tr_upper(x) for x in labels], [w / total for w in weights], name=name)
+        grid = AppGrid(pid, editable=editable)
+        grid.context_actions_provider = self._panel_context_actions
+        return grid
 
     # ─────────────────────────────────────────────────────────────
     # PANEL BUILDERS
@@ -2884,14 +2914,7 @@ class GeneralSettingsScreen(QWidget):
         lbl_info.setStyleSheet("color:#64748b; font-size:11px;")
         lyt.addWidget(lbl_info)
 
-        self.tbl_sube = QTableWidget(0, 5)
-        self.tbl_sube.setHorizontalHeaderLabels([
-            "Şube Kodu", "Şube Adı", "İlgili Firma", "Yetkili", "Durum",
-        ])
-        self._setup_table_style(self.tbl_sube)
-        self.tbl_sube.horizontalHeader().setSectionResizeMode(
-            1, QHeaderView.ResizeMode.Stretch,
-        )
+        self.tbl_sube = self._new_grid('tbl_sube', ['Şube Kodu', 'Şube Adı', 'İlgili Firma', 'Yetkili', 'Durum'], stretch=1)
 
         default_subeler = [
             ("01", "MERKEZ ŞUBE", "Toya ERP A.Ş.", "Ahmet Yılmaz", "Aktif"),
@@ -2936,12 +2959,10 @@ class GeneralSettingsScreen(QWidget):
         role_perms = {r.name: set(svc.permissions_of(r)) for r in roles}
 
         codes = [f"{m}.{a}" for m, _mn, acts in PERMISSION_GROUPS for a, _an in acts]
-        self.tbl_yetkiler = QTableWidget(len(codes), 1 + len(roles))
-        self.tbl_yetkiler.setHorizontalHeaderLabels(["Yetki"] + [r.name for r in roles])
-        self._setup_table_style(self.tbl_yetkiler)
-        self.tbl_yetkiler.horizontalHeader().setSectionResizeMode(
-            0, QHeaderView.ResizeMode.Stretch,
+        self.tbl_yetkiler = self._new_grid(
+            "tbl_yetkiler", ["Yetki"] + [r.name for r in roles], stretch=0, editable=False,
         )
+        self.tbl_yetkiler.setRowCount(len(codes))
         for row, code in enumerate(codes):
             self.tbl_yetkiler.setItem(row, 0, QTableWidgetItem(permission_label(code)))
             for col, r in enumerate(roles, start=1):
@@ -3467,12 +3488,9 @@ class GeneralSettingsScreen(QWidget):
         araç çubuğundan sağ panele taşındı; bu eylem o paneli açar."""
         if hasattr(self, "right_panel"):
             self.right_panel.open_panel()
-        if hasattr(self, "doviz_sag_panel_container"):
-            self.doviz_sag_panel_container.setVisible(True)
-        for child in self.findChildren(CollapsibleSection):
-            if child.title_text == "💱 DÖVİZ İŞLEMLERİ":
-                child.set_expanded(True)
-                break
+        if hasattr(self, "right_sidebar"):
+            self.right_sidebar.set_section_visible("doviz", True)
+            self.right_sidebar.section("doviz").set_expanded(True)
 
     def _open_yeni_doviz_dialog(self) -> None:
         exclude_codes = set()
@@ -3600,14 +3618,7 @@ class GeneralSettingsScreen(QWidget):
         lbl_info.setWordWrap(True)
         lyt.addWidget(lbl_info)
 
-        self.tbl_donem = QTableWidget(0, 4)
-        self.tbl_donem.setHorizontalHeaderLabels([
-            "Dönem Kodu", "Başlangıç Tarihi", "Bitiş Tarihi", "Durum",
-        ])
-        self._setup_table_style(self.tbl_donem)
-        self.tbl_donem.horizontalHeader().setSectionResizeMode(
-            0, QHeaderView.ResizeMode.Stretch,
-        )
+        self.tbl_donem = self._new_grid('tbl_donem', ['Dönem Kodu', 'Başlangıç Tarihi', 'Bitiş Tarihi', 'Durum'], stretch=0)
 
         import datetime as _dt
         yil = _dt.datetime.now().year
@@ -3635,14 +3646,7 @@ class GeneralSettingsScreen(QWidget):
         lbl_info.setStyleSheet("color:#64748b; font-size:11px;")
         lyt.addWidget(lbl_info)
 
-        self.tbl_odeme = QTableWidget(0, 5)
-        self.tbl_odeme.setHorizontalHeaderLabels([
-            "Kod", "Açıklama", "Gün", "Ödeme Tipi", "Durum",
-        ])
-        self._setup_table_style(self.tbl_odeme)
-        self.tbl_odeme.horizontalHeader().setSectionResizeMode(
-            1, QHeaderView.ResizeMode.Stretch,
-        )
+        self.tbl_odeme = self._new_grid('tbl_odeme', ['Kod', 'Açıklama', 'Gün', 'Ödeme Tipi', 'Durum'], stretch=1)
 
         default_planlar = [
             ("30GVD", "30 GÜN VADE", "30", "Açık Hesap", "Aktif"),
@@ -3680,14 +3684,7 @@ class GeneralSettingsScreen(QWidget):
         lbl_info.setStyleSheet("color:#64748b; font-size:11px;")
         lyt.addWidget(lbl_info)
 
-        self.tbl_fiyat = QTableWidget(0, 5)
-        self.tbl_fiyat.setHorizontalHeaderLabels([
-            "Liste Kodu", "Liste Adı", "Para Birimi", "KDV Durumu", "Durum",
-        ])
-        self._setup_table_style(self.tbl_fiyat)
-        self.tbl_fiyat.horizontalHeader().setSectionResizeMode(
-            1, QHeaderView.ResizeMode.Stretch,
-        )
+        self.tbl_fiyat = self._new_grid('tbl_fiyat', ['Liste Kodu', 'Liste Adı', 'Para Birimi', 'KDV Durumu', 'Durum'], stretch=1)
 
         default_fiyatlar = [
             ("PERAKENDE", "Perakende Satış Fiyatı", "TRY", "KDV Dahil", "Aktif"),
@@ -3713,14 +3710,7 @@ class GeneralSettingsScreen(QWidget):
         lbl_info.setStyleSheet("color:#64748b; font-size:11px;")
         lyt.addWidget(lbl_info)
 
-        self.tbl_kategori = QTableWidget(0, 3)
-        self.tbl_kategori.setHorizontalHeaderLabels([
-            "Kategori Adı", "Üst Kategori", "Durum",
-        ])
-        self._setup_table_style(self.tbl_kategori)
-        self.tbl_kategori.horizontalHeader().setSectionResizeMode(
-            0, QHeaderView.ResizeMode.Stretch,
-        )
+        self.tbl_kategori = self._new_grid('tbl_kategori', ['Kategori Adı', 'Üst Kategori', 'Durum'], stretch=0)
 
         default_kategoriler = [
             ("Elektronik", "-", "Aktif"),
@@ -3753,14 +3743,7 @@ class GeneralSettingsScreen(QWidget):
         lbl_info.setStyleSheet("color:#64748b; font-size:11px;")
         lyt.addWidget(lbl_info)
 
-        self.tbl_marka = QTableWidget(0, 4)
-        self.tbl_marka.setHorizontalHeaderLabels([
-            "Marka Kodu", "Marka Adı", "Ülke / Üretici", "Durum",
-        ])
-        self._setup_table_style(self.tbl_marka)
-        self.tbl_marka.horizontalHeader().setSectionResizeMode(
-            1, QHeaderView.ResizeMode.Stretch,
-        )
+        self.tbl_marka = self._new_grid('tbl_marka', ['Marka Kodu', 'Marka Adı', 'Ülke / Üretici', 'Durum'], stretch=1)
 
         default_markalar = [
             ("MRK-01", "Samsung", "Güney Kore", "Aktif"),
@@ -3790,12 +3773,7 @@ class GeneralSettingsScreen(QWidget):
         lbl_info.setStyleSheet("color:#64748b; font-size:11px;")
         lyt.addWidget(lbl_info)
 
-        self.tbl_birim = QTableWidget(0, 3)
-        self.tbl_birim.setHorizontalHeaderLabels(["Kod", "Açıklama", "Durum"])
-        self._setup_table_style(self.tbl_birim)
-        self.tbl_birim.horizontalHeader().setSectionResizeMode(
-            1, QHeaderView.ResizeMode.Stretch,
-        )
+        self.tbl_birim = self._new_grid('tbl_birim', ['Kod', 'Açıklama', 'Durum'], stretch=1)
 
         default_units = [
             ("ADET", "Adet", "Aktif"),
@@ -3838,14 +3816,7 @@ class GeneralSettingsScreen(QWidget):
         lbl_info.setStyleSheet("color:#64748b; font-size:11px;")
         lyt.addWidget(lbl_info)
 
-        self.tbl_depo = QTableWidget(0, 4)
-        self.tbl_depo.setHorizontalHeaderLabels([
-            "Depo Kodu", "Depo Adı", "Adres", "Durum",
-        ])
-        self._setup_table_style(self.tbl_depo)
-        self.tbl_depo.horizontalHeader().setSectionResizeMode(
-            1, QHeaderView.ResizeMode.Stretch,
-        )
+        self.tbl_depo = self._new_grid('tbl_depo', ['Depo Kodu', 'Depo Adı', 'Adres', 'Durum'], stretch=1)
 
         default_depolar = [
             ("2001", "MERKEZ DEPO", "Merkez", "Aktif"),
@@ -3944,14 +3915,7 @@ class GeneralSettingsScreen(QWidget):
         lbl_info.setStyleSheet("color:#64748b; font-size:11px;")
         lyt.addWidget(lbl_info)
 
-        self.tbl_cari_grup = QTableWidget(0, 5)
-        self.tbl_cari_grup.setHorizontalHeaderLabels([
-            "Grup Kodu", "Grup Adı", "İskonto (%)", "Vade (Gün)", "Durum",
-        ])
-        self._setup_table_style(self.tbl_cari_grup)
-        self.tbl_cari_grup.horizontalHeader().setSectionResizeMode(
-            1, QHeaderView.ResizeMode.Stretch,
-        )
+        self.tbl_cari_grup = self._new_grid('tbl_cari_grup', ['Grup Kodu', 'Grup Adı', 'İskonto (%)', 'Vade (Gün)', 'Durum'], stretch=1)
 
         default_gruplar = [
             ("GRP-01", "YURT İÇİ MÜŞTERİLER", "0.00", "30", "Aktif"),
@@ -3976,7 +3940,7 @@ class GeneralSettingsScreen(QWidget):
 
     def build_surum_panel(self) -> QWidget:
         """Sürüm & Git Takibi Paneli (kabuk içinde: yalnız içerik)."""
-        self.git_tracker_tab = GitTrackerWidget(embedded=True)
+        self.git_tracker_tab = GitTrackerWidget(embedded=True, defer_load=True)
         return self.git_tracker_tab
 
     def build_eposta_smtp_panel(self) -> QWidget:
@@ -4044,9 +4008,7 @@ class GeneralSettingsScreen(QWidget):
         lyt.addWidget(self.chk_lockout_enabled)
 
         lyt.addWidget(QLabel("Kilit programı (hatalı deneme sayısı → kilit saniyesi):"))
-        self.tbl_lockout = QTableWidget(0, 2)
-        self.tbl_lockout.setHorizontalHeaderLabels(["Deneme Sayısı", "Kilit (sn)"])
-        self.tbl_lockout.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        self.tbl_lockout = self._new_grid("tbl_lockout", ["Deneme Sayısı", "Kilit (sn)"])
         self.tbl_lockout.setMaximumHeight(160)
         schedule = settings_store.get_json(self.db, KEY_LOCKOUT_SCHEDULE, DEFAULT_LOCKOUT_SCHEDULE)
         for pair in schedule:

@@ -136,3 +136,33 @@ def test_collapsible_section_set_expanded(qapp):
     assert not sec.content_frame.isHidden()
 
 
+
+
+def test_turkish_commit_messages_are_read_as_utf8_and_stale_garbled_rows_are_repaired(tmp_path, monkeypatch):
+    import subprocess
+
+    from src.desktop.services import git_service as gs
+
+    if gs.find_git() is None:
+        return
+    repo = tmp_path / "r"
+    repo.mkdir()
+    g = gs.find_git()
+    for args in (["init", "-q", "-b", "main"], ["config", "user.name", "Test"], ["config", "user.email", "t@e.com"]):
+        subprocess.run([g, *args], cwd=repo, check=True)
+    (repo / "a.txt").write_text("1", encoding="utf-8")
+    subprocess.run([g, "add", "-A"], cwd=repo, check=True)
+    subprocess.run([g, "commit", "-q", "-m", "GİT için geliştirmeler — ğüşiöç"], cwd=repo, check=True)
+    monkeypatch.chdir(repo)
+    monkeypatch.setattr(git_tracker, "DB_PATH", str(tmp_path / "gt.db"))
+    git_tracker.init_db()
+    git_tracker.sync_git_history()
+    conn = git_tracker.get_db_connection()
+    assert conn.execute("SELECT message FROM git_commits").fetchone()[0] == "GİT için geliştirmeler — ğüşiöç"
+    conn.execute("UPDATE git_commits SET message = 'GÃ°T iÃ§in bozuk'")           # eski kodlama hatasından kalan kayıt
+    conn.commit()
+    conn.close()
+    git_tracker.sync_git_history()
+    conn = git_tracker.get_db_connection()
+    assert conn.execute("SELECT message FROM git_commits").fetchone()[0] == "GİT için geliştirmeler — ğüşiöç"
+    conn.close()

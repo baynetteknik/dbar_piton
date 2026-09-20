@@ -259,3 +259,16 @@ def test_profile_is_seeded_from_existing_origin(dbfile, env):
     conn.close()
     seeded = store.seed_from_repo(svc)
     assert seeded and "ghp_TOK" not in seeded["repo_url"]  # eski gömülü token profile taşınmaz
+
+
+def test_forget_credentials_removes_stale_entries_for_the_remote_host_only(env, tmp_path):
+    _remote, a, _b = env
+    svc = gs.GitService(a)
+    svc.run(["remote", "set-url", "origin", "https://github.com/baynetteknik/dbar_piton.git"])
+    store = tmp_path / "creds.txt"
+    helper = f"store --file={store.as_posix()}"
+    svc.store_token("https://github.com/x/y.git", "eski", "eski-parola", helper=helper)
+    svc.store_token("https://gitlab.com/x/y.git", "baska", "baska-parola", helper=helper)
+    svc.forget_credentials(helper)
+    text = store.read_text(encoding="utf-8")
+    assert "eski-parola" not in text and "baska-parola" in text          # yalnızca github.com kaydı silindi

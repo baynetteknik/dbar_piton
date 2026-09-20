@@ -245,8 +245,9 @@ class GitService:
         }
 
     # ------------------------------------------------------------------ tavsiye
-    def sync_advice(self) -> Advice:
-        """Aidat'taki getSyncAdvice: tek bakışta ne yapılması gerektiği."""
+    def sync_advice(self, cmp: dict[str, Any] | None = None) -> Advice:
+        """Aidat'taki getSyncAdvice: tek bakışta ne yapılması gerektiği. Önceden hesaplanmış `comparison()` verilirse
+        git yeniden çalıştırılmaz (her çağrı birkaç git süreci demektir)."""
         if not self.available():
             return Advice("danger", "Git bulunamadı", "git.exe kurulu ve PATH'te olmalı.")
         if not self.is_repo():
@@ -254,7 +255,7 @@ class GitService:
         if not self.remote_url():
             return Advice("warning", "Uzak depo tanımlı değil",
                           "Yedek almak için bir bağlantı profili ekleyip etkinleştirin.", "remote", "Profil Ekle")
-        info = self.comparison()
+        info = cmp if cmp is not None else self.comparison()
         ab, n = info["remote"], info["summary"]["total"]
         last = self.commit_history(1)
         ago = time_ago(last[0]["date"]) if last else "Henüz commit yok"
@@ -326,10 +327,20 @@ class GitService:
             self.run(["config", "credential.helper", "manager"])  # Git Credential Manager
         return True, "Profil uygulandı."
 
+    def forget_credentials(self, helper: str | None = None) -> None:
+        """Bu uzak sunucu için kayıtlı (eski/geçersiz) kimlik bilgilerini kimlik deposundan siler."""
+        m = re.match(r"^https?://([^/@]+@)?([^/]+)", strip_url_credentials(self.remote_url()))
+        if m:
+            cfg = [f"credential.helper={helper}"] if helper else None
+            self.run(["credential", "reject"], input_text=f"protocol=https\nhost={m.group(2)}\n\n", config=cfg)
+
     def login_with_browser(self, timeout: int = 300) -> tuple[bool, str]:
-        """Git Credential Manager'ı tetikler: tarayıcı açılır, kullanıcı GitHub'da (Google ile) oturum açar."""
+        """Git Credential Manager'ı tetikler: tarayıcı açılır, kullanıcı GitHub'da (Google ile) oturum açar.
+        Önce eski/geçersiz kayıtlı kimlik silinir (aksi halde Git eski parolayı yollayıp 'Password authentication
+        is not supported' hatası alır)."""
         if not self.remote_url():
             return False, "Önce bir profil etkinleştirin (uzak depo tanımlı değil)."
+        self.forget_credentials("manager")
         r = self.run(["ls-remote", "--heads", "origin"], timeout=timeout, env={"GCM_INTERACTIVE": "always"},
                      config=["credential.helper=manager"])
         if r.ok:

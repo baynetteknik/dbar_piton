@@ -7,6 +7,7 @@ genişletip daraltmayı sağlar.
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtWidgets import (
     QFrame,
+    QLabel,
     QPushButton,
     QVBoxLayout,
     QWidget,
@@ -36,6 +37,15 @@ class CollapsibleSection(QWidget):
         if compact:
             self.header_btn.setFixedHeight(22)
         main_layout.addWidget(self.header_btn)
+
+        # Kod rozeti (isteğe bağlı): başlığın hemen altında küçük hap biçiminde
+        self.code_label = QLabel()
+        self.code_label.setStyleSheet(
+            "background:#eef2ff; color:#4f46e5; border:1px solid #c7d2fe; border-radius:6px; padding:0px 6px;"
+            " font-size:8px; font-weight:700; font-family:'Consolas','Segoe UI'; margin-left:8px; margin-top:1px;",
+        )
+        self.code_label.hide()
+        main_layout.addWidget(self.code_label, 0, Qt.AlignmentFlag.AlignLeft)
 
         # Gövde Çerçevesi
         self.content_frame = QFrame()
@@ -117,6 +127,11 @@ class CollapsibleSection(QWidget):
             self.content_frame.setVisible(self.is_expanded)
             self.update_style()
             self.toggled.emit(self.is_expanded)
+
+    def set_code(self, code: str):
+        """Başlık altındaki kod rozetini ayarlar; boş metin rozeti gizler."""
+        self.code_label.setText(code or "")
+        self.code_label.setVisible(bool(code))
 
     def set_title(self, title: str):
         """Bölüm başlık metnini günceller."""

@@ -157,7 +157,9 @@ class GitTrackerScreen(ThreePanelBaseWidget):
     FilterableTableView, CollapsibleSection, Sayfalama) sahiptir.
     """
 
-    def __init__(self, db_session=None, parent=None, embedded: bool = False):
+    def __init__(self, db_session=None, parent=None, embedded: bool = False, defer_load: bool = False):
+        self._defer_load = defer_load          # True: veriler ekran İLK gösterilince yüklenir (ayarlar kabuğu açılışı yavaşlamasın)
+        self._loaded_once = not defer_load
         self.active_view_mode = "commits"  # 'commits', 'tasks', 'changes'
         self.worker: git_tracker.GitWorker | None = None
         self._raw_records: list[dict[str, Any]] = []
@@ -176,7 +178,15 @@ class GitTrackerScreen(ThreePanelBaseWidget):
         self.profile_manager = ProfileManager(profile_key=self.profile_key)
         self._inject_stage_progress_and_console()
         self.load_sidebar_profiles()
-        self.load_data()
+        if not defer_load:
+            self.load_data()
+
+    def showEvent(self, event):  # noqa: N802
+        super().showEvent(event)
+        if not self._loaded_once:
+            self._loaded_once = True
+            self.profile_panel.reload()
+            self.load_data()
 
     def setup_headers_dict(self) -> dict[int, tuple[str, str]]:
         """Açık Tekliflerdeki gibi Kolon 0'da ☑ ve Tooltip 'Seçim Yapın' bulunur."""
@@ -308,7 +318,7 @@ class GitTrackerScreen(ThreePanelBaseWidget):
 
         # 2. GRUP: BAĞLANTI PROFİLLERİ (depo + kimlik; Google girişi, test)
         self.sec_repos_users = CollapsibleSection("BAĞLANTI PROFİLLERİ", is_expanded=True)
-        self.profile_panel = GitProfilePanelWidget(self.git_service)
+        self.profile_panel = GitProfilePanelWidget(self.git_service, autoload=not self._defer_load)
         self.profile_panel.worker_requested.connect(self._on_profile_worker_requested)
         self.profile_panel.changed.connect(self.load_data)
         self.profile_panel.message.connect(self._on_profile_message)
@@ -962,8 +972,9 @@ class GitTrackerScreen(ThreePanelBaseWidget):
     def refresh_advice(self):
         """Eşitleme tavsiyesi ve değişiklik özeti (ağ kullanmaz; uzak durum için önce Fetch gerekir)."""
         try:
-            self.advisor.set_advice(self.git_service.sync_advice())
-            self.change_summary.set_comparison(self.git_service.comparison())
+            cmp = self.git_service.comparison()          # tek hesap: tavsiye ve özet aynı veriyi kullanır
+            self.advisor.set_advice(self.git_service.sync_advice(cmp if cmp.get("ok") else None))
+            self.change_summary.set_comparison(cmp)
         except Exception:  # noqa: BLE001 - tavsiye kartı ekranı bozmamalı
             logger.exception("Git tavsiyesi hesaplanamadı")
 

@@ -60,6 +60,8 @@ def run_git_cmd(args: list[str], **kwargs) -> subprocess.CompletedProcess | None
     try:
         kwargs.setdefault("capture_output", True)
         kwargs.setdefault("text", True)
+        kwargs.setdefault("encoding", "utf-8")   # git çıktısı UTF-8; varsayılan (cp1254) Türkçe commit mesajlarını bozuyordu
+        kwargs.setdefault("errors", "replace")
         kwargs.setdefault("check", False)
         if os.name == "nt":
             startupinfo = subprocess.STARTUPINFO()
@@ -377,8 +379,9 @@ def sync_git_history():
                         else:
                             # Update status
                             cursor.execute("""
-                                UPDATE git_commits SET pushed_status = ?, synced_at = ? WHERE commit_hash = ?
-                            """, (pushed_status, now_str, chash))
+                                UPDATE git_commits SET pushed_status = ?, synced_at = ?, message = ?, author = ?
+                                WHERE commit_hash = ?
+                            """, (pushed_status, now_str, msg, author, chash))   # mesaj da yenilenir: eski kodlama hatasıyla bozuk kaydedilenler düzelir
 
                 conn.commit()
     except Exception as e:

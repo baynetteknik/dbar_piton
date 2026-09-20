@@ -31,8 +31,13 @@ class AppGrid(QTableWidget):
         custom_row_height: int | None = None, 
         custom_header_height: int | None = None,
         parent=None,
+        editable: bool = False,
     ):
         super().__init__(parent)
+        #: Sağ tık menüsünün en üstüne eklenecek (metin, geri çağrı) çiftlerini döndüren sağlayıcı.
+        #: Ayarlar ekranlarında sağ paneldeki işlemlerin aynısını tabloda da sunmak için kullanılır.
+        self.context_actions_provider = None
+        self._editable = editable
         
         self.preset_id = preset
         self.preset_config = get_preset(preset)
@@ -78,7 +83,14 @@ class AppGrid(QTableWidget):
         self.setShowGrid(True)
         self.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self.setSelectionMode(QTableWidget.SelectionMode.ExtendedSelection)
-        self.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        if self._editable:   # tanım tabloları (hücre içi düzenleme)
+            self.setEditTriggers(
+                QTableWidget.EditTrigger.DoubleClicked
+                | QTableWidget.EditTrigger.EditKeyPressed
+                | QTableWidget.EditTrigger.AnyKeyPressed,
+            )
+        else:
+            self.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.setWordWrap(False)
         
@@ -248,7 +260,15 @@ class AppGrid(QTableWidget):
     def _show_context_menu(self, pos):
         menu = QMenu(self)
         menu.setStyleSheet(self.theme.get_context_menu_stylesheet())
-        
+
+        extra = self.context_actions_provider() if callable(self.context_actions_provider) else []
+        for label, callback in extra:
+            act = QAction(label, menu)
+            act.triggered.connect(lambda _=False, cb=callback: cb())
+            menu.addAction(act)
+        if extra:
+            menu.addSeparator()
+
         copy_action = QAction("📋 Seçili Hücreleri Kopyala", self)
         copy_action.setShortcut(QKeySequence.StandardKey.Copy)
         copy_action.triggered.connect(self._copy_selected_cells)
