@@ -108,6 +108,69 @@ def test_stok_editor_number_fields(qapp, db):
     assert out["vat_rate"] == 10 and out["stock"] == 7
 
 
+# ---- Standart kart (tpl.card.001) ----
+def test_cari_editor_standard_header_and_finance_fields(qapp, db):
+    from src.core.models import PaymentPlan
+    from src.desktop.ui.screens.cari_editor import CariEditorDialog
+    db.add(PaymentPlan(code="P30", description="30 Gün Vadeli"))
+    db.commit()
+
+    dlg = CariEditorDialog(db_session=db)
+    assert dlg.editor.tabw.count() == 3             # Stok Kartı ile aynı çok kolonlu düzen
+    dlg.editor._widgets["customer_code"].setText("CR-9")
+    dlg.editor._widgets["fullname"].setPlainText("ACME LTD")
+    dlg.editor._widgets["risk_limit"].setValue(5000)
+    dlg.editor._widgets["payment_plan_name"].setCurrentText("30 Gün Vadeli")
+    assert "CR-9" in dlg.editor.lbl_record.text()
+    assert dlg.editor.cmb_header_status.currentText() == "Aktif"  # Stok'taki gibi tekrarsız
+
+    dlg.editor._on_save()
+    c = db.query(Customer).filter_by(customer_code="CR-9").first()
+    assert c.risk_limit == 5000 and c.payment_plan_id is not None
+    assert c.balance == 0.0                        # karttan yazılmaz
+
+
+def test_cari_editor_loads_payment_plan_name(qapp, db):
+    from src.core.models import PaymentPlan
+    from src.desktop.ui.screens.cari_editor import CariEditorDialog
+    pp = PaymentPlan(code="P60", description="60 Gün")
+    db.add(pp)
+    db.commit()
+    c = Customer(fullname="X", marketplace="local", customer_code="C1",
+                 payment_plan_id=pp.id)
+    db.add(c)
+    db.commit()
+
+    dlg = CariEditorDialog(db_session=db, customer_id=c.id)
+    assert dlg.editor._widgets["payment_plan_name"].currentText() == "60 Gün"
+
+
+def test_stok_editor_standard(qapp, db):
+    from src.desktop.ui.screens.stok_kart_editor import StokKartEditorDialog
+    p = Product(sku="STK-Z", name="Kamera", stock=42)
+    db.add(p)
+    db.commit()
+
+    dlg = StokKartEditorDialog(db_session=db, product_id=p.id)
+    assert dlg.editor.tabw.count() == 5              # yeni çok kolonlu düzen
+    assert dlg.editor._nav_sidebar is True           # sol nav (İşlemler/Raporlar) var
+    assert dlg.editor._summary_widget is not None
+    assert "stock" not in dlg.editor._widgets        # Mevcut Stok formdan kaldırıldı
+    assert "is_active" not in dlg.editor._widgets    # Aktif yalnızca header'da (tekrar yok)
+    assert dlg.editor.cmb_header_status.currentText() == "Aktif"
+    assert dlg.summary.lbl_kpi_value.text() == "42"  # mevcut stok özet panelinden okunur
+
+    dlg.editor._widgets["product_type"].setCurrentText("Hizmet")
+    dlg.editor._widgets["base_price"].setValue(1850)
+    dlg.editor._refresh_summary()
+    assert "STK-Z" in dlg.editor.lbl_record.text() and "Kamera" in dlg.editor.lbl_record.text()
+    assert dlg.summary.lbl_kpi_value.text() == "42"  # form alanı olmadığı için değişmez
+
+    dlg.editor._on_save()
+    assert p.product_type == "Hizmet" and p.currency == "TRY"
+    assert p.base_price == 1850 and p.stock == 42    # stok karttan değil hareketlerden yönetilir
+
+
 # ---- Liste ekranları + yetki ----
 def test_cari_list_screen_loads_and_gates(qapp, db):
     from src.desktop.ui.cari_list_screen import CariListScreen

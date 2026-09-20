@@ -44,6 +44,7 @@ class DesignerItemWidget(QWidget):
         self._drag_orig_geom = QRect()
 
         self.setMouseTracking(True)
+        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.update_geometry_from_model()
 
     def set_snap_grid(self, grid_mm: float):
@@ -115,6 +116,7 @@ class DesignerItemWidget(QWidget):
 
     def mousePressEvent(self, event):
         if event.button() == Qt.MouseButton.LeftButton:
+            self.setFocus(Qt.FocusReason.MouseFocusReason)
             self.set_selected(True)
             self.selected.emit(self)
 
@@ -182,6 +184,41 @@ class DesignerItemWidget(QWidget):
             self._active_handle = None
             self.update_model_from_geometry()
             event.accept()
+
+    #: Klavye ile milimetrik ince ayar (Ctrl+Ok: taşı, Ctrl+Alt+Ok: boyutlandır)
+    NUDGE_STEP_MM = 1.0
+    _ARROW_DELTAS = {
+        Qt.Key.Key_Left: (-1, 0),
+        Qt.Key.Key_Right: (1, 0),
+        Qt.Key.Key_Up: (0, -1),
+        Qt.Key.Key_Down: (0, 1),
+    }
+
+    def keyPressEvent(self, event):
+        delta = self._ARROW_DELTAS.get(event.key())
+        mods = event.modifiers()
+        if (
+            not self.is_selected
+            or delta is None
+            or not (mods & Qt.KeyboardModifier.ControlModifier)
+        ):
+            super().keyPressEvent(event)
+            return
+
+        dx, dy = delta
+        step = self.NUDGE_STEP_MM
+        if mods & Qt.KeyboardModifier.AltModifier:
+            # Ctrl+Alt+Ok: genişlik/yükseklik 1 mm büyüt-küçült
+            self.item.w_mm = max(step, round(self.item.w_mm + dx * step, 2))
+            self.item.h_mm = max(step, round(self.item.h_mm + dy * step, 2))
+        else:
+            # Ctrl+Ok: konumu 1 mm taşı (sayfa dışına çıkamaz)
+            self.item.x_mm = max(0.0, round(self.item.x_mm + dx * step, 2))
+            self.item.y_mm = max(0.0, round(self.item.y_mm + dy * step, 2))
+
+        self.update_geometry_from_model()
+        self.geometry_changed.emit(self)
+        event.accept()
 
     def paintEvent(self, event):
         painter = QPainter(self)

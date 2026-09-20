@@ -516,7 +516,10 @@ class QuotationSaveService:
         return "Quotation"
 
     # Teklif Durumu (DocumentDetailScreen üst bar rozeti) <-> Quotation.status kodu
-    _STATUS_TR_TO_CODE = {"Taslak": "draft", "Kabul Edildi": "accepted", "Reddedildi": "rejected"}
+    _STATUS_TR_TO_CODE = {
+        "Taslak": "draft", "Gönderildi": "sent",
+        "Kabul Edildi": "accepted", "Reddedildi": "rejected",
+    }
     _STATUS_CODE_TO_TR = {v: k for k, v in _STATUS_TR_TO_CODE.items()}
 
     @classmethod

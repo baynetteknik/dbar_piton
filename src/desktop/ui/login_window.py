@@ -17,6 +17,7 @@ from PyQt6.QtWidgets import (
 )
 
 from src.core.security.keyring_store import get_api_key, save_api_key
+from src.desktop.services.auth_service import AuthService
 
 logger = logging.getLogger(__name__)
 
@@ -176,6 +177,19 @@ class LoginWindow(QMainWindow):
         self.remember_cb.setChecked(True)
         remember_layout.addWidget(self.remember_cb)
         remember_layout.addStretch()
+
+        # "Şifremi Unuttum" — her zaman görünür bağlantı
+        self.forgot_btn = QPushButton("🔑 Şifremi Unuttum")
+        self.forgot_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.forgot_btn.setStyleSheet(
+            "QPushButton{background:transparent; color:#f97316; border:none;"
+            " font-size:11px; text-decoration:underline;}"
+            "QPushButton:hover{color:#fb923c;}",
+        )
+        self.forgot_btn.clicked.connect(
+            lambda: self._open_recovery(self.username_input.currentText().strip()),
+        )
+        remember_layout.addWidget(self.forgot_btn)
         form_layout.addLayout(remember_layout)
 
         layout.addWidget(form_widget)
@@ -302,6 +316,14 @@ class LoginWindow(QMainWindow):
         local = self._is_local()
         self.local_box.setVisible(local)
         self.remote_box.setVisible(not local)
+        # Yerel modda kullanıcı adı yalnızca listeden seçilir; uzak CMS'te serbest metin.
+        has_users = self.username_input.count() > 0
+        strict = local and has_users
+        self.username_input.setEditable(not strict)
+        if not strict and self.username_input.lineEdit() is not None:
+            self.username_input.lineEdit().setPlaceholderText(
+                "Kullanıcı adınızı girin veya seçin",
+            )
 
     def _populate_users(self):
         """Kullanıcı kutusunu DB'deki aktif kullanıcılarla doldurur."""
@@ -358,25 +380,33 @@ class LoginWindow(QMainWindow):
         self.connect_btn.setEnabled(False)
 
         if self.db:
-            import hashlib
-
-            from src.core.models import User
-            
             try:
-                salt = "multi_cms_salt_key"
-                password_hash = hashlib.sha256((password + salt).encode("utf-8")).hexdigest()
-                
-                user = self.db.query(User).filter(
-                    User.username == username,
-                    User.password_hash == password_hash,
-                    User.is_active == True,
-                ).first()
-                
-                if not user:
-                    self._show_status("Kullanici adi veya sifre hatali!", "error")
+                auth = AuthService(self.db)
+
+                # Kilit kontrolü — kilitliyse denemeye bile girme
+                locked, remaining = auth.lockout_status(username)
+                if locked:
                     self.connect_btn.setEnabled(True)
+                    self._show_status(f"Giriş {remaining} sn kilitli.", "error")
+                    self._show_login_popup(
+                        "Çok sayıda hatalı deneme. Giriş geçici olarak kilitlendi.",
+                        "locked", remaining, username,
+                    )
                     return
-                
+
+                result = auth.authenticate(username, password)
+                if not result.success:
+                    self.connect_btn.setEnabled(True)
+                    self._show_status(result.error or "Giriş başarısız.", "error")
+                    self._show_login_popup(
+                        result.error or "Kullanıcı adı veya şifre hatalı.",
+                        result.error_kind or "bad_password",
+                        result.remaining_seconds,
+                        username,
+                    )
+                    return
+
+                user = result.user
                 self._show_status("Giris basarili!", "success")
 
                 # Rol tabanlı yetkileri DB'den yükle ve giriş yapan kullanıcıyı ata
@@ -463,6 +493,36 @@ class LoginWindow(QMainWindow):
         }
         self.login_success.emit(self._result)
         self.close()
+
+    def _show_login_popup(self, message: str, kind: str, remaining: int, username: str):
+        """Hatalı giriş / kilit uyarı penceresini gösterir."""
+        from src.desktop.ui.widgets.login_error_popup import LoginErrorPopup
+
+        popup = LoginErrorPopup(
+            db_session=self.db, message=message, error_kind=kind,
+            locked_remaining=remaining, parent=self,
+        )
+        popup.forgot_requested.connect(lambda: self._open_recovery(username))
+        popup.exec()
+
+    def _open_recovery(self, username: str = ""):
+        """'Şifremi Unuttum' akışını açar."""
+        if not self.db:
+            self._show_status("Kurtarma için veritabanı bağlantısı gerekli.", "error")
+            return
+        from src.desktop.ui.widgets.password_recovery_dialog import PasswordRecoveryDialog
+
+        dlg = PasswordRecoveryDialog(
+            db_session=self.db, preselect_username=username, parent=self,
+        )
+        dlg.reset_done.connect(self._on_recovery_done)
+        dlg.exec()
+
+    def _on_recovery_done(self, username: str):
+        self.username_input.setCurrentText(username)
+        self.password_input.clear()
+        self.password_input.setFocus()
+        self._show_status("Parolanız güncellendi. Yeni parolayla giriş yapın.", "success")
 
     def _show_status(self, msg: str, level: str = "info"):
         colors = {"info": "#64748b", "success": "#10b981", "error": "#ef4444"}

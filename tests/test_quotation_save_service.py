@@ -218,3 +218,25 @@ def test_save_service_no_db():
     result = service.save_from_dialog(None)
     assert result.success is False
     assert "Veritabanı bağlantısı yok" in result.error
+
+
+def test_save_payload_links_real_customer(db_session: Session):
+    """DocumentDetailScreen payload'unda cari.customer.id verilince Quotation.customer_id yazılır."""
+    cust = Customer(customer_code="C-77", fullname="GERÇEK CARİ", marketplace="local")
+    db_session.add(cust)
+    db_session.commit()
+
+    svc = QuotationSaveService(db_session=db_session, company_id=1)
+    payload = {
+        "doc_type": "Teklif",
+        "doc_no": "",
+        "cari": {"name": "GERÇEK CARİ", "customer": {"id": cust.id}},
+        "belge_vade": {}, "finans": {}, "toplam": {},
+        "lines": [{"kod": "X1", "aciklama": "Kalem", "_num": {"miktar": 2, "birim_fiyat": 100}}],
+        "notlar": ("", ""),
+        "status": "Taslak",
+    }
+    res = svc.save_payload(payload)
+    assert res.success
+    q = db_session.get(Quotation, res.quotation_id)
+    assert q.customer_id == cust.id

@@ -26,6 +26,10 @@ CUSTOMER_FIELDS = [
     "address", "address2", "district", "city", "region", "postcode", "country",
     "tax_office", "tax_number",
     "special_code_1", "special_code_2", "special_code_3", "notes",
+    # Finans & Risk (tpl.card.001)
+    "customer_type", "currency", "payment_plan_id", "price_list_id",
+    "risk_limit", "default_discount", "balance", "is_efatura",
+    "photo_path",
 ]
 
 
@@ -137,5 +141,8 @@ class CustomerService:
     def blank_customer() -> dict:
         d = {f: None for f in CUSTOMER_FIELDS}
         d.update({"customer_code": "", "fullname": "", "country": "TÜRKİYE",
-                  "status": 1, "is_active": True, "group_name": "Müşteri"})
+                  "status": 1, "is_active": True, "group_name": "Müşteri",
+                  "customer_type": "Müşteri", "currency": "TRY",
+                  "risk_limit": 0.0, "default_discount": 0.0, "balance": 0.0,
+                  "is_efatura": False})
         return d

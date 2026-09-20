@@ -1,0 +1,11 @@
+# Kaynak, şema, test ve yapılandırma dosyaları web'den erişilemez olmalı.
+# (Tercihen yalnızca portal/public klasörünü alan adının kök dizini yapın.)
+RewriteEngine On
+RewriteRule ^(src|sql|tests|migrations|bin|storage|update_inbox)(/|$) - [F,L]
+RewriteRule ^config(\.sample|\.local)?\.php$ - [F,L]
+# Softaculous betikleri yalnızca Softaculous'un çalıştırması içindir (web'den açılmaz).
+RewriteRule ^(install|upgrade)\.php$ - [F,L]
+RewriteRule ^(info|install)\.xml$ - [F,L]
+<FilesMatch "^config(\.sample|\.local)?\.php$">
+  Require all denied
+</FilesMatch>

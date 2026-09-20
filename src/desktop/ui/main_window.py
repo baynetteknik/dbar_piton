@@ -125,9 +125,15 @@ class MenuPopup(QFrame):
         """)
         layout.addWidget(cat_lbl)
 
+        implemented = getattr(self.parent_widget, "IMPLEMENTED_MODULES", None)
         for item in items:
-            btn = QPushButton(item)
-            btn.setCursor(Qt.CursorShape.PointingHandCursor)
+            is_ready = implemented is None or item in implemented
+            btn = QPushButton(item if is_ready else f"{item} (Yakında)")
+            btn.setCursor(
+                Qt.CursorShape.PointingHandCursor if is_ready
+                else Qt.CursorShape.ForbiddenCursor,
+            )
+            btn.setEnabled(is_ready)
             btn.setStyleSheet("""
                 QPushButton {
                     text-align: left;
@@ -147,8 +153,12 @@ class MenuPopup(QFrame):
                 QPushButton:pressed {
                     background-color: #1d4ed8;
                 }
+                QPushButton:disabled {
+                    color: #93a5c9;
+                }
             """)
-            btn.clicked.connect(lambda checked, i=item: self.item_clicked(i))
+            if is_ready:
+                btn.clicked.connect(lambda checked, i=item: self.item_clicked(i))
             layout.addWidget(btn)
 
         self.adjustSize()
@@ -323,6 +333,24 @@ class MainWindow(QMainWindow):
         self.favoriler = [self.tr("Ürün Yönetimi"), self.tr("Görevler"), self.tr("Teklif Yönetimi"), self.tr("Müşteriler & Cariler")]
         init_global_text_selection()
 
+        # Şu an gerçekten açılan (placeholder'a düşmeyen) modüller — ana menüde ve
+        # hızlı kısayollarda sadece bunların linki tıklanabilir olsun (madde 12).
+        self.IMPLEMENTED_MODULES = frozenset({
+            self.tr("Ana Panel"),
+            self.tr("Görevler"),
+            self.tr("Ürün Yönetimi"),
+            self.tr("Stok Yönetimi"),
+            self.tr("Genel Ayarlar"),
+            self.tr("Ekran & Grid Tanımları"),
+            self.tr("Cari Listesi (AppGrid)"),
+            self.tr("Müşteriler & Cariler"),
+            self.tr("Teklif Yönetimi"),
+            self.tr("Sipariş Yönetimi"),
+            self.tr("Faturalar"),
+            self.tr("Yeni Cari Kartı"),
+            self.tr("Yeni Teklif Hazırla"),
+        })
+
         self.menu_structure = {
             self.tr("GÖSTERGE"): ([self.tr("Ana Panel"), self.tr("Bildirimler")], "📊"),
             self.tr("CARİ"): ([self.tr("Müşteriler & Cariler"), self.tr("Cari Analiz")], "👥"),
@@ -333,6 +361,81 @@ class MainWindow(QMainWindow):
         }
 
         self.init_ui()
+        self._schedule_currency_autofetch()
+        self._schedule_portal_pull()
+
+    def _schedule_backups(self) -> None:
+        """Zamanlanmış yedek işlerini (dakikada bir) ve takılan harici diskleri (5 sn) izler; işler arka plan
+        iş parçacığında çalışır. pytest altında atlanır (bkz. `_schedule_currency_autofetch`)."""
+        import os
+
+        if os.environ.get("PYTEST_CURRENT_TEST"):
+            return
+        try:
+            from src.desktop.ui.widgets.backup_runner import BackupRunner
+            self.backup_runner = BackupRunner(self.db, self)
+            self.backup_runner.job_finished.connect(
+                lambda name, status, msg: self.show_toast(
+                    f"Yedek — {name}: {msg}", "success" if status in ("ok", "nochange") else ("warning" if status == "warning" else "error")))
+            self.backup_runner.start()
+        except Exception as exc:  # noqa: BLE001 - yedek zamanlayıcısı açılışı engellememeli
+            logger.warning("Yedek zamanlayıcısı başlatılamadı: %s", exc)
+
+    def _schedule_portal_pull(self) -> None:
+        """Online teklif portalındaki müşteri kararlarını (kabul/ret/karşı teklif)
+        açılışta ve her 10 dakikada bir çeker. Portal tanımlı değilse hiçbir şey yapmaz.
+        Ana iş parçacığında çalıştığı için kısa zaman aşımı (5 sn) kullanılır; pytest
+        altında atlanır (bkz. `_schedule_currency_autofetch`)."""
+        import os
+
+        from PyQt6.QtCore import QTimer
+
+        if os.environ.get("PYTEST_CURRENT_TEST"):
+            return
+
+        def _run():
+            try:
+                from src.desktop.services import portal_sync_service
+                if not portal_sync_service.is_configured(self.db):
+                    return
+                r = portal_sync_service.pull_decisions(self.db, timeout=5)
+                if r.success and r.applied:
+                    self.show_toast(f"Portal: {r.message}", "success")
+            except Exception as exc:  # noqa: BLE001 - arka plan görevi hiçbir zaman engellememeli
+                logger.warning("Portal kararları alınamadı: %s", exc)
+
+        self._portal_timer = QTimer(self)
+        self._portal_timer.timeout.connect(_run)
+        self._portal_timer.start(10 * 60 * 1000)
+        QTimer.singleShot(5000, _run)
+
+    def _schedule_currency_autofetch(self) -> None:
+        """Program açıldığında, ayarlarda seçilen döviz kuru kaynağından
+        (manuel değilse) bugün için henüz çekilmemişse BİR KEZ otomatik kur
+        çeker. Pencere ilk çizimini engellemesin diye kısa bir gecikmeyle
+        (ve tamamen best-effort: ağ hatası girişi hiçbir şekilde etkilemez).
+
+        Test ortamında (pytest) atlanır — aksi halde testler arasında
+        Qt olay döngüsü işletildikçe (`processEvents`/`qWait`) bu zamanlayıcı
+        beklenmedik anda ateşlenip gerçek bir ağ isteği başlatabilir; bu da
+        internet erişimi olmayan CI/test ortamlarında tüm test paketini
+        yavaşlatır/kilitler. Servisin kendisi (`currency_rate_service`) ve bu
+        zamanlayıcının kurulumu ayrı ayrı test edilir (bkz. test_main_window.py)."""
+        import os
+
+        from PyQt6.QtCore import QTimer
+
+        if os.environ.get("PYTEST_CURRENT_TEST"):
+            return
+
+        def _run():
+            try:
+                from src.desktop.services import currency_rate_service
+                currency_rate_service.startup_autofetch(self.db)
+            except Exception as exc:  # noqa: BLE001 - açılışı asla engellemesin
+                logger.warning("Açılışta otomatik döviz kuru çekimi başarısız: %s", exc)
+
+        QTimer.singleShot(800, _run)
 
     def _resolve_current_user(self):
         """Login'de gelen kullanıcı adına göre DB'den User nesnesini çeker."""
@@ -544,6 +647,7 @@ class MainWindow(QMainWindow):
 
         # 2. Sağ: Ana Menüler Modül Gridi Widget'ı
         self.menu_grid_widget = MenuGridWidget(parent=self)
+        self.menu_grid_widget.set_implemented(self.IMPLEMENTED_MODULES)
         self.menu_grid_widget.module_selected.connect(self.alt_menu_tiklandi)
         self.menu_grid_widget.module_right_clicked.connect(
             lambda mod, pos: self.show_grid_module_context_menu(pos, mod, self),
@@ -689,6 +793,17 @@ class MainWindow(QMainWindow):
         self.log_signal.connect(self.append_log)
 
     def closeEvent(self, event):  # noqa: N802
+        runner = getattr(self, "backup_runner", None)
+        if runner is not None and runner.is_busy():
+            from PyQt6.QtWidgets import QMessageBox
+            if QMessageBox.question(
+                    self, "Yedek çalışıyor", "Şu anda bir yedek işi çalışıyor. Şimdi çıkarsanız yarım kalır (yarım yedek geçerli sayılmaz, "
+                    "sonraki denemede yeniden alınır).\n\nYine de çıkılsın mı?",
+                    defaultButton=QMessageBox.StandardButton.No) != QMessageBox.StandardButton.Yes:
+                event.ignore()
+                return
+        if runner is not None:
+            runner.stop()
         if hasattr(self, "time_timer") and self.time_timer.isActive():
             self.time_timer.stop()
         if hasattr(self, "qt_log_handler"):
@@ -778,6 +893,9 @@ class MainWindow(QMainWindow):
             self.tr("Teklifler"): "📄 [isl.quo.001] " + self.tr("Teklif Yönetimi"),
             self.tr("Sipariş Yönetimi"): "🛒 [isl.ord.001] " + self.tr("Sipariş Yönetimi"),
             self.tr("Siparişler"): "🛒 [isl.ord.001] " + self.tr("Sipariş Yönetimi"),
+            self.tr("Faturalar"): "🧾 [isl.inv.001] " + self.tr("Fatura Yönetimi"),
+            self.tr("Hızlı Fatura"): "🧾 [isl.inv.001] " + self.tr("Fatura Yönetimi"),
+            self.tr("Bugün Ciro"): "🧾 [isl.inv.001] " + self.tr("Fatura Yönetimi"),
             self.tr("Müşteriler & Cariler"): "👥 [tan.car.001] " + self.tr("Müşteriler & Cariler"),
             self.tr("Cari Listesi (AppGrid)"): "📐 [app.grd.001] " + self.tr("Cari Listesi (AppGrid)"),
             self.tr("Ekran & Grid Tanımları"): "📐 [sys.grd.001] " + self.tr("Ekran & Grid Tanımları"),
@@ -789,6 +907,16 @@ class MainWindow(QMainWindow):
             self.tr("Fiyat Politikaları"): "💵 [tan.prc.001] " + self.tr("Fiyat Politikaları"),
             self.tr("Pazaryeri Bağlantıları"): "🤝 [int.mkt.001] " + self.tr("Pazaryeri Bağlantıları"),
         }
+        # Hızlı Kısayollar ("Yeni Cari Kartı Aç" / "Yeni Teklif Hazırla") gerçek
+        # liste ekranını açar ve ardından o ekranın "yeni kayıt" işlemini tetikler.
+        QUICK_NEW_TARGETS = {
+            self.tr("Yeni Cari Kartı"): (self.tr("Müşteriler & Cariler"), "on_new_clicked"),
+            self.tr("Yeni Teklif Hazırla"): (self.tr("Teklif Yönetimi"), "on_new_clicked"),
+        }
+        quick_new_action = None
+        if menu_name in QUICK_NEW_TARGETS:
+            menu_name, quick_new_action = QUICK_NEW_TARGETS[menu_name]
+
         tab_title = SCREEN_CODES.get(menu_name, f"📌 {menu_name}")
 
         # Eğer sekme zaten açıksa ona odaklan
@@ -796,6 +924,11 @@ class MainWindow(QMainWindow):
             t_text = self.tab_widget.tabText(idx)
             if menu_name in t_text or tab_title == t_text:
                 self.tab_widget.setCurrentIndex(idx)
+                if quick_new_action:
+                    existing = self.tab_widget.widget(idx)
+                    action = getattr(existing, quick_new_action, None)
+                    if callable(action):
+                        action()
                 return
 
         # Yeni sekme için widget oluştur
@@ -844,14 +977,18 @@ class MainWindow(QMainWindow):
             from src.desktop.ui.quotations import OrdersWidget
             new_widget = OrdersWidget(self.db)
         elif menu_name in (self.tr("Faturalar"), self.tr("Hızlı Fatura"), self.tr("Bugün Ciro")):
-            from src.desktop.ui.quotations import QuotationsWidget
-            new_widget = QuotationsWidget(self.db, quotation_type="Invoice")
+            from src.desktop.ui.quotations import InvoicesWidget
+            new_widget = InvoicesWidget(self.db)
         else:
             new_widget = PlaceholderWidget(f"{menu_name} {self.tr('Modülü')}")
 
         if new_widget:
             new_idx = self.tab_widget.addTab(new_widget, tab_title)
             self.tab_widget.setCurrentIndex(new_idx)
+            if quick_new_action:
+                action = getattr(new_widget, quick_new_action, None)
+                if callable(action):
+                    action()
 
     def close_tab(self, index):
         if index <= 0:

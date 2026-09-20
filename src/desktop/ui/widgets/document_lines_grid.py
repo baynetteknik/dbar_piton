@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import logging
 
-from PyQt6.QtCore import QEvent, QRect, Qt, pyqtSignal
+from PyQt6.QtCore import QEvent, QRect, QStringListModel, Qt, pyqtSignal
 from PyQt6.QtGui import (
     QAction,
     QKeySequence,
@@ -25,6 +25,7 @@ from PyQt6.QtGui import (
 )
 from PyQt6.QtWidgets import (
     QComboBox,
+    QCompleter,
     QDialog,
     QHBoxLayout,
     QLabel,
@@ -121,11 +122,19 @@ def fmt_num(value: float, decimals: int = 2) -> str:
 
 
 class _LookupDelegate(QStyledItemDelegate):
-    """Hücrenin sağ kenarında tıklanabilir 🔍 gösterir; stok rehberini açar."""
+    """Hücrenin sağ kenarında tıklanabilir 🔍 gösterir; stok rehberini açar.
 
-    def __init__(self, on_lookup, parent=None):
+    Ayrıca hücreye yazarken canlı arama (typeahead) sunar: kod/açıklama
+    sütununa harf girildikçe katalogdan filtrelenen bir dropdown açılır,
+    fare veya klavye (yukarı/aşağı + Enter) ile seçim yapılabilir — Cari
+    Hesap Künyesi'ndeki aynı davranışın stok kalemleri karşılığıdır.
+    """
+
+    def __init__(self, on_lookup, get_products, on_pick, parent=None):
         super().__init__(parent)
         self.on_lookup = on_lookup
+        self.get_products = get_products  # callable() -> list[dict]
+        self.on_pick = on_pick            # callable(row, product: dict)
 
     def paint(self, painter, option, index):
         super().paint(painter, option, index)
@@ -142,6 +151,37 @@ class _LookupDelegate(QStyledItemDelegate):
             self.on_lookup(index.row())
             return True
         return super().editorEvent(event, model, option, index)
+
+    def createEditor(self, parent, option, index):  # noqa: N802
+        editor = QLineEdit(parent)
+        col = index.column()
+        products = self.get_products() or []
+        key = "code" if col == COL_KOD else "name"
+        values = list(dict.fromkeys(
+            str(p.get(key, "")) for p in products if p.get(key)
+        ))
+
+        completer = QCompleter(editor)
+        completer.setModel(QStringListModel(values, completer))
+        completer.setCaseSensitivity(Qt.CaseSensitivity.CaseInsensitive)
+        completer.setFilterMode(Qt.MatchFlag.MatchContains)
+        completer.setCompletionMode(QCompleter.CompletionMode.PopupCompletion)
+        editor.setCompleter(completer)
+
+        row = index.row()
+        completer.activated[str].connect(
+            lambda text, e=editor, r=row, c=col: self._on_completed(e, r, c, text),
+        )
+        return editor
+
+    def _on_completed(self, editor: QLineEdit, row: int, col: int, text: str):
+        products = self.get_products() or []
+        key = "code" if col == COL_KOD else "name"
+        match = next((p for p in products if str(p.get(key, "")) == text), None)
+        if match:
+            self.on_pick(row, match)
+        self.commitData.emit(editor)
+        self.closeEditor.emit(editor, QStyledItemDelegate.EndEditHint.NoHint)
 
 
 class _ComboDelegate(QStyledItemDelegate):
@@ -300,8 +340,14 @@ class DocumentLinesGrid(QWidget):
         self.grid.table_view.setItemDelegateForColumn(
             COL_KDV, _ComboDelegate(KDV_ORANLARI, editable=True, parent=self),
         )
-        # Stok Kodu ve Açıklama hücrelerinde tıklanabilir 🔍 (cari gibi)
-        lookup_del = _LookupDelegate(self._lookup_for_row, parent=self)
+        # Stok Kodu ve Açıklama hücrelerinde tıklanabilir 🔍 + yazarken
+        # canlı arama (typeahead) — cari künyesindeki ile aynı davranış.
+        lookup_del = _LookupDelegate(
+            on_lookup=self._lookup_for_row,
+            get_products=lambda: self._products,
+            on_pick=self._apply_product_to_row,
+            parent=self,
+        )
         self.grid.table_view.setItemDelegateForColumn(COL_KOD, lookup_del)
         self.grid.table_view.setItemDelegateForColumn(COL_ACIKLAMA, lookup_del)
 
@@ -482,6 +528,9 @@ class DocumentLinesGrid(QWidget):
         if row < 0:
             self.add_row(focus=False)
             row = self.model.rowCount() - 1
+        self._apply_product_to_row(row, p)
+
+    def _apply_product_to_row(self, row: int, p: dict, tur: str | None = None):
         self._recalc_guard = True
         try:
             self._set_cell(row, COL_KOD, p.get("code", ""))
@@ -492,6 +541,8 @@ class DocumentLinesGrid(QWidget):
                 self._set_cell(row, COL_BFIYAT, fmt_num(parse_num(p.get("price"))))
             if p.get("vat_rate"):
                 self._set_cell(row, COL_KDV, str(p.get("vat_rate")))
+            if tur:
+                self._set_cell(row, COL_TUR, tur)
         finally:
             self._recalc_guard = False
         self._recalc_row(row)
@@ -536,18 +587,27 @@ class DocumentLinesGrid(QWidget):
         return None
 
     def _maybe_offer_new_card(self, row: int):
-        """Kod/ad yazıldı, katalogda yok ve tür serbest değilse kart açmayı sor."""
+        """Kod/ad yazıldı, katalogda yok ve tür serbest değilse kart açmayı sor.
+
+        Satır daha önce 'Serbest Ürün'e çevrilmiş olsa bile, kullanıcı kod/adı
+        düzeltip tam eşleşen bir stok kartına ulaştıysa satır tekrar 'Malzeme'ye
+        bağlanır (aksi halde satır sonsuza kadar serbest kalırdı).
+        """
         if row < 0 or row >= self.model.rowCount():
-            return
-        tur = self._cell(row, COL_TUR)
-        if tur in SERBEST_TUR_ETIKETLERI:
-            self._set_stoga_ekle(row, False)
             return
         kod = self._cell(row, COL_KOD).strip()
         ad = self._cell(row, COL_ACIKLAMA).strip()
+        eslesen = (self._find_product(kod) or self._find_product(ad)) if (kod or ad) else None
+
+        tur = self._cell(row, COL_TUR)
+        if tur in SERBEST_TUR_ETIKETLERI:
+            self._set_stoga_ekle(row, False)
+            if eslesen:
+                self._apply_product_to_row(row, eslesen, tur="Malzeme")
+            return
         if not (kod or ad):
             return
-        if self._find_product(kod) or self._find_product(ad):
+        if eslesen:
             self._set_stoga_ekle(row, False)
             return
         if self._get_stoga_ekle(row):

@@ -37,6 +37,25 @@ class ReportPrinterEngine:
         font.setPixelSize(font_px)
         return font
 
+    def _load_image(self, img_src: str) -> QPixmap | None:
+        """Bir dosya yolundan ya da gömülü base64 resim verisinden (ör. firma logosu) QPixmap üretir."""
+        if not img_src:
+            return None
+        try:
+            if img_src.startswith("data:") or len(img_src) > 260:
+                import base64
+                raw = img_src.split(",", 1)[1] if img_src.startswith("data:") else img_src
+                pix = QPixmap()
+                pix.loadFromData(base64.b64decode(raw))
+            elif Path(img_src).exists():
+                pix = QPixmap(img_src)
+            else:
+                return None
+        except Exception:
+            logger.warning("Resim yüklenemedi: %s", img_src[:50])
+            return None
+        return pix if not pix.isNull() else None
+
     def _resolve_item_text(self, item: ItemConfig, context: dict[str, Any], page_no: int, total_pages: int) -> str:
         """Öğenin basılacak metin içeriğini belirler."""
         if item.type == "text" or item.type == "label":
@@ -118,10 +137,9 @@ class ReportPrinterEngine:
         # Resim / Logo çizimi
         if item.type == "image":
             img_src = item.image_path or str(self.expr.resolve_field(item.field, context) or "")
-            if img_src and Path(img_src).exists():
-                pix = QPixmap(img_src)
-                if not pix.isNull():
-                    painter.drawPixmap(rect.toRect(), pix)
+            pix = self._load_image(img_src)
+            if pix is not None:
+                painter.drawPixmap(rect.toRect(), pix)
             return
 
         # Barkod / QR Kod çizimi (Yer tutucu veya vektörel kutu)
@@ -198,12 +216,12 @@ class ReportPrinterEngine:
         dpi = target_device_dpi
 
         # Şablon bantlarını grupla
-        page_header_band = next((b for b in self.template.bands if b.type == "page_header"), None)
-        header_group_band = next((b for b in self.template.bands if b.type == "header_group"), None)
-        column_header_band = next((b for b in self.template.bands if b.type == "column_header"), None)
-        detail_band = next((b for b in self.template.bands if b.type == "detail_data"), None)
-        summary_band = next((b for b in self.template.bands if b.type == "report_summary"), None)
-        page_footer_band = next((b for b in self.template.bands if b.type == "page_footer"), None)
+        page_header_band = next((b for b in self.template.bands if b.type == "page_header" and b.enabled), None)
+        header_group_band = next((b for b in self.template.bands if b.type == "header_group" and b.enabled), None)
+        column_header_band = next((b for b in self.template.bands if b.type == "column_header" and b.enabled), None)
+        detail_band = next((b for b in self.template.bands if b.type == "detail_data" and b.enabled), None)
+        summary_band = next((b for b in self.template.bands if b.type == "report_summary" and b.enabled), None)
+        page_footer_band = next((b for b in self.template.bands if b.type == "page_footer" and b.enabled), None)
 
         margin_top = self.template.page.margin_top_mm
         margin_bottom = self.template.page.margin_bottom_mm

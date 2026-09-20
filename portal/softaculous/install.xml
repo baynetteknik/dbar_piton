@@ -1,0 +1,23 @@
+<install>
+  <autoselect>1</autoselect>
+  <settings>
+    <row>
+      <setting>
+        <type>text</type>
+        <var>admin_username</var>
+        <name>Yönetici Kullanıcı Adı</name>
+        <default_value>yonetici</default_value>
+        <description>Portal yöneticisi giriş adı (3-60 karakter; harf, rakam, . _ -).</description>
+      </setting>
+    </row>
+    <row>
+      <setting>
+        <type>password</type>
+        <var>admin_pass</var>
+        <name>Yönetici Parolası</name>
+        <default_value></default_value>
+        <description>En az 10 karakter. Kurulumdan sonra portalda değiştirilebilir.</description>
+      </setting>
+    </row>
+  </settings>
+</install>

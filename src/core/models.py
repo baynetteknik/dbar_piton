@@ -1,9 +1,10 @@
-from datetime import datetime
+from datetime import date, datetime
 from typing import Any
 
 from sqlalchemy import (
     Boolean,
     Column,
+    Date,
     DateTime,
     Float,
     ForeignKey,
@@ -11,6 +12,7 @@ from sqlalchemy import (
     String,
     Table,
     Text,
+    UniqueConstraint,
     event,
     inspect,
 )
@@ -88,6 +90,28 @@ class Product(BaseModel):
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     is_active: Mapped[bool | None] = mapped_column(Boolean, nullable=True, default=True)
     company_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+
+    # --- Kart standardı (tpl.card.001) ek alanları ---
+    product_type: Mapped[str | None] = mapped_column(String(50), nullable=True, default="Ticari Mal")
+    currency: Mapped[str | None] = mapped_column(String(10), nullable=True, default="TRY")
+    max_stock: Mapped[float | None] = mapped_column(Float, nullable=True, default=0.0)
+    warehouse_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    shelf_code: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    has_bom: Mapped[bool | None] = mapped_column(Boolean, nullable=True, default=False)
+    is_ecommerce: Mapped[bool | None] = mapped_column(Boolean, nullable=True, default=False)
+
+    # --- Kategorizasyon genişletmesi (Ana Kategori = `category`) ---
+    category_sub1: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    category_sub2: Mapped[str | None] = mapped_column(String(100), nullable=True)
+
+    # --- Alış/Satış/Toptan fiyat & KDV üçlüsü + parametrik ek alanlar ---
+    wholesale_price: Mapped[float | None] = mapped_column(Float, nullable=True, default=0.0)
+    purchase_vat_rate: Mapped[int | None] = mapped_column(Integer, nullable=True, default=20)
+    wholesale_vat_rate: Mapped[int | None] = mapped_column(Integer, nullable=True, default=20)
+    # Özel Kod 1-10 ve Ek Fiyat 4-10: {"<slot>": değer} biçiminde JSON metin.
+    # Etiketleri `ParametricFieldGroup` widget'ı SystemSetting üzerinden yönetir.
+    extra_codes_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    extra_prices_json: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     # Properties for aliases
     @property
@@ -227,6 +251,18 @@ class Customer(BaseModel):
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     record_date: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     photo_path: Mapped[str | None] = mapped_column(String(255), nullable=True)
+
+    # --- Finans & Risk (tpl.card.001 standardı) ---
+    customer_type: Mapped[str | None] = mapped_column(String(50), nullable=True, default="Müşteri")
+    currency: Mapped[str | None] = mapped_column(String(10), nullable=True, default="TRY")
+    payment_plan_id: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("payment_plans.id", ondelete="SET NULL"), nullable=True,
+    )
+    price_list_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    risk_limit: Mapped[float | None] = mapped_column(Float, nullable=True, default=0.0)
+    default_discount: Mapped[float | None] = mapped_column(Float, nullable=True, default=0.0)
+    balance: Mapped[float | None] = mapped_column(Float, nullable=True, default=0.0)
+    is_efatura: Mapped[bool | None] = mapped_column(Boolean, nullable=True, default=False)
 
     orders: Mapped[list["Order"]] = relationship("Order", back_populates="customer")
 
@@ -607,6 +643,22 @@ class User(BaseModel):
     must_change_password: Mapped[bool] = mapped_column(Boolean, default=False)
     last_login_at: Mapped[str | None] = mapped_column(String(25), nullable=True)
 
+    # --- Şifre kurtarma & giriş güvenliği ---
+    # Güvenlik soruları: soru metni düz, cevap hash'lenmiş (strip().lower() ardından).
+    security_question_1: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    security_answer_1_hash: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    security_question_2: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    security_answer_2_hash: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    # Tek kullanımlık çevrimdışı kurtarma kodu (hash). Kullanılınca NULL'a çekilir.
+    recovery_code_hash: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    # E-posta ile sıfırlama: gönderilen kodun hash'i + son geçerlilik anı (ISO).
+    pwd_reset_token_hash: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    pwd_reset_expires_at: Mapped[str | None] = mapped_column(String(30), nullable=True)
+    # Ard arda hatalı giriş sayacı ve kilit bitiş anı (ISO).
+    failed_login_count: Mapped[int] = mapped_column(Integer, default=0)
+    locked_until: Mapped[str | None] = mapped_column(String(30), nullable=True)
+    last_failed_login_at: Mapped[str | None] = mapped_column(String(30), nullable=True)
+
     role_id: Mapped[int | None] = mapped_column(
         Integer, ForeignKey("roles.id", ondelete="SET NULL"), nullable=True,
     )
@@ -627,8 +679,27 @@ class Currency(BaseModel):
     code: Mapped[str] = mapped_column(String(20), nullable=False)
     name: Mapped[str | None] = mapped_column(String(100), nullable=True)
     symbol: Mapped[str | None] = mapped_column(String(10), nullable=True)
+    #: ISO 4217 kataloğundan seçilen ülke bayrağı emojisi (bkz. `currency_catalog.py`).
+    flag: Mapped[str | None] = mapped_column(String(10), nullable=True)
     rate: Mapped[float | None] = mapped_column(Float, default=1.0, nullable=True)
     is_active: Mapped[bool | None] = mapped_column(Boolean, default=True, nullable=True)
+
+
+class CurrencyRateHistory(BaseModel):
+    """Günlük döviz kuru geçmişi — her (tarih, döviz kodu) çifti için tek
+    kayıt (upsert). M.B. (T.C. Merkez Bankası) ve S.P. (Serbest Piyasa)
+    alış/satış değerleri ayrı ayrı tutulur; Genel Ayarlar > Döviz & Kur
+    panelindeki tarih bazlı grid ve toplu çekme/silme işlemleri bu tabloyu
+    kullanır. `Currency.rate` ise seçilen kaynağa göre türetilen "güncel kur"
+    değeridir (bkz. `currency_rate_service.refresh_and_apply`)."""
+    __tablename__ = "currency_rate_history"
+
+    rate_date: Mapped[date] = mapped_column(Date, nullable=False)
+    code: Mapped[str] = mapped_column(String(20), nullable=False)
+    mb_alis: Mapped[float | None] = mapped_column(Float, nullable=True)
+    mb_satis: Mapped[float | None] = mapped_column(Float, nullable=True)
+    sp_alis: Mapped[float | None] = mapped_column(Float, nullable=True)
+    sp_satis: Mapped[float | None] = mapped_column(Float, nullable=True)
 
 
 class UnitDefinition(BaseModel):
@@ -731,6 +802,18 @@ class Company(BaseModel):
     # --- Banka hesapları (JSON listesi: [{banka, sube, hesap_no, iban, para_birimi}]) ---
     bank_accounts_json: Mapped[str | None] = mapped_column(Text, nullable=True)
 
+    # --- Dönemler (JSON listesi: [{ad, baslangic, bitis, aktif}]) ---
+    periods_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    # --- Ortaklar (JSON listesi: [{ad_soyad, tc_vergi_no, pay_orani, gorev}]) ---
+    partners_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    # --- Yetkililer (JSON listesi: [{ad_soyad, unvan, telefon, e_posta}]) — eski
+    # tekil authorized_person/authorized_title/authorized_phone alanlarının
+    # yerini alır (geriye dönük uyumluluk için o kolonlar korunur, artık UI'da
+    # kullanılmaz). ---
+    authorized_persons_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
 
@@ -742,3 +825,116 @@ event.listen(Order, "after_update", _record_update)
 
 
 
+
+
+# ─────────────────────────────────────────────
+# Harici sistem AYNA tabloları (salt okunur kaynak kopyası)
+# ─────────────────────────────────────────────
+# Wolvox, Logo, Mikro vb. herhangi bir kaynaktan gelen kayıtlar aynı tablolara, kaynak adıyla
+# (`source`) yazılır. Yalnızca `mirror_service` yazar; kullanıcı ekranları düzenlemez.
+# Eşleme anahtarı kaynağın kendi kayıt kimliğidir (`ext_id`, metin). Fatura numarası
+# benzersiz kabul EDİLMEZ (Wolvox'ta aynı numaralı iki fatura olabiliyor).
+# `source_deleted`: kaynakta silindi veya son okumada artık bulunamadı.
+
+
+class _Mirror(Base):
+    __abstract__ = True
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    source: Mapped[str] = mapped_column(String(30), index=True, nullable=False)
+    ext_id: Mapped[str] = mapped_column(String(64), index=True, nullable=False)
+    source_deleted: Mapped[bool] = mapped_column(Boolean, default=False)
+    synced_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+
+class MirrorCari(_Mirror):
+    __tablename__ = "mirror_cari"
+    __table_args__ = (UniqueConstraint("source", "ext_id", name="uq_mirror_cari"),)
+
+    cari_kodu: Mapped[str | None] = mapped_column(String(30), index=True, nullable=True)
+    unvan: Mapped[str | None] = mapped_column(String(250), nullable=True)
+    email: Mapped[str | None] = mapped_column(String(60), nullable=True)
+    telefon: Mapped[str | None] = mapped_column(String(30), nullable=True)
+    vergi_no: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    aktif: Mapped[bool] = mapped_column(Boolean, default=True)
+
+
+class MirrorCariHareket(_Mirror):
+    __tablename__ = "mirror_cari_hareket"
+    __table_args__ = (UniqueConstraint("source", "ext_id", name="uq_mirror_cari_hareket"),)
+
+    cari_ext_id: Mapped[str | None] = mapped_column(String(64), index=True, nullable=True)
+    tarihi: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    vadesi: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    evrak_no: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    kaynak_tur: Mapped[str | None] = mapped_column(String(30), nullable=True)  # kaynağın ham işlem türü kodu
+    borc: Mapped[float] = mapped_column(Float, default=0.0)
+    alacak: Mapped[float] = mapped_column(Float, default=0.0)
+    aciklama: Mapped[str | None] = mapped_column(String(250), nullable=True)
+    ilgili_ext_id: Mapped[str | None] = mapped_column(String(64), nullable=True)  # örn. bağlı fatura kaydı
+
+
+class MirrorFatura(_Mirror):
+    __tablename__ = "mirror_fatura"
+    __table_args__ = (UniqueConstraint("source", "ext_id", name="uq_mirror_fatura"),)
+
+    fatura_no: Mapped[str | None] = mapped_column(String(30), index=True, nullable=True)
+    tarihi: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    vadesi: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    cari_ext_id: Mapped[str | None] = mapped_column(String(64), index=True, nullable=True)
+    yon: Mapped[str | None] = mapped_column(String(10), nullable=True)  # 'satis' | 'alis' | None (bilinmiyor)
+    kaynak_durum: Mapped[str | None] = mapped_column(String(30), nullable=True)  # ham tür/durum kodu
+    iptal: Mapped[bool] = mapped_column(Boolean, default=False)
+    ara_toplam: Mapped[float] = mapped_column(Float, default=0.0)
+    iskonto: Mapped[float] = mapped_column(Float, default=0.0)
+    kdv: Mapped[float] = mapped_column(Float, default=0.0)
+    genel_toplam: Mapped[float] = mapped_column(Float, default=0.0)
+    doviz: Mapped[str | None] = mapped_column(String(4), nullable=True)
+    ek_bilgi: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    aciklama: Mapped[str | None] = mapped_column(String(100), nullable=True)
+
+
+class MirrorFaturaKalem(_Mirror):
+    __tablename__ = "mirror_fatura_kalem"
+    __table_args__ = (UniqueConstraint("source", "ext_id", name="uq_mirror_fatura_kalem"),)
+
+    fatura_ext_id: Mapped[str] = mapped_column(String(64), index=True, nullable=False)
+    stok_kodu: Mapped[str | None] = mapped_column(String(30), nullable=True)
+    stok_adi: Mapped[str | None] = mapped_column(String(250), nullable=True)
+    birim: Mapped[str | None] = mapped_column(String(15), nullable=True)
+    miktar: Mapped[float] = mapped_column(Float, default=0.0)
+    fiyat: Mapped[float] = mapped_column(Float, default=0.0)
+    kdv_orani: Mapped[float] = mapped_column(Float, default=0.0)
+    tutar: Mapped[float] = mapped_column(Float, default=0.0)
+    kdvli_tutar: Mapped[float] = mapped_column(Float, default=0.0)
+    sira_no: Mapped[int | None] = mapped_column(Integer, nullable=True)
+
+
+class MirrorStok(_Mirror):
+    __tablename__ = "mirror_stok"
+    __table_args__ = (UniqueConstraint("source", "ext_id", name="uq_mirror_stok"),)
+
+    stok_kodu: Mapped[str | None] = mapped_column(String(30), index=True, nullable=True)
+    stok_adi: Mapped[str | None] = mapped_column(String(250), nullable=True)
+    birim: Mapped[str | None] = mapped_column(String(15), nullable=True)
+    kdv_orani: Mapped[float] = mapped_column(Float, default=0.0)
+    aktif: Mapped[bool] = mapped_column(Boolean, default=True)
+    satis_fiyati: Mapped[float] = mapped_column(Float, default=0.0)
+    miktar: Mapped[float] = mapped_column(Float, default=0.0)
+
+
+class DataTransferLog(Base):
+    """Veri aktarım günlüğü: kaynak→ayna okumaları ve ayna→portal gönderimleri.
+
+    Kayıtlar silinmez; ekrandan yalnızca görünümden kaldırılabilir (`hidden`)."""
+    __tablename__ = "data_transfer_log"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
+    source: Mapped[str] = mapped_column(String(30), index=True, nullable=False)
+    direction: Mapped[str] = mapped_column(String(20), nullable=False)  # source_to_mirror | mirror_to_portal
+    status: Mapped[str] = mapped_column(String(10), nullable=False)  # ok | error
+    message: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    counts_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    duration_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    hidden: Mapped[bool] = mapped_column(Boolean, default=False)

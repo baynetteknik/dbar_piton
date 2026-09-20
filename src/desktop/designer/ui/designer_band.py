@@ -6,13 +6,15 @@ alt kenarından tutularak milimetrik yüksekliğinin değiştirilmesini sağlar.
 
 from __future__ import annotations
 
+import json
+import uuid
 from typing import Any
 
 from PyQt6.QtCore import QPoint, QRect, Qt, pyqtSignal
 from PyQt6.QtGui import QColor, QCursor, QFont, QPainter, QPen
 from PyQt6.QtWidgets import QFrame, QLabel, QWidget
 
-from src.desktop.designer.models import BandConfig, ItemConfig
+from src.desktop.designer.models import MIME_ITEM_CONFIG, BandConfig, ItemConfig
 from src.desktop.designer.ui.designer_item import DesignerItemWidget
 
 
@@ -66,6 +68,7 @@ class DesignerBandWidget(QWidget):
 
         self.item_widgets: list[DesignerItemWidget] = []
         self.setMouseTracking(True)
+        self.setAcceptDrops(True)
 
         self._init_items()
         self.update_geometry_from_model()
@@ -167,6 +170,46 @@ class DesignerBandWidget(QWidget):
             return
         super().mouseReleaseEvent(event)
 
+    # ------------------------------------------------------------------
+    # Sürükle-Bırak: Araç Kutusu / Veri Ağacı'ndan bu banda eleman bırakma
+    # ------------------------------------------------------------------
+    def dragEnterEvent(self, event):
+        if event.mimeData().hasFormat(MIME_ITEM_CONFIG):
+            event.acceptProposedAction()
+
+    def dragMoveEvent(self, event):
+        if event.mimeData().hasFormat(MIME_ITEM_CONFIG):
+            event.acceptProposedAction()
+
+    def dropEvent(self, event):
+        if not event.mimeData().hasFormat(MIME_ITEM_CONFIG):
+            return
+        raw = bytes(event.mimeData().data(MIME_ITEM_CONFIG))
+        try:
+            payload = json.loads(raw.decode("utf-8"))
+            cfg = ItemConfig(**payload)
+        except (ValueError, TypeError):
+            event.ignore()
+            return
+
+        # Aynı sürükleme her zaman yeni bir eleman oluşturur; kaynak
+        # widget'taki id ile çakışmasın diye burada tazelenir.
+        cfg.id = f"{cfg.type}_{uuid.uuid4().hex[:6]}"
+
+        drop_pos = event.position().toPoint() if hasattr(event, "position") else event.pos()
+        x_mm = max(0.0, drop_pos.x() / self.mm_to_px)
+        y_mm = max(0.0, drop_pos.y() / self.mm_to_px)
+        if self.snap_grid_mm > 0:
+            x_mm = round(x_mm / self.snap_grid_mm) * self.snap_grid_mm
+            y_mm = round(y_mm / self.snap_grid_mm) * self.snap_grid_mm
+        cfg.x_mm = round(x_mm, 2)
+        cfg.y_mm = round(y_mm, 2)
+
+        widget = self.add_item_widget(cfg)
+        widget.set_selected(True)
+        self._on_item_selected(widget)
+        event.acceptProposedAction()
+
     def paintEvent(self, event):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing, False)
@@ -186,10 +229,15 @@ class DesignerBandWidget(QWidget):
 
         # Bant adı ve milimetrik boyutu
         title = self.BAND_TITLES.get(self.band.type, self.band.type)
-        label_text = f"{title} — [H: {self.band.height_mm:.1f} mm]"
+        suffix = " (KAPALI — baskıda kullanılmaz)" if not self.band.enabled else ""
+        label_text = f"{title} — [H: {self.band.height_mm:.1f} mm]{suffix}"
         painter.setFont(QFont("Segoe UI", 7, QFont.Weight.Bold))
-        painter.setPen(QPen(QColor(text_col_hex)))
+        painter.setPen(QPen(QColor(text_col_hex) if self.band.enabled else QColor("#94A3B8")))
         painter.drawText(8, 12, label_text)
+
+        # Kapalı bantlar tuvalde soluk (yarı saydam gri) gösterilir.
+        if not self.band.enabled:
+            painter.fillRect(0, 16, w, h - 16, QColor(148, 163, 184, 90))
 
         # Alt kenar ayırıcı çizgi (Boyutlandırma kolu)
         painter.setPen(QPen(QColor("#3B82F6"), 2 if self._resizing_height else 1, Qt.PenStyle.DashLine))

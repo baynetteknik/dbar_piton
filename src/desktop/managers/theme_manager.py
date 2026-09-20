@@ -60,10 +60,11 @@ class ThemeManager(QObject):
         self.sidebar_bg = self.settings.value("theme/sidebar_bg", "#f1f5f9")            # Yan Panel Arkaplanı
         self.border_color = self.settings.value("theme/border_color", "#cbd5e1")        # Standart Kenarlık
 
-        # Sağ Tık Menüsü (Context Menu) Renkleri (Varsayılan: Mavi Zemin, Beyaz Yazı, Kırmızı Hover)
+        # Sağ Tık Menüsü (Context Menu) Renkleri — TOYA ERP kurumsal mavi/beyaz şeması
+        # (Eposta Hesapları grid'indeki referans renklendirmeyle birebir aynı).
         self.menu_bg = self.settings.value("menu/bg", "#1e3a8a")                        # Sağ Tık Mavi Zemin
         self.menu_color = self.settings.value("menu/color", "#ffffff")                  # Sağ Tık Beyaz Yazılar
-        self.menu_hover_bg = self.settings.value("menu/hover_bg", "#dc2626")            # Sağ Tık Kırmızı Hover
+        self.menu_hover_bg = self.settings.value("menu/hover_bg", "#2563eb")            # Sağ Tık Mavi Hover
         self.menu_hover_color = self.settings.value("menu/hover_color", "#ffffff")      # Sağ Tık Hover Beyaz Yazı
         self.menu_border = self.settings.value("menu/border", "#3b82f6")                # Sağ Tık Kenarlık
 

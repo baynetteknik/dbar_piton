@@ -7,15 +7,19 @@ mimarisinde tüm ERP sistem ayarlarını yönetir.
 import hashlib
 import json
 import logging
+from datetime import date, timedelta
 from typing import Any
 
-from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtCore import QDate, Qt, pyqtSignal
 from PyQt6.QtGui import QAction, QFont, QStandardItem, QStandardItemModel
 from PyQt6.QtWidgets import (
     QAbstractItemView,
     QCheckBox,
     QComboBox,
+    QDateEdit,
     QDialog,
+    QDialogButtonBox,
+    QFormLayout,
     QFrame,
     QGridLayout,
     QGroupBox,
@@ -29,6 +33,7 @@ from PyQt6.QtWidgets import (
     QMessageBox,
     QPushButton,
     QScrollArea,
+    QSpinBox,
     QStackedWidget,
     QTableView,
     QTableWidget,
@@ -49,6 +54,7 @@ from src.core.models import (
     User,
     WarehouseDefinition,
 )
+from src.desktop.services import currency_rate_service
 from src.desktop.ui.components.collapsible_section import CollapsibleSection
 from src.desktop.ui.components.edge_panel import EdgeTriggeredPanel
 from src.desktop.ui.components.filterable_table import FilterableTableView
@@ -62,6 +68,11 @@ from src.desktop.ui.components.text_selection_helper import (
     is_global_text_selection_enabled,
     set_global_text_selection_enabled,
 )
+from src.desktop.services.currency_catalog import CURRENCY_CATALOG, get_currency_info
+from src.desktop.ui.widgets.currency_picker_dialog import pick_currency
+from src.desktop.ui.widgets.currency_rate_report_widget import CurrencyRateReportWidget
+from src.desktop.ui.widgets.masked_decimal_field import MaskedDecimalField
+from src.desktop.ui.widgets.serbest_piyasa_kaynak_widget import SerbestPiyasaKaynakField
 from src.desktop.ui.screen_definitions_manager import (
     ScreenDefinitionsManagerWidget,
 )
@@ -1446,6 +1457,139 @@ class ViewSettingsWidget(QWidget):
         menu.exec(self.table.viewport().mapToGlobal(pos))
 
 
+class YeniDovizDialog(QDialog):
+    """Döviz & Kur panelinde 'Yeni Döviz Ekle' — kod/isim/sembol serbest
+    metinle elden yazılmaz; ISO 4217 kataloğundan (bkz. `currency_catalog.py`
+    / `CurrencyPickerDialog`) aranıp seçilir. Seçim sonrası ad/sembol gerekirse
+    elle düzeltilebilir (özel/yerel bir kullanım için)."""
+
+    def __init__(self, parent=None, *, exclude_codes: set[str] | None = None) -> None:
+        super().__init__(parent)
+        self._exclude_codes = exclude_codes or set()
+        self._code = ""
+        self._flag = ""
+        self.setWindowTitle("➕ Yeni Döviz Ekle")
+        self.setFixedSize(340, 230)
+        lyt = QVBoxLayout(self)
+        form = QFormLayout()
+
+        row_kod = QHBoxLayout()
+        self.txt_kod = QLineEdit()
+        self.txt_kod.setReadOnly(True)
+        self.txt_kod.setPlaceholderText("Listeden seçin...")
+        btn_sec = QPushButton("🔍 Listeden Seç")
+        btn_sec.clicked.connect(self._secim_yap)
+        row_kod.addWidget(self.txt_kod, 1)
+        row_kod.addWidget(btn_sec)
+
+        self.txt_ad = QLineEdit()
+        self.txt_ad.setPlaceholderText("Amerikan Doları")
+        self.txt_sembol = QLineEdit()
+        self.txt_sembol.setPlaceholderText("$")
+        self.chk_aktif = QCheckBox("Aktif")
+        self.chk_aktif.setChecked(True)
+
+        form.addRow("Döviz:", row_kod)
+        form.addRow("Ad:", self.txt_ad)
+        form.addRow("Sembol:", self.txt_sembol)
+        form.addRow("", self.chk_aktif)
+        lyt.addLayout(form)
+
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel,
+        )
+        buttons.accepted.connect(self._on_accept)
+        buttons.rejected.connect(self.reject)
+        lyt.addWidget(buttons)
+
+    def _secim_yap(self) -> None:
+        info = pick_currency(self, exclude_codes=self._exclude_codes)
+        if info is None:
+            return
+        self._code = info.code
+        self._flag = info.flag
+        self.txt_kod.setText(f"{info.flag}  {info.code}".strip())
+        self.txt_ad.setText(info.name)
+        self.txt_sembol.setText(info.symbol)
+
+    def _on_accept(self) -> None:
+        if not self._code:
+            QMessageBox.warning(self, "Uyarı", "Lütfen listeden bir döviz seçin.")
+            return
+        self.accept()
+
+    def get_data(self) -> dict:
+        return {
+            "code": self._code,
+            "name": self.txt_ad.text().strip(),
+            "symbol": self.txt_sembol.text().strip(),
+            "flag": self._flag,
+            "is_active": self.chk_aktif.isChecked(),
+        }
+
+
+class KurGirDialog(QDialog):
+    """Döviz & Kur panelinde 'Kur Gir' — belirli döviz + tarih için M.B./S.P.
+    alış-satış değerlerini elle girmek için popup form."""
+
+    def __init__(self, currency_codes: list[str], initial_date: QDate,
+                 initial_code: str = "", parent=None) -> None:
+        super().__init__(parent)
+        self.setWindowTitle("✏️ Kur Gir")
+        self.setFixedSize(340, 280)
+        lyt = QVBoxLayout(self)
+        form = QFormLayout()
+
+        self.cmb_doviz = QComboBox()
+        self.cmb_doviz.addItems(currency_codes)
+        if initial_code and initial_code in currency_codes:
+            self.cmb_doviz.setCurrentText(initial_code)
+
+        self.dt_tarih = QDateEdit(initial_date)
+        self.dt_tarih.setCalendarPopup(True)
+        self.dt_tarih.setDisplayFormat("dd.MM.yyyy")
+
+        self.spn_mb_alis = self._make_spin()
+        self.spn_mb_satis = self._make_spin()
+        self.spn_sp_alis = self._make_spin()
+        self.spn_sp_satis = self._make_spin()
+
+        form.addRow("Döviz:", self.cmb_doviz)
+        form.addRow("Tarih:", self.dt_tarih)
+        form.addRow("M.B. Alış:", self.spn_mb_alis)
+        form.addRow("M.B. Satış:", self.spn_mb_satis)
+        form.addRow("S.P. Alış:", self.spn_sp_alis)
+        form.addRow("S.P. Satış:", self.spn_sp_satis)
+        lyt.addLayout(form)
+
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel,
+        )
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        lyt.addWidget(buttons)
+
+    @staticmethod
+    def _make_spin() -> MaskedDecimalField:
+        # Kur değerleri 4 ondalık hane ister (Genel Ayarlar'daki fiyat/tutar
+        # ondalık hane tercihinden bağımsız — kur hassasiyeti farklı bir
+        # gereksinim), bu yüzden sabit `decimals=4` ile oluşturulur.
+        return MaskedDecimalField(decimals=4)
+
+    def get_data(self) -> dict:
+        def val(spn):
+            return None if spn.value() == 0.0 else spn.value()
+
+        return {
+            "code": self.cmb_doviz.currentText(),
+            "rate_date": self.dt_tarih.date().toPyDate(),
+            "mb_alis": val(self.spn_mb_alis),
+            "mb_satis": val(self.spn_mb_satis),
+            "sp_alis": val(self.spn_sp_alis),
+            "sp_satis": val(self.spn_sp_satis),
+        }
+
+
 class GeneralSettingsScreen(QWidget):
     """Genel Ayarlar Ana Ekranı — sys.set.001.
 
@@ -1458,11 +1602,14 @@ class GeneralSettingsScreen(QWidget):
     # Menü yapısı — (grup_adı, ikon, [(menü_adı, panel_id), ...])
     MENU_STRUCTURE = [
         (
-            "FİRMA",
+            "ŞİRKET TANIMLARI",
             "🏢",
             [
                 ("Firma Bilgileri", "firma_bilgileri"),
                 ("Şube Tanımları", "sube_tanimlari"),
+                ("Depo Tanımları", "depo_tanimlari"),
+                ("Döviz & Kur", "doviz_kur"),
+                ("Çalışma Dönemi", "calisma_donemi"),
             ],
         ),
         (
@@ -1478,7 +1625,6 @@ class GeneralSettingsScreen(QWidget):
             "FİNANS TANIMLARI",
             "💱",
             [
-                ("Döviz & Kur", "doviz_kur"),
                 ("Ödeme Planları", "odeme_planlari"),
                 ("Fiyat Listeleri", "fiyat_listeleri"),
             ],
@@ -1490,7 +1636,6 @@ class GeneralSettingsScreen(QWidget):
                 ("Kategoriler", "stok_kategoriler"),
                 ("Markalar", "stok_markalar"),
                 ("Birim Tanımları", "birim_tanimlari"),
-                ("Depo Tanımları", "depo_tanimlari"),
                 ("Özel Alanlar", "stok_ozel_alanlar"),
             ],
         ),
@@ -1507,6 +1652,13 @@ class GeneralSettingsScreen(QWidget):
             "🖥️",
             [
                 ("CMS / ERP Bağlantıları", "cms_baglantilari"),
+                ("E-Posta / SMTP", "eposta_smtp"),
+                ("Online Portal", "online_portal"),
+                ("Portal Yayın / Güncelleme", "portal_yayin"),
+                ("Yedekleme Merkezi", "yedek_merkezi"),
+                ("Portal Yedekleme", "portal_yedek"),
+                ("Güvenlik & Giriş", "guvenlik"),
+                ("Sayı Biçimi", "sayi_bicimi"),
                 ("Görünüm Profilleri", "gorunum_profilleri"),
                 ("Ekran Grid Tanım.", "ekran_grid"),
                 ("Sürüm & Git", "surum_git"),
@@ -1552,6 +1704,11 @@ class GeneralSettingsScreen(QWidget):
 
         right_sidebar = self.build_right_sidebar()
         content_lyt.addWidget(right_sidebar)
+
+        # Sol/sağ paneller açık gelir: Döviz İşlemleri gibi bölümlere ulaşmadan
+        # işlem yapılamıyor, kullanıcı her seferinde kenar şeridinden açmasın.
+        self.left_panel.open_panel()
+        self.right_panel.open_panel()
 
         main_layout.addWidget(content_widget, 1)
 
@@ -1733,6 +1890,11 @@ class GeneralSettingsScreen(QWidget):
                 ("🗑️ Seçili Şubeyi Sil", lambda: self._delete_table_row(getattr(self, "tbl_sube", None))),
                 ("💾 Şubeleri Kaydet", lambda: self.save_current_panel()),
             ],
+            "calisma_donemi": [
+                ("➕ Yeni Dönem Ekle", lambda: self._add_table_row(getattr(self, "tbl_donem", None), ["", "", "", "Aktif"])),
+                ("🗑️ Seçili Dönemi Sil", lambda: self._delete_table_row(getattr(self, "tbl_donem", None))),
+                ("💾 Dönemleri Kaydet", lambda: self.save_current_panel()),
+            ],
             "kullanicilar": [
                 ("➕ Yeni Kullanıcı", lambda: getattr(self, "users_tab", None) and self.users_tab.add_new()),
                 ("✏️ Düzenle", lambda: getattr(self, "users_tab", None) and self.users_tab.edit_selected()),
@@ -1749,9 +1911,9 @@ class GeneralSettingsScreen(QWidget):
                 ("🔄 Yenile", lambda: self.switch_panel("yetkiler")),
             ],
             "doviz_kur": [
-                ("➕ Yeni Döviz Ekle", lambda: self._add_table_row(getattr(self, "tbl_doviz", None), ["", "", "", "1.0000", "Aktif"])),
-                ("🔄 TCMB Kurları Çek", lambda: self._fetch_tcmb_rates()),
-                ("🗑️ Seçili Dövizi Sil", lambda: self._delete_table_row(getattr(self, "tbl_doviz", None))),
+                ("➕ Yeni Döviz Ekle", lambda: self._open_yeni_doviz_dialog()),
+                ("✏️ Kur Gir", lambda: self._open_kur_gir_dialog()),
+                ("🗑️ Seçili Dövizi Sil", lambda: self._delete_selected_doviz_currency()),
                 ("💾 Kurları Kaydet", lambda: self.save_current_panel()),
             ],
             "odeme_planlari": [
@@ -1916,7 +2078,21 @@ class GeneralSettingsScreen(QWidget):
 
         self.switch_panel(panel_id)
 
+    @staticmethod
+    def _darken_hex(hex_color: str, amount: float = 0.15) -> str:
+        """Hex rengi hover durumu için koyulaştırır. Sabit açık gri hover
+        (#f1f5f9) beyaz metinli renkli butonlarda (ör. mor "Getir") metni
+        okunmaz hale getiriyordu; onun yerine her buton kendi renginin koyu
+        tonuna geçer, böylece metin kontrastı her renkte korunur."""
+        h = hex_color.lstrip("#")
+        if len(h) != 6:
+            return hex_color
+        r, g, b = (int(h[i:i + 2], 16) for i in (0, 2, 4))
+        r, g, b = (max(0, int(c * (1 - amount))) for c in (r, g, b))
+        return f"#{r:02x}{g:02x}{b:02x}"
+
     def btn_style(self, bg="#ffffff", fg="#1e293b") -> str:
+        hover_bg = "#f1f5f9" if bg.lower() in ("#ffffff", "#fff") else self._darken_hex(bg)
         return f"""
             QPushButton {{
                 background:{bg}; color:{fg};
@@ -1924,7 +2100,7 @@ class GeneralSettingsScreen(QWidget):
                 padding:5px 8px; font-size:11px; font-weight:600;
                 text-align:left; min-height:24px;
             }}
-            QPushButton:hover {{ background:#f1f5f9; }}
+            QPushButton:hover {{ background:{hover_bg}; }}
         """
 
     def menu_btn_style(self, active: bool = False) -> str:
@@ -2029,10 +2205,124 @@ class GeneralSettingsScreen(QWidget):
         sec_tools.add_widget(btn_col_dia)
         lyt.addWidget(sec_tools)
 
+        # ── 4. DÖVİZ & KUR'A ÖZGÜ BÖLÜMLER — yalnız "Döviz & Kur" paneli
+        # aktifken görünür (bkz. switch_panel). Toplu Kur Çek ve Serbest
+        # Piyasa adres yönetimi sık kullanılan işlemler olmadığından ana
+        # araç çubuğundan buraya (ve sağ tık menüsüne) taşındı.
+        self.doviz_sag_panel_container = QWidget()
+        doviz_container_lyt = QVBoxLayout(self.doviz_sag_panel_container)
+        doviz_container_lyt.setContentsMargins(0, 0, 0, 0)
+        doviz_container_lyt.setSpacing(10)
+        doviz_container_lyt.addWidget(self._build_doviz_sag_panel_islemler())
+        doviz_container_lyt.addWidget(self._build_doviz_sag_panel_raporlar())
+        self.doviz_sag_panel_container.setVisible(False)
+        lyt.addWidget(self.doviz_sag_panel_container)
+
         lyt.addStretch()
         scroll.setWidget(frame)
         self.right_panel.set_content(scroll)
         return self.right_panel
+
+    def _build_doviz_sag_panel_islemler(self) -> QWidget:
+        """Sağ panel > 💱 Döviz İşlemleri — Toplu Kur Çek/Sil ve Serbest Piyasa
+        adres yönetimi burada toplanır; bunlar günlük değil, ara sıra
+        yapılan işlemler olduğundan üst araç çubuğunu kalabalıklaştırmazlar."""
+        sec = CollapsibleSection("💱 DÖVİZ İŞLEMLERİ", is_expanded=True)
+
+        lbl_style = "font-size:10px; font-weight:bold; color:#475569;"
+
+        lbl_adres = QLabel("Serbest Piyasa Kaynağı:")
+        lbl_adres.setStyleSheet(lbl_style)
+        # Serbest metin/tekil adres yerine adlandırılmış, test edilebilir
+        # kaynak kayıtları — ⚙ butonu Ekle/Düzenle/Test Et/Sil penceresini açar.
+        self.txt_doviz_kaynak_url = SerbestPiyasaKaynakField(db_session=self.db)
+        self.txt_doviz_kaynak_url.setToolTip(
+            "Serbest Piyasa kaynağı için kayıtlı adres. ⚙ ile kaynak ekleyin, "
+            "düzenleyin, test edin ya da silin.",
+        )
+        sec.add_widget(lbl_adres)
+        sec.add_widget(self.txt_doviz_kaynak_url)
+
+        # ⚙ ikonu fark edilmiyordu: ekle/düzenle/test/sil yönetimi görünür bir butonla da açılır.
+        btn_kaynak_yonet = QPushButton("🌐 Kaynakları Yönet (Ekle / Düzenle / Sil)")
+        btn_kaynak_yonet.setStyleSheet(self.btn_style("#0f766e", "#ffffff"))
+        btn_kaynak_yonet.setToolTip(
+            "Serbest Piyasa kaynak adreslerini ekleyin, düzenleyin, test edin veya silin.",
+        )
+        btn_kaynak_yonet.clicked.connect(self.txt_doviz_kaynak_url._manage)
+        sec.add_widget(btn_kaynak_yonet)
+
+        lbl_toplu = QLabel("Toplu İşlem Tarih Aralığı:")
+        lbl_toplu.setStyleSheet(lbl_style)
+        sec.add_widget(lbl_toplu)
+
+        tarih_row = QHBoxLayout()
+        self.dt_toplu_bas = QDateEdit(QDate.currentDate().addDays(-7))
+        self.dt_toplu_bas.setCalendarPopup(True)
+        self.dt_toplu_bas.setDisplayFormat("dd.MM.yyyy")
+        self.dt_toplu_bit = QDateEdit(QDate.currentDate())
+        self.dt_toplu_bit.setCalendarPopup(True)
+        self.dt_toplu_bit.setDisplayFormat("dd.MM.yyyy")
+        tarih_row.addWidget(self.dt_toplu_bas)
+        tarih_row.addWidget(QLabel("—"))
+        tarih_row.addWidget(self.dt_toplu_bit)
+        sec.add_layout(tarih_row)
+
+        btn_cek = QPushButton("⚡ Toplu Kur Çek")
+        btn_cek.setStyleSheet(self.btn_style("#0284c7", "#ffffff"))
+        btn_cek.setToolTip(
+            "Seçili tarih aralığındaki her gün için, üst çubukta seçili "
+            "kaynaktan kur çekip geçmişe kaydeder.",
+        )
+        btn_cek.clicked.connect(self._on_doviz_toplu_cek_clicked)
+        sec.add_widget(btn_cek)
+
+        btn_sil = QPushButton("🗑️ Aralığı Sil")
+        btn_sil.setStyleSheet(self.btn_style("#fee2e2", "#991b1b"))
+        btn_sil.setToolTip(
+            "Seçili döviz gridde işaretliyse yalnız o dövizin, değilse tüm "
+            "dövizlerin bu tarih aralığındaki geçmiş kur kayıtlarını siler.",
+        )
+        btn_sil.clicked.connect(self._on_doviz_toplu_sil_clicked)
+        sec.add_widget(btn_sil)
+
+        # Kaynak/adres ayarları, hem üst çubuktaki Kaynak combosu hem de bu
+        # adres alanı kurulduktan SONRA yüklenir/bağlanır.
+        self._load_doviz_kaynak_ayarlari()
+        self.txt_doviz_kaynak_url.changed.connect(self._save_doviz_kaynak_ayarlari)
+
+        return sec
+
+    def _build_doviz_sag_panel_raporlar(self) -> QWidget:
+        """Sağ panel > 📊 Kur Raporları — şimdilik sağ panele gömülü değil,
+        `CurrencyRateReportWidget`'ı tam ekran bir popup pencerede açan bir
+        buton olarak sunulur (bkz. `_open_doviz_rapor_popup`)."""
+        sec = CollapsibleSection("📊 KUR RAPORLARI", is_expanded=False)
+        info = QLabel(
+            "Çekilen kurları döviz kodu ve tarih aralığına göre tam ekran "
+            "raporda görüntüleyin.",
+        )
+        info.setWordWrap(True)
+        info.setStyleSheet("color:#64748b; font-size:11px;")
+        sec.add_widget(info)
+        btn_ac = QPushButton("🔍 Tam Ekran Görüntüle")
+        btn_ac.setStyleSheet(self.btn_style("#0891b2", "#ffffff"))
+        btn_ac.clicked.connect(self._open_doviz_rapor_popup)
+        sec.add_widget(btn_ac)
+        self.doviz_rapor_widget = None
+        return sec
+
+    def _open_doviz_rapor_popup(self) -> None:
+        """Kur Raporları'nı bağımsız, tam ekran (maximized) bir pencerede açar."""
+        dlg = QDialog(self)
+        dlg.setWindowTitle("📊 Kur Raporları")
+        lyt = QVBoxLayout(dlg)
+        lyt.setContentsMargins(12, 12, 12, 12)
+        self.doviz_rapor_widget = CurrencyRateReportWidget(db_session=self.db)
+        lyt.addWidget(self.doviz_rapor_widget)
+        dlg.showMaximized()
+        dlg.exec()
+        self.doviz_rapor_widget = None
 
     def _get_active_table(self):
         """Mevcut aktif paneldeki tablo bileşenini döner."""
@@ -2053,10 +2343,13 @@ class GeneralSettingsScreen(QWidget):
                 return self.view_settings_tab.table
         elif self.active_panel_id == "sube_tanimlari":
             return getattr(self, "tbl_sube", None)
+        elif self.active_panel_id == "calisma_donemi":
+            return getattr(self, "tbl_donem", None)
         elif self.active_panel_id == "yetkiler":
             return getattr(self, "tbl_yetkiler", None)
         elif self.active_panel_id == "doviz_kur":
-            return getattr(self, "tbl_doviz", None)
+            grid = getattr(self, "doviz_grid", None)
+            return grid.table_view if grid is not None else None
         elif self.active_panel_id == "odeme_planlari":
             return getattr(self, "tbl_odeme", None)
         elif self.active_panel_id == "fiyat_listeleri":
@@ -2286,12 +2579,17 @@ class GeneralSettingsScreen(QWidget):
         if not table:
             QMessageBox.information(self, self.tr("Bilgi"), self.tr("Bu panel için yazdırılacak veri bulunamadı."))
             return
+        html = self._generate_table_html(table, f"TOYA ERP — {self.lbl_breadcrumb.text()}")
+        self._show_print_preview(html)
 
+    def _show_print_preview(self, html: str) -> None:
+        """Verilen HTML içeriğini yazdırma önizleme diyaloğunda açar —
+        panel tablosu (`print_active_panel`) ve özel raporlar (ör. Döviz &
+        Kur'un tarih aralığı çıktısı) tarafından ortak kullanılır."""
         try:
             from PyQt6.QtGui import QTextDocument
             from PyQt6.QtPrintSupport import QPrinter, QPrintPreviewDialog
 
-            html = self._generate_table_html(table, f"TOYA ERP — {self.lbl_breadcrumb.text()}")
             doc = QTextDocument()
             doc.setHtml(html)
 
@@ -2304,7 +2602,8 @@ class GeneralSettingsScreen(QWidget):
             QMessageBox.critical(self, self.tr("Hata"), self.tr(f"Yazdırma hatası:\n{e}"))
 
     def _generate_table_html(self, table, title: str) -> str:
-        """Tablodan şık bir kurumsal HTML rapor tablosu üretir."""
+        """Tablodan (QTableWidget veya model'li QTableView) başlık+satırları
+        çıkarıp `_generate_html_table` ile şık bir kurumsal HTML rapor üretir."""
         headers = []
         rows = []
         if isinstance(table, QTableWidget):
@@ -2333,6 +2632,11 @@ class GeneralSettingsScreen(QWidget):
                         row_vals.append(str(model.data(idx) or ""))
                     rows.append(row_vals)
 
+        return self._generate_html_table(headers, rows, title)
+
+    @staticmethod
+    def _generate_html_table(headers: list[str], rows: list[list[str]], title: str) -> str:
+        """Başlık + satır listelerinden şık bir kurumsal HTML rapor tablosu üretir."""
         th_html = "".join(f"<th style='border:1px solid #cbd5e1; padding:6px 8px; background:#f1f5f9; color:#1e3a8a;'>{h}</th>" for h in headers)
         tr_html = ""
         for i, row in enumerate(rows):
@@ -2372,10 +2676,6 @@ class GeneralSettingsScreen(QWidget):
         """Aktif paneli yeniden yükler."""
         self.switch_panel(self.active_panel_id or "firma_bilgileri")
 
-    def _fetch_tcmb_rates(self):
-        """TCMB güncel kurlarını çeker (Mock / Simülasyon)."""
-        QMessageBox.information(self, self.tr("TCMB"), self.tr("TCMB güncel döviz kurları başarıyla güncellendi."))
-
     def build_body(self) -> QStackedWidget:
         """Sağ body — paneller burada gösterilir."""
         self.stack = QStackedWidget()
@@ -2384,6 +2684,7 @@ class GeneralSettingsScreen(QWidget):
             "firma_bilgileri": self.build_firma_bilgileri_panel,
             "cms_baglantilari": self.build_cms_baglantilari_panel,
             "sube_tanimlari": self.build_sube_panel,
+            "calisma_donemi": self.build_calisma_donemi_panel,
             "kullanicilar": self.build_kullanicilar_panel,
             "roller": self.build_roller_panel,
             "yetkiler": self.build_yetkiler_panel,
@@ -2397,6 +2698,13 @@ class GeneralSettingsScreen(QWidget):
             "stok_ozel_alanlar": lambda: self.build_ozel_alan_panel("stok"),
             "cari_gruplari": self.build_cari_gruplari_panel,
             "cari_ozel_alanlar": lambda: self.build_ozel_alan_panel("cari"),
+            "eposta_smtp": self.build_eposta_smtp_panel,
+            "online_portal": self.build_online_portal_panel,
+            "portal_yayin": self.build_portal_yayin_panel,
+            "yedek_merkezi": self.build_yedek_merkezi_panel,
+            "portal_yedek": self.build_portal_yedek_panel,
+            "guvenlik": self.build_guvenlik_panel,
+            "sayi_bicimi": self.build_sayi_bicimi_panel,
             "gorunum_profilleri": self.build_gorunum_panel,
             "ekran_grid": self.build_ekran_grid_panel,
             "surum_git": self.build_surum_panel,
@@ -2414,6 +2722,14 @@ class GeneralSettingsScreen(QWidget):
         self.active_panel_id = panel_id
         if panel_id in self.panels:
             self.stack.setCurrentWidget(self.panels[panel_id])
+
+        # Panele özgü sağ panel bölümleri — yalnız ilgili panel aktifken görünür.
+        if hasattr(self, "doviz_sag_panel_container"):
+            self.doviz_sag_panel_container.setVisible(panel_id == "doviz_kur")
+        if panel_id == "doviz_kur":
+            self._maybe_prompt_initial_currencies()
+            if getattr(self, "doviz_rapor_widget", None):
+                self.doviz_rapor_widget.refresh()
 
         # Buton aktifliğini ayarla
         if panel_id in self.menu_buttons:
@@ -2636,47 +2952,670 @@ class GeneralSettingsScreen(QWidget):
         lyt.addWidget(self.tbl_yetkiler, 1)
         return w
 
+    #: Döviz & Kur grid kolonları — M.B. (T.C. Merkez Bankası) ve S.P. (Serbest
+    #: Piyasa) alış/satış değerleri ayrı ayrı gösterilir (bkz. CurrencyRateHistory).
+    DOVIZ_COLS = (
+        "Kod", "Ad", "Sembol", "M.B. Alış", "M.B. Satış",
+        "S.P. Alış", "S.P. Satış", "Güncel Kur", "Durum",
+    )
+
+    #: Panel başlığı üstteki breadcrumb'da ("Genel Ayarlar > Döviz & Kur")
+    #: zaten gösterildiği için panel içinde tekrar edilmez; bu metin de artık
+    #: sayfaya gömülü bir paragraf değil, üst çubuktaki ℹ️ ikonunun ipucudur.
+    DOVIZ_YARDIM_METNI = (
+        "Tanımlanan para birimleri ve 'Güncel Kur' sütunu Teklif, Fatura ve Stok "
+        "ekranlarında otomatik kullanılır. Alttaki tablo, seçili 'Kur Tarihi'ndeki "
+        "M.B. (T.C. Merkez Bankası) ve S.P. (Serbest Piyasa) kurlarını gösterir."
+    )
+
+    #: İlk kurulumda "kullanmak istediğiniz dövizleri seçin" popup'ında bu
+    #: kodlar ön işaretli gelir (en sık kullanılan dövizler); tam liste
+    #: `currency_catalog.CURRENCY_CATALOG`'dan (ISO 4217) aranıp seçilir.
+    ILK_SECIM_ON_TANIMLI_KODLAR = {"USD", "EUR"}
+
     def build_doviz_panel(self) -> QWidget:
-        """Döviz & Kur Tanımları Paneli."""
+        """Döviz & Kur Tanımları Paneli — günlük kur geçmişi takibi.
+
+        Üstte tek satırlık kaynak+tarih çubuğu (Kaynak, Serbest Piyasa XML
+        adresi, Kur Tarihi, Getir, ◀▶, Tarihe Kopyala), altta toplu
+        çekme/silme kutusu, ortada Teklif kalem gridiyle aynı bileşeni
+        (FilterableTableView — sütun genişlikleri kalıcı, sıralanabilir,
+        kendi filtre satırı var) kullanan tarih bazlı kur tablosu.
+        """
         w = QWidget()
         lyt = QVBoxLayout(w)
         lyt.setContentsMargins(12, 12, 12, 12)
         lyt.setSpacing(8)
 
-        lbl = QLabel("💱 Döviz & Kur Tanımları")
+        lyt.addWidget(self._build_doviz_ust_bar())
+
+        self.doviz_grid = FilterableTableView(
+            headers_dict={i: (h, h) for i, h in enumerate(self.DOVIZ_COLS)},
+            profile_key="genel_ayarlar_doviz",
+            enable_profile_bar=False,
+            parent=w,
+        )
+        self.doviz_model = QStandardItemModel(self)
+        self.doviz_model.setHorizontalHeaderLabels(list(self.DOVIZ_COLS))
+        self.doviz_grid.table_view.setModel(self.doviz_model)
+        self.doviz_grid.table_view.verticalHeader().setVisible(False)
+        self.doviz_grid.table_view.setContextMenuPolicy(
+            Qt.ContextMenuPolicy.CustomContextMenu,
+        )
+        self.doviz_grid.table_view.customContextMenuRequested.connect(
+            self._show_doviz_context_menu,
+        )
+        lyt.addWidget(self.doviz_grid, 1)
+
+        self._load_doviz_grid_for_date(self.dt_kur_tarihi.date().toPyDate())
+        return w
+
+    def _build_doviz_ust_bar(self) -> QWidget:
+        """Kaynak + tarih gezinme — tek satır (Kaynak | Adres | Kur Tarihi |
+        Getir | ◀ ▶ | Tarihe Kopyala), referans ekrandaki üst çubukla aynı
+        düzen. Güncelleme tetikleyicisi ayrıca sol sidebar'da da vardır
+        ("🔄 Kurları Güncelle") — aksiyon tekrarı değil, burada "Getir" yalnızca
+        seçili TARİH için çeker, sidebar'daki ise bugünün kurudur.
+        """
+        bar = QFrame()
+        bar.setStyleSheet(
+            "QFrame { background:#f8fafc; border:1px solid #e2e8f0; border-radius:4px; }",
+        )
+        row = QHBoxLayout(bar)
+        row.setContentsMargins(8, 6, 8, 6)
+        row.setSpacing(6)
+        lbl_style = "font-size:11px; color:#334155;"
+
+        def _lbl(text: str) -> QLabel:
+            lab = QLabel(text)
+            lab.setStyleSheet(lbl_style)
+            return lab
+
+        self.cmb_doviz_kaynak = QComboBox()
+        self.cmb_doviz_kaynak.setStyleSheet("combobox-popup:0;")
+        self.cmb_doviz_kaynak.setToolTip(
+            "Kurların hangi kaynaktan çekileceği — serbest metin değil, sabit "
+            "seçeneklerden biri: TCMB (Resmi), Serbest Piyasa veya Manuel Giriş.",
+        )
+        for kind, label in currency_rate_service.SOURCE_LABELS.items():
+            self.cmb_doviz_kaynak.addItem(label, kind)
+
+        # Adres tanımlama/yönetme (ekle/seç/sil) artık burada değil, sağ
+        # paneldeki "💱 Döviz İşlemleri" bölümünde (bkz. build_right_sidebar) —
+        # üst çubukta yalnızca seçili adresin kısa bir hatırlatıcısı kalır.
+        self.lbl_doviz_adres_hint = QLabel("")
+        self.lbl_doviz_adres_hint.setStyleSheet("color:#64748b; font-size:10px; font-style:italic;")
+        self.lbl_doviz_adres_hint.setToolTip(
+            "Serbest Piyasa kaynak adresi — sağ panel > 💱 Döviz İşlemleri'nden yönetilir.",
+        )
+
+        self.dt_kur_tarihi = QDateEdit(QDate.currentDate())
+        self.dt_kur_tarihi.setCalendarPopup(True)
+        self.dt_kur_tarihi.setDisplayFormat("dd.MM.yyyy")
+        self.dt_kur_tarihi.setToolTip("Tablo ve 'Getir' işleminin uygulanacağı kur tarihi.")
+
+        btn_getir = QPushButton("⚡ Getir")
+        btn_getir.setStyleSheet(self.btn_style("#7c3aed", "#ffffff"))
+        btn_getir.setToolTip("Seçili 'Kur Tarihi' için kaynaktan kur çeker.")
+        btn_getir.clicked.connect(self._on_doviz_getir_clicked)
+
+        btn_prev = QPushButton("◀")
+        btn_prev.setFixedWidth(28)
+        btn_prev.setStyleSheet(self.btn_style())
+        btn_prev.setToolTip("Kur tarihini bir gün geri alır.")
+        btn_prev.clicked.connect(lambda: self._shift_doviz_tarih(-1))
+        btn_next = QPushButton("▶")
+        btn_next.setFixedWidth(28)
+        btn_next.setStyleSheet(self.btn_style())
+        btn_next.setToolTip("Kur tarihini bir gün ileri alır.")
+        btn_next.clicked.connect(lambda: self._shift_doviz_tarih(1))
+
+        self.dt_doviz_kopyala_hedef = QDateEdit(QDate.currentDate().addDays(1))
+        self.dt_doviz_kopyala_hedef.setCalendarPopup(True)
+        self.dt_doviz_kopyala_hedef.setDisplayFormat("dd.MM.yyyy")
+        self.dt_doviz_kopyala_hedef.setToolTip("Kopyalamanın hedef tarihi.")
+        btn_kopyala = QPushButton("+ Kopyala")
+        btn_kopyala.setStyleSheet(self.btn_style())
+        btn_kopyala.setToolTip(
+            "Görüntülenen tarihteki kurları hedef tarihe kopyalar "
+            "(ör. hafta sonu/tatil günleri için).",
+        )
+        btn_kopyala.clicked.connect(self._on_doviz_kopyala_clicked)
+
+        lbl_yardim = QLabel("ℹ️")
+        lbl_yardim.setStyleSheet("font-size:13px;")
+        lbl_yardim.setToolTip(self.DOVIZ_YARDIM_METNI)
+
+        row.addWidget(_lbl("Kaynak:"))
+        row.addWidget(self.cmb_doviz_kaynak)
+        row.addWidget(self.lbl_doviz_adres_hint, 1)
+        row.addWidget(_lbl("Kur Tarihi:"))
+        row.addWidget(self.dt_kur_tarihi)
+        row.addWidget(btn_getir)
+        row.addWidget(btn_prev)
+        row.addWidget(btn_next)
+        row.addWidget(_lbl("→ Tarihe:"))
+        row.addWidget(self.dt_doviz_kopyala_hedef)
+        row.addWidget(btn_kopyala)
+        row.addWidget(lbl_yardim)
+
+        # NOT: Kaynak/adres ayarlarının DB'den yüklenmesi (_load_doviz_kaynak_ayarlari)
+        # burada değil, sağ paneldeki adres alanı (txt_doviz_kaynak_url) inşa
+        # edildikten SONRA çağrılır (bkz. _build_doviz_sag_panel_islemler) —
+        # aksi halde henüz var olmayan bir widget'a erişilmiş olurdu.
+        self.cmb_doviz_kaynak.currentIndexChanged.connect(self._on_doviz_kaynak_changed)
+        self.dt_kur_tarihi.dateChanged.connect(
+            lambda qd: self._load_doviz_grid_for_date(qd.toPyDate()),
+        )
+        return bar
+
+    # ---- Kaynak Ayarları -------------------------------------------------
+    def _update_doviz_adres_hint(self, kind: str, url: str) -> None:
+        """Üst çubuktaki kısa adres hatırlatıcısını günceller — düzenleme
+        artık sağ paneldeki 💱 Döviz İşlemleri bölümünden yapılır."""
+        if not hasattr(self, "lbl_doviz_adres_hint"):
+            return
+        if kind != currency_rate_service.SOURCE_SERBEST:
+            self.lbl_doviz_adres_hint.setText("")
+            return
+        kisa = url if len(url) <= 48 else url[:45] + "…"
+        self.lbl_doviz_adres_hint.setText(f"🌐 {kisa}" if kisa else "🌐 (adres tanımlı değil)")
+
+    def _load_doviz_kaynak_ayarlari(self) -> None:
+        """DB'deki kayıtlı kur kaynağı ayarlarını (tip/adres) forma yükler."""
+        kind, url = currency_rate_service.get_source_config(self.db)
+        idx = self.cmb_doviz_kaynak.findData(kind)
+        self.cmb_doviz_kaynak.blockSignals(True)
+        self.cmb_doviz_kaynak.setCurrentIndex(idx if idx >= 0 else 0)
+        self.cmb_doviz_kaynak.blockSignals(False)
+        self.txt_doviz_kaynak_url.setText(url)
+        self._update_doviz_adres_hint(kind, url)
+        self.txt_doviz_kaynak_url.setEnabled(kind == currency_rate_service.SOURCE_SERBEST)
+
+    def _on_doviz_kaynak_changed(self) -> None:
+        kind = self.cmb_doviz_kaynak.currentData()
+        self.txt_doviz_kaynak_url.setEnabled(kind == currency_rate_service.SOURCE_SERBEST)
+        self._save_doviz_kaynak_ayarlari()
+
+    def _save_doviz_kaynak_ayarlari(self) -> None:
+        if not self.db:
+            return
+        kind = self.cmb_doviz_kaynak.currentData() or currency_rate_service.SOURCE_TCMB
+        url = self.txt_doviz_kaynak_url.text().strip()
+        currency_rate_service.set_source_config(self.db, kind, url)
+        self._update_doviz_adres_hint(kind, url)
+
+    # ---- Tarih Gezinme / Getir / Kopyala ----------------------------------
+    def _shift_doviz_tarih(self, delta_days: int) -> None:
+        self.dt_kur_tarihi.setDate(self.dt_kur_tarihi.date().addDays(delta_days))
+
+    def _on_doviz_getir_clicked(self) -> None:
+        """Seçili 'Kur Tarihi' için kaynaktan kur çeker (tekil tarih)."""
+        if not self.db:
+            return
+        target = self.dt_kur_tarihi.date().toPyDate()
+        result = currency_rate_service.refresh_and_apply(self.db, for_date=target)
+        self._load_doviz_grid_for_date(target)
+        if result.success:
+            self.toast_requested.emit(result.message, "success")
+        else:
+            QMessageBox.warning(self, "Döviz Kuru", result.message)
+
+    def _on_doviz_kopyala_clicked(self) -> None:
+        """Görüntülenen tarihteki kurları hedef tarihe kopyalar (hafta
+        sonu/tatil günleri için yeni kur yayınlanmadığında kullanışlıdır)."""
+        if not self.db:
+            return
+        src = self.dt_kur_tarihi.date().toPyDate()
+        dst = self.dt_doviz_kopyala_hedef.date().toPyDate()
+        rows = currency_rate_service.get_rate_history_range(self.db, src, src)
+        if not rows:
+            QMessageBox.information(
+                self, "Tarihe Kopyala", f"{src.strftime('%d.%m.%Y')} için kayıtlı kur yok.",
+            )
+            return
+        for r in rows:
+            currency_rate_service.upsert_rate_history(
+                self.db, dst, r.code, commit=False,
+                mb_alis=r.mb_alis, mb_satis=r.mb_satis,
+                sp_alis=r.sp_alis, sp_satis=r.sp_satis,
+            )
+        self.db.commit()
+        self.toast_requested.emit(
+            f"{len(rows)} döviz kuru {dst.strftime('%d.%m.%Y')} tarihine kopyalandı.", "success",
+        )
+        if self.dt_kur_tarihi.date().toPyDate() == dst:
+            self._load_doviz_grid_for_date(dst)
+
+    # ---- Toplu Çekme / Silme ----------------------------------------------
+    def _on_doviz_toplu_cek_clicked(self) -> None:
+        if not self.db:
+            return
+        d1 = self.dt_toplu_bas.date().toPyDate()
+        d2 = self.dt_toplu_bit.date().toPyDate()
+        result = currency_rate_service.bulk_fetch_range(self.db, d1, d2)
+        self._load_doviz_grid_for_date(self.dt_kur_tarihi.date().toPyDate())
+        if getattr(self, "doviz_rapor_widget", None):
+            self.doviz_rapor_widget.refresh()
+        if result.success:
+            QMessageBox.information(self, "Toplu Kur Çekme", result.message)
+        else:
+            QMessageBox.warning(self, "Toplu Kur Çekme", result.message)
+
+    def _on_doviz_toplu_sil_clicked(self) -> None:
+        if not self.db:
+            return
+        d1 = self.dt_toplu_bas.date().toPyDate()
+        d2 = self.dt_toplu_bit.date().toPyDate()
+        code = self._selected_doviz_code()
+        etiket = f"{code} dövizinin" if code else "tüm dövizlerin"
+        reply = QMessageBox.question(
+            self, "Aralığı Sil",
+            f"{d1.strftime('%d.%m.%Y')} — {d2.strftime('%d.%m.%Y')} arasında "
+            f"{etiket} geçmiş kur kayıtları silinsin mi?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+        deleted = currency_rate_service.delete_rate_history(self.db, d1, d2, code=code)
+        self._load_doviz_grid_for_date(self.dt_kur_tarihi.date().toPyDate())
+        if getattr(self, "doviz_rapor_widget", None):
+            self.doviz_rapor_widget.refresh()
+        self.toast_requested.emit(f"{deleted} kayıt silindi.", "success")
+
+    # ---- Grid: yükleme / kaydetme / yardımcılar ---------------------------
+    def _load_doviz_grid_for_date(self, d: date) -> None:
+        """Grid'i verilen tarihteki kurlarla doldurur (her Currency için bir
+        satır; o tarihte geçmiş kaydı yoksa M.B./S.P. hücreleri boş kalır)."""
+        if not self.db or not hasattr(self, "doviz_model"):
+            return
+        self.doviz_model.removeRows(0, self.doviz_model.rowCount())
+        try:
+            currencies = self.db.scalars(
+                select(Currency).where(Currency.is_deleted == False),  # noqa: E712
+            ).all()
+            hist_by_code = {
+                h.code: h
+                for h in currency_rate_service.get_rate_history_range(self.db, d, d)
+            }
+            for c in currencies:
+                h = hist_by_code.get((c.code or "").upper())
+                row = [
+                    QStandardItem(c.code or ""),
+                    QStandardItem(c.name or ""),
+                    QStandardItem(c.symbol or ""),
+                    self._rate_item(h.mb_alis if h else None),
+                    self._rate_item(h.mb_satis if h else None),
+                    self._rate_item(h.sp_alis if h else None),
+                    self._rate_item(h.sp_satis if h else None),
+                    self._rate_item(c.rate),
+                    QStandardItem("Aktif" if c.is_active else "Pasif"),
+                ]
+                self.doviz_model.appendRow(row)
+        except Exception as e:
+            logger.warning("Döviz geçmişi yüklenemedi: %s", e)
+
+    @staticmethod
+    def _fmt_rate(value: float | None) -> str:
+        return f"{value:.4f}" if value is not None else ""
+
+    @classmethod
+    def _rate_item(cls, value: float | None) -> QStandardItem:
+        """Sayısal kur hücreleri — tüm sayısal alanlarda olduğu gibi sağa
+        yaslı gösterilir."""
+        item = QStandardItem(cls._fmt_rate(value))
+        item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        return item
+
+    @staticmethod
+    def _parse_rate(text: str) -> float | None:
+        text = (text or "").strip().replace(",", ".")
+        if not text:
+            return None
+        try:
+            return float(text)
+        except ValueError:
+            return None
+
+    def _doviz_cell(self, row: int, col: int) -> str:
+        it = self.doviz_model.item(row, col)
+        return it.text() if it else ""
+
+    def _selected_doviz_code(self) -> str | None:
+        idx = self.doviz_grid.table_view.currentIndex()
+        if not idx.isValid():
+            return None
+        return self._doviz_cell(idx.row(), 0).strip().upper() or None
+
+    def _save_doviz(self) -> None:
+        """Grid'deki tüm satırları kaydeder: Currency tanımı (kod/ad/sembol/
+        güncel kur/durum) + görüntülenen tarih için geçmiş kur (M.B./S.P.)."""
+        if not self.db or not hasattr(self, "doviz_model"):
+            return
+        view_date = self.dt_kur_tarihi.date().toPyDate()
+        existing_by_code = {
+            c.code: c
+            for c in self.db.scalars(
+                select(Currency).where(Currency.is_deleted == False),  # noqa: E712
+            ).all()
+        }
+        for r in range(self.doviz_model.rowCount()):
+            code = self._doviz_cell(r, 0).strip().upper()
+            if not code:
+                continue
+            cur = existing_by_code.get(code)
+            if cur is None:
+                cur = Currency(code=code)
+                self.db.add(cur)
+                existing_by_code[code] = cur
+            cur.name = self._doviz_cell(r, 1).strip()
+            cur.symbol = self._doviz_cell(r, 2).strip()
+            guncel = self._parse_rate(self._doviz_cell(r, 7))
+            if guncel is not None:
+                cur.rate = guncel
+            cur.is_active = self._doviz_cell(r, 8).strip().lower() != "pasif"
+
+            history_kwargs = {
+                "mb_alis": self._parse_rate(self._doviz_cell(r, 3)),
+                "mb_satis": self._parse_rate(self._doviz_cell(r, 4)),
+                "sp_alis": self._parse_rate(self._doviz_cell(r, 5)),
+                "sp_satis": self._parse_rate(self._doviz_cell(r, 6)),
+            }
+            if any(v is not None for v in history_kwargs.values()):
+                currency_rate_service.upsert_rate_history(
+                    self.db, view_date, code, commit=False, **history_kwargs,
+                )
+        self.db.commit()
+
+    # ---- İlk Kurulum: Standart Dövizler ------------------------------------
+    def _ensure_try_currency(self) -> None:
+        """TRY, kurulum paketiyle gelen standart bir tanım olmalı — Döviz &
+        Kur paneli açıldığında eksikse burada otomatik oluşturulur."""
+        if not self.db:
+            return
+        exists = self.db.scalar(
+            select(Currency).where(Currency.code == "TRY", Currency.is_deleted == False),  # noqa: E712
+        )
+        if not exists:
+            try_info = get_currency_info("TRY")
+            self.db.add(Currency(
+                code="TRY", name="Türk Lirası", symbol="₺",
+                flag=try_info.flag if try_info else "🇹🇷", rate=1.0, is_active=True,
+            ))
+            self.db.commit()
+
+    def _maybe_prompt_initial_currencies(self) -> None:
+        """Hiç döviz tanımlı değilse (TRY hariç), kullanıcıya kullanmak
+        istediği dövizleri seçtiren bir popup gösterir — panel her açıldığında
+        değil, ekran ömründe yalnızca bir kez sorulur.
+
+        `self.isVisible()` koşulu, ekran gerçekten kullanıcıya gösterilmeden
+        (ör. `.show()` hiç çağrılmamış otomatik testlerde) bu bloklayıcı
+        popup'ın sessizce açılıp asılı kalmasını engeller; ekran gerçekten
+        görünür olduğunda tekrar denenir (bayrak henüz set edilmediği için)."""
+        if not self.db or getattr(self, "_doviz_ilk_secim_soruldu", False):
+            return
+        if not self.isVisible():
+            return
+        self._doviz_ilk_secim_soruldu = True
+        self._ensure_try_currency()
+        diger = self.db.scalars(
+            select(Currency).where(Currency.code != "TRY", Currency.is_deleted == False),  # noqa: E712
+        ).all()
+        if diger:
+            return
+
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Kullanılacak Dövizleri Seçin")
+        dlg.resize(380, 520)
+        lyt = QVBoxLayout(dlg)
+
+        info = QLabel(
+            "Henüz hiç döviz tanımlı değil (TL hariç — TL zaten standart olarak "
+            "hazır gelir). Bu firmada kullanmak istediğiniz dövizleri arayıp "
+            "işaretleyin; dilediğiniz zaman sağ tık > 'Yeni Döviz Ekle' ile "
+            "başka döviz de ekleyebilirsiniz.",
+        )
+        info.setWordWrap(True)
+        lyt.addWidget(info)
+
+        txt_ara = QLineEdit()
+        txt_ara.setPlaceholderText("Kod veya isimle ara... (ör. USD, Euro)")
+        lyt.addWidget(txt_ara)
+
+        lst = QListWidget()
+        for c in CURRENCY_CATALOG:
+            item = QListWidgetItem(f"{c.flag}  {c.code} — {c.name} ({c.symbol})")
+            item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
+            item.setCheckState(
+                Qt.CheckState.Checked if c.code in self.ILK_SECIM_ON_TANIMLI_KODLAR
+                else Qt.CheckState.Unchecked,
+            )
+            item.setData(Qt.ItemDataRole.UserRole, c)
+            lst.addItem(item)
+        lyt.addWidget(lst, 1)
+
+        def _filtrele(text: str) -> None:
+            q = text.strip().lower()
+            for i in range(lst.count()):
+                it = lst.item(i)
+                c = it.data(Qt.ItemDataRole.UserRole)
+                it.setHidden(bool(q) and q not in f"{c.code} {c.name}".lower())
+
+        txt_ara.textChanged.connect(_filtrele)
+
+        box = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel,
+        )
+        box.accepted.connect(dlg.accept)
+        box.rejected.connect(dlg.reject)
+        lyt.addWidget(box)
+
+        if dlg.exec() != QDialog.DialogCode.Accepted:
+            return
+
+        eklenen = 0
+        for i in range(lst.count()):
+            it = lst.item(i)
+            if it.checkState() != Qt.CheckState.Checked:
+                continue
+            c = it.data(Qt.ItemDataRole.UserRole)
+            self.db.add(Currency(
+                code=c.code, name=c.name, symbol=c.symbol, flag=c.flag,
+                rate=1.0, is_active=True,
+            ))
+            eklenen += 1
+        if eklenen:
+            self.db.commit()
+            self._load_doviz_grid_for_date(self.dt_kur_tarihi.date().toPyDate())
+            self.toast_requested.emit(f"{eklenen} döviz eklendi.", "success")
+
+    # ---- Sağ tık menüsü + popup diyaloglar --------------------------------
+    def _show_doviz_context_menu(self, pos) -> None:
+        menu = QMenu(self)
+        a_yeni = QAction("➕ Yeni Döviz Ekle...", self)
+        a_yeni.triggered.connect(self._open_yeni_doviz_dialog)
+        a_kur = QAction("✏️ Kur Gir...", self)
+        a_kur.triggered.connect(self._open_kur_gir_dialog)
+        a_sil = QAction("🗑️ Bu Tarihteki Satırı Sil", self)
+        a_sil.triggered.connect(self._delete_selected_doviz_history_row)
+        a_yazdir_tek = QAction("🖨️ Yazdır (Bu Tarih)", self)
+        a_yazdir_tek.triggered.connect(self.print_active_panel)
+        a_yazdir_aralik = QAction("🖨️ Yazdır (Tarih Aralığı...)", self)
+        a_yazdir_aralik.triggered.connect(self._print_doviz_range)
+        a_yenile = QAction("🔄 Yenile", self)
+        a_yenile.triggered.connect(
+            lambda: self._load_doviz_grid_for_date(self.dt_kur_tarihi.date().toPyDate()),
+        )
+        a_toplu = QAction("⚡ Toplu Kur Çek / Adres Yönetimi...", self)
+        a_toplu.setToolTip("Sağ paneldeki 💱 Döviz İşlemleri bölümünü açar.")
+        a_toplu.triggered.connect(self._open_doviz_sag_panel_islemler)
+        for a in (a_yeni, a_kur, a_sil):
+            menu.addAction(a)
+        menu.addSeparator()
+        menu.addAction(a_yazdir_tek)
+        menu.addAction(a_yazdir_aralik)
+        menu.addSeparator()
+        menu.addAction(a_yenile)
+        menu.addAction(a_toplu)
+        menu.exec(self.doviz_grid.table_view.viewport().mapToGlobal(pos))
+
+    def _open_doviz_sag_panel_islemler(self) -> None:
+        """Sağ tık menüsündeki 'Toplu Kur Çek / Adres Yönetimi' — Toplu Kur
+        Çek ve Serbest Piyasa adres yönetimi sık kullanılmadığı için ana
+        araç çubuğundan sağ panele taşındı; bu eylem o paneli açar."""
+        if hasattr(self, "right_panel"):
+            self.right_panel.open_panel()
+        if hasattr(self, "doviz_sag_panel_container"):
+            self.doviz_sag_panel_container.setVisible(True)
+        for child in self.findChildren(CollapsibleSection):
+            if child.title_text == "💱 DÖVİZ İŞLEMLERİ":
+                child.set_expanded(True)
+                break
+
+    def _open_yeni_doviz_dialog(self) -> None:
+        exclude_codes = set()
+        if self.db:
+            exclude_codes = {
+                c for c in self.db.scalars(
+                    select(Currency.code).where(Currency.is_deleted == False),  # noqa: E712
+                ).all()
+            }
+        dlg = YeniDovizDialog(parent=self, exclude_codes=exclude_codes)
+        if dlg.exec() != QDialog.DialogCode.Accepted or not self.db:
+            return
+        data = dlg.get_data()
+        exists = self.db.scalar(
+            select(Currency).where(
+                Currency.code == data["code"], Currency.is_deleted == False,  # noqa: E712
+            ),
+        )
+        if exists:
+            QMessageBox.warning(self, "Uyarı", f"'{data['code']}' zaten tanımlı.")
+            return
+        self.db.add(Currency(
+            code=data["code"], name=data["name"], symbol=data["symbol"],
+            flag=data.get("flag", ""), rate=1.0, is_active=data["is_active"],
+        ))
+        self.db.commit()
+        self._load_doviz_grid_for_date(self.dt_kur_tarihi.date().toPyDate())
+
+    def _open_kur_gir_dialog(self) -> None:
+        if not self.db:
+            return
+        codes = [
+            c.code for c in self.db.scalars(
+                select(Currency).where(Currency.is_deleted == False),  # noqa: E712
+            ).all()
+        ]
+        if not codes:
+            QMessageBox.information(self, "Kur Gir", "Önce bir döviz tanımlayın.")
+            return
+        dlg = KurGirDialog(
+            codes, self.dt_kur_tarihi.date(),
+            initial_code=self._selected_doviz_code() or "", parent=self,
+        )
+        if dlg.exec() != QDialog.DialogCode.Accepted:
+            return
+        data = dlg.get_data()
+        currency_rate_service.upsert_rate_history(
+            self.db, data["rate_date"], data["code"],
+            mb_alis=data["mb_alis"], mb_satis=data["mb_satis"],
+            sp_alis=data["sp_alis"], sp_satis=data["sp_satis"],
+        )
+        if data["rate_date"] == self.dt_kur_tarihi.date().toPyDate():
+            self._load_doviz_grid_for_date(data["rate_date"])
+
+    def _delete_selected_doviz_history_row(self) -> None:
+        code = self._selected_doviz_code()
+        if not code or not self.db:
+            QMessageBox.warning(self, "Uyarı", "Lütfen silmek istediğiniz satırı seçin.")
+            return
+        d = self.dt_kur_tarihi.date().toPyDate()
+        deleted = currency_rate_service.delete_rate_history(self.db, d, d, code=code)
+        self._load_doviz_grid_for_date(d)
+        if deleted:
+            self.toast_requested.emit(
+                f"{code} — {d.strftime('%d.%m.%Y')} kur kaydı silindi.", "success",
+            )
+
+    def _delete_selected_doviz_currency(self) -> None:
+        """Sol sidebar > 'Seçili Dövizi Sil' — döviz TANIMINI (Currency) siler."""
+        code = self._selected_doviz_code()
+        if not code or not self.db:
+            QMessageBox.warning(self, "Uyarı", "Lütfen silmek istediğiniz satırı seçin.")
+            return
+        cur = self.db.scalar(
+            select(Currency).where(Currency.code == code, Currency.is_deleted == False),  # noqa: E712
+        )
+        if cur:
+            cur.is_deleted = True
+            self.db.commit()
+        self._load_doviz_grid_for_date(self.dt_kur_tarihi.date().toPyDate())
+
+    def _print_doviz_range(self) -> None:
+        """Toplu işlem kutusundaki tarih aralığını (ve seçiliyse tek dövizi)
+        yazdırma önizlemesinde açar."""
+        if not self.db:
+            return
+        d1 = self.dt_toplu_bas.date().toPyDate()
+        d2 = self.dt_toplu_bit.date().toPyDate()
+        code = self._selected_doviz_code()
+        rows = currency_rate_service.get_rate_history_range(self.db, d1, d2, code=code)
+        if not rows:
+            QMessageBox.information(self, "Yazdır", "Seçili aralıkta kur kaydı yok.")
+            return
+        headers = ["Tarih", "Kod", "M.B. Alış", "M.B. Satış", "S.P. Alış", "S.P. Satış"]
+        body_rows = [
+            [
+                r.rate_date.strftime("%d.%m.%Y"), r.code,
+                self._fmt_rate(r.mb_alis), self._fmt_rate(r.mb_satis),
+                self._fmt_rate(r.sp_alis), self._fmt_rate(r.sp_satis),
+            ]
+            for r in rows
+        ]
+        baslik = f"Döviz Kuru — {d1.strftime('%d.%m.%Y')} — {d2.strftime('%d.%m.%Y')}"
+        if code:
+            baslik += f" ({code})"
+        html = self._generate_html_table(headers, body_rows, f"TOYA ERP — {baslik}")
+        self._show_print_preview(html)
+
+    def build_calisma_donemi_panel(self) -> QWidget:
+        """Çalışma Dönemi (Mali Yıl) Tanımları Paneli."""
+        w = QWidget()
+        lyt = QVBoxLayout(w)
+        lyt.setContentsMargins(12, 12, 12, 12)
+        lyt.setSpacing(8)
+
+        lbl = QLabel("🗓️ Çalışma Dönemi Tanımları")
         lbl.setStyleSheet("font-size:14px; font-weight:800; color:#1e3a8a;")
         lyt.addWidget(lbl)
 
         lbl_info = QLabel(
-            "Tanımlanan para birimleri Teklif, Fatura ve Stok ekranlarında otomatik kullanılır.",
+            "Firmanın mali yıl / çalışma dönemlerini tanımlar. Yalnızca bir dönem "
+            "'Aktif' olmalıdır; kapanan dönemler 'Kapalı' olarak işaretlenir.",
         )
         lbl_info.setStyleSheet("color:#64748b; font-size:11px;")
         lbl_info.setWordWrap(True)
         lyt.addWidget(lbl_info)
 
-        self.tbl_doviz = QTableWidget(0, 5)
-        self.tbl_doviz.setHorizontalHeaderLabels([
-            "Kod", "Açıklama", "Sembol", "Güncel Kur (TL)", "Durum",
+        self.tbl_donem = QTableWidget(0, 4)
+        self.tbl_donem.setHorizontalHeaderLabels([
+            "Dönem Kodu", "Başlangıç Tarihi", "Bitiş Tarihi", "Durum",
         ])
-        self._setup_table_style(self.tbl_doviz)
-        self.tbl_doviz.horizontalHeader().setSectionResizeMode(
-            1, QHeaderView.ResizeMode.Stretch,
+        self._setup_table_style(self.tbl_donem)
+        self.tbl_donem.horizontalHeader().setSectionResizeMode(
+            0, QHeaderView.ResizeMode.Stretch,
         )
 
-        default_currencies = [
-            ("TRY", "Türk Lirası", "₺", "1.0000", "Aktif"),
-            ("USD", "Amerikan Doları", "$", "38.5000", "Aktif"),
-            ("EUR", "Euro", "€", "41.2000", "Aktif"),
-            ("GBP", "İngiliz Sterlini", "£", "48.9000", "Aktif"),
+        import datetime as _dt
+        yil = _dt.datetime.now().year
+        default_donemler = [
+            (str(yil), f"01.01.{yil}", f"31.12.{yil}", "Aktif"),
         ]
-        for row_data in default_currencies:
-            r = self.tbl_doviz.rowCount()
-            self.tbl_doviz.insertRow(r)
-            for c, val in enumerate(row_data):
-                self.tbl_doviz.setItem(r, c, QTableWidgetItem(val))
-
-        lyt.addWidget(self.tbl_doviz, 1)
-        self._load_doviz_from_db()
+        self._load_generic_table(self.tbl_donem, "calisma_donemleri", default_donemler)
+        lyt.addWidget(self.tbl_donem, 1)
         return w
 
     def build_odeme_planlari_panel(self) -> QWidget:
@@ -3040,92 +3979,265 @@ class GeneralSettingsScreen(QWidget):
         self.git_tracker_tab = GitTrackerWidget(embedded=True)
         return self.git_tracker_tab
 
+    def build_eposta_smtp_panel(self) -> QWidget:
+        """E-Posta / SMTP giden sunucu ayarları."""
+        from src.desktop.ui.widgets.smtp_settings_widget import SmtpSettingsWidget
+        w = SmtpSettingsWidget(self.db)
+        w.toast_requested.connect(self.toast_requested)
+        return w
+
+    def build_online_portal_panel(self) -> QWidget:
+        """Online teklif portalı (cPanel) adresi ve API anahtarı."""
+        from src.desktop.ui.widgets.portal_settings_widget import PortalSettingsWidget
+        w = PortalSettingsWidget(self.db)
+        w.toast_requested.connect(self.toast_requested)
+        return w
+
+    def build_portal_yayin_panel(self) -> QWidget:
+        """Portal güncelleme paketini üretip FTP ile cPanel'e gönderme."""
+        from src.desktop.ui.widgets.portal_deploy_widget import PortalDeployWidget
+        w = PortalDeployWidget(self.db)
+        w.toast_requested.connect(self.toast_requested)
+        return w
+
+    def build_yedek_merkezi_panel(self) -> QWidget:
+        """TOYA veritabanı/dosya yedekleme işleri, zamanlama, şifreleme ve dış hedefler."""
+        from src.desktop.ui.widgets.backup_center_widget import BackupCenterWidget
+        w = BackupCenterWidget(self.db)
+        w.toast_requested.connect(self.toast_requested)
+        return w
+
+    def build_portal_yedek_panel(self) -> QWidget:
+        """Portal veritabanı yedeğini bu bilgisayara indirme (dış kopya)."""
+        from src.desktop.ui.widgets.portal_backup_widget import PortalBackupWidget
+        w = PortalBackupWidget(self.db)
+        w.toast_requested.connect(self.toast_requested)
+        return w
+
+    def build_guvenlik_panel(self) -> QWidget:
+        """Giriş güvenliği: kilit programı, uyarı penceresi ve kurtarma yöntemleri."""
+        from src.desktop.services import settings_store
+        from src.desktop.services.auth_service import (
+            DEFAULT_AUTOCLOSE_SECONDS,
+            DEFAULT_LOCKOUT_SCHEDULE,
+            KEY_AUTOCLOSE_SECONDS,
+            KEY_LOCKOUT_ENABLED,
+            KEY_LOCKOUT_SCHEDULE,
+            KEY_RECOVERY_EMAIL_ENABLED,
+            KEY_RECOVERY_SQ_ENABLED,
+        )
+
+        w = QWidget()
+        lyt = QVBoxLayout(w)
+        lyt.setContentsMargins(16, 14, 16, 14)
+        lyt.setSpacing(10)
+
+        title = QLabel("🔐 Güvenlik & Giriş")
+        title.setStyleSheet("font-size:14px; font-weight:800; color:#1e3a8a;")
+        lyt.addWidget(title)
+
+        # --- Giriş kilidi ---
+        self.chk_lockout_enabled = QCheckBox("Ard arda hatalı girişte geçici kilit uygula")
+        self.chk_lockout_enabled.setChecked(
+            settings_store.get_bool(self.db, KEY_LOCKOUT_ENABLED, True),
+        )
+        lyt.addWidget(self.chk_lockout_enabled)
+
+        lyt.addWidget(QLabel("Kilit programı (hatalı deneme sayısı → kilit saniyesi):"))
+        self.tbl_lockout = QTableWidget(0, 2)
+        self.tbl_lockout.setHorizontalHeaderLabels(["Deneme Sayısı", "Kilit (sn)"])
+        self.tbl_lockout.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        self.tbl_lockout.setMaximumHeight(160)
+        schedule = settings_store.get_json(self.db, KEY_LOCKOUT_SCHEDULE, DEFAULT_LOCKOUT_SCHEDULE)
+        for pair in schedule:
+            try:
+                r = self.tbl_lockout.rowCount()
+                self.tbl_lockout.insertRow(r)
+                self.tbl_lockout.setItem(r, 0, QTableWidgetItem(str(int(pair[0]))))
+                self.tbl_lockout.setItem(r, 1, QTableWidgetItem(str(int(pair[1]))))
+            except (TypeError, ValueError, IndexError):
+                continue
+        lyt.addWidget(self.tbl_lockout)
+
+        row_btns = QHBoxLayout()
+        b_add = QPushButton("➕ Satır")
+        b_add.clicked.connect(lambda: self._add_table_row(self.tbl_lockout, ["6", "600"]))
+        b_del = QPushButton("🗑️ Sil")
+        b_del.clicked.connect(lambda: self._delete_table_row(self.tbl_lockout))
+        row_btns.addWidget(b_add)
+        row_btns.addWidget(b_del)
+        row_btns.addStretch()
+        lyt.addLayout(row_btns)
+
+        # --- Uyarı penceresi ---
+        form = QFormLayout()
+        self.spin_autoclose = QSpinBox()
+        self.spin_autoclose.setRange(0, 120)
+        self.spin_autoclose.setValue(
+            settings_store.get_int(self.db, KEY_AUTOCLOSE_SECONDS, DEFAULT_AUTOCLOSE_SECONDS),
+        )
+        self.spin_autoclose.setSuffix(" sn")
+        self.spin_autoclose.setSpecialValueText("Kapalı")
+        form.addRow("Hatalı giriş penceresi otomatik kapanma", self.spin_autoclose)
+        lyt.addLayout(form)
+
+        # --- Kurtarma yöntemleri ---
+        lyt.addWidget(QLabel("'Şifremi Unuttum' yöntemleri:"))
+        self.chk_recovery_sq = QCheckBox("Güvenlik soruları")
+        self.chk_recovery_sq.setChecked(
+            settings_store.get_bool(self.db, KEY_RECOVERY_SQ_ENABLED, True),
+        )
+        self.chk_recovery_email = QCheckBox("E-posta ile sıfırlama (SMTP gerektirir)")
+        self.chk_recovery_email.setChecked(
+            settings_store.get_bool(self.db, KEY_RECOVERY_EMAIL_ENABLED, True),
+        )
+        lyt.addWidget(self.chk_recovery_sq)
+        lyt.addWidget(self.chk_recovery_email)
+
+        b_save = QPushButton("💾 Kaydet")
+        b_save.setStyleSheet(
+            "QPushButton{background:#2563eb; color:white; border:none; border-radius:6px;"
+            " padding:6px 16px; font-weight:700;}"
+            "QPushButton:hover{background:#1d4ed8;}",
+        )
+        b_save.clicked.connect(self._save_guvenlik_panel)
+        row_save = QHBoxLayout()
+        row_save.addStretch()
+        row_save.addWidget(b_save)
+        lyt.addLayout(row_save)
+        lyt.addStretch()
+        return w
+
+    def _save_guvenlik_panel(self) -> None:
+        from src.desktop.services import settings_store
+        from src.desktop.services.auth_service import (
+            KEY_AUTOCLOSE_SECONDS,
+            KEY_LOCKOUT_ENABLED,
+            KEY_LOCKOUT_SCHEDULE,
+            KEY_RECOVERY_EMAIL_ENABLED,
+            KEY_RECOVERY_SQ_ENABLED,
+        )
+
+        schedule: list[list[int]] = []
+        for r in range(self.tbl_lockout.rowCount()):
+            try:
+                attempts = int(self.tbl_lockout.item(r, 0).text().strip())
+                secs = int(self.tbl_lockout.item(r, 1).text().strip())
+                schedule.append([attempts, secs])
+            except (AttributeError, ValueError):
+                continue
+        schedule.sort()
+
+        try:
+            settings_store.set_setting(
+                self.db, KEY_LOCKOUT_ENABLED,
+                "1" if self.chk_lockout_enabled.isChecked() else "0", commit=False,
+            )
+            settings_store.set_setting(
+                self.db, KEY_LOCKOUT_SCHEDULE, json.dumps(schedule), commit=False,
+            )
+            settings_store.set_setting(
+                self.db, KEY_AUTOCLOSE_SECONDS, self.spin_autoclose.value(), commit=False,
+            )
+            settings_store.set_setting(
+                self.db, KEY_RECOVERY_SQ_ENABLED,
+                "1" if self.chk_recovery_sq.isChecked() else "0", commit=False,
+            )
+            settings_store.set_setting(
+                self.db, KEY_RECOVERY_EMAIL_ENABLED,
+                "1" if self.chk_recovery_email.isChecked() else "0", commit=True,
+            )
+        except Exception as exc:  # noqa: BLE001
+            QMessageBox.critical(self, "Güvenlik", f"Kaydedilemedi: {exc}")
+            return
+        self.toast_requested.emit("Güvenlik ayarları kaydedildi", "success")
+        QMessageBox.information(self, "Güvenlik", "Ayarlar kaydedildi.")
+
+    def build_sayi_bicimi_panel(self) -> QWidget:
+        """Sayısal/fiyat alanlarının ondalık hane sayısını (maske) belirler.
+
+        Burada seçilen değer `MaskedDecimalField` tabanlı tüm alanlara
+        (stok/cari fiyat alanları vb.) otomatik olarak yansır — alan bazlı
+        ayrı bir ayar yoktur, tek bir global tercih tüm ekranları biçimlendirir.
+        """
+        from src.desktop.services import settings_store
+
+        w = QWidget()
+        lyt = QVBoxLayout(w)
+        lyt.setContentsMargins(16, 14, 16, 14)
+        lyt.setSpacing(10)
+
+        title = QLabel("🔢 Sayı Biçimi")
+        title.setStyleSheet("font-size:14px; font-weight:800; color:#1e3a8a;")
+        lyt.addWidget(title)
+
+        lbl_info = QLabel(
+            "Fiyat/tutar alanlarında (Stok, Cari vb.) virgülden sonra kaç hane "
+            "girileceğini belirler. Değişiklik, bu tür tüm alanların maskesine "
+            "ve giriş davranışına otomatik yansır.",
+        )
+        lbl_info.setWordWrap(True)
+        lbl_info.setStyleSheet("color:#64748b; font-size:11px;")
+        lyt.addWidget(lbl_info)
+
+        form = QFormLayout()
+        self.spin_ondalik_hane = QSpinBox()
+        self.spin_ondalik_hane.setRange(0, 6)
+        self.spin_ondalik_hane.setValue(
+            settings_store.get_int(
+                self.db, settings_store.DECIMAL_PLACES_KEY,
+                settings_store.DEFAULT_DECIMAL_PLACES,
+            ),
+        )
+        self.spin_ondalik_hane.setSuffix(" hane")
+        form.addRow("Ondalık Hane Sayısı", self.spin_ondalik_hane)
+        lyt.addLayout(form)
+
+        self.lbl_ondalik_ornek = QLabel()
+        self.lbl_ondalik_ornek.setStyleSheet("color:#334155; font-size:11px;")
+        self.spin_ondalik_hane.valueChanged.connect(self._update_ondalik_ornek)
+        self._update_ondalik_ornek(self.spin_ondalik_hane.value())
+        lyt.addWidget(self.lbl_ondalik_ornek)
+
+        b_save = QPushButton("💾 Kaydet")
+        b_save.setStyleSheet(
+            "QPushButton{background:#2563eb; color:white; border:none; border-radius:6px;"
+            " padding:6px 16px; font-weight:700;}"
+            "QPushButton:hover{background:#1d4ed8;}",
+        )
+        b_save.clicked.connect(self._save_sayi_bicimi_panel)
+        row_save = QHBoxLayout()
+        row_save.addStretch()
+        row_save.addWidget(b_save)
+        lyt.addLayout(row_save)
+        lyt.addStretch()
+        return w
+
+    def _update_ondalik_ornek(self, decimals: int) -> None:
+        ornek = f"{1585686.5:,.{decimals}f}".replace(",", "X").replace(".", ",").replace("X", ".")
+        self.lbl_ondalik_ornek.setText(f"Örnek görünüm: {ornek}")
+
+    def _save_sayi_bicimi_panel(self) -> None:
+        from src.desktop.services import settings_store
+
+        try:
+            settings_store.set_setting(
+                self.db, settings_store.DECIMAL_PLACES_KEY,
+                self.spin_ondalik_hane.value(),
+            )
+        except Exception as exc:  # noqa: BLE001
+            QMessageBox.critical(self, "Sayı Biçimi", f"Kaydedilemedi: {exc}")
+            return
+        self.toast_requested.emit("Sayı biçimi kaydedildi", "success")
+        QMessageBox.information(
+            self, "Sayı Biçimi",
+            "Ayar kaydedildi. Açık ekranlara yansıması için ekranın yeniden "
+            "açılması gerekir.",
+        )
+
     # ─────────────────────────────────────────────────────────────
     # DB LOAD & SAVE METHODS
     # ─────────────────────────────────────────────────────────────
-
-    def _load_doviz_from_db(self) -> None:
-        """DB'den döviz tanımlarını yükler."""
-        if not self.db:
-            return
-        try:
-            currencies = self.db.scalars(
-                select(Currency).where(Currency.is_deleted == False),
-            ).all()
-            if currencies:
-                self.tbl_doviz.setRowCount(0)
-                for c in currencies:
-                    r = self.tbl_doviz.rowCount()
-                    self.tbl_doviz.insertRow(r)
-                    self.tbl_doviz.setItem(r, 0, QTableWidgetItem(c.code or ""))
-                    self.tbl_doviz.setItem(r, 1, QTableWidgetItem(c.name or ""))
-                    self.tbl_doviz.setItem(r, 2, QTableWidgetItem(c.symbol or ""))
-                    self.tbl_doviz.setItem(
-                        r, 3, QTableWidgetItem(f"{float(c.rate or 1.0):.4f}"),
-                    )
-                    self.tbl_doviz.setItem(
-                        r, 4, QTableWidgetItem("Aktif" if c.is_active else "Pasif"),
-                    )
-        except Exception as e:
-            logger.warning(f"Döviz listesi yüklenemedi: {e}")
-
-    def _save_doviz(self) -> None:
-        """Döviz tanımlarını DB'ye kaydeder."""
-        if not self.db:
-            return
-        try:
-            existing = {
-                c.code: c
-                for c in self.db.scalars(
-                    select(Currency).where(Currency.is_deleted == False),
-                ).all()
-            }
-            for r in range(self.tbl_doviz.rowCount()):
-                code_item = self.tbl_doviz.item(r, 0)
-                name_item = self.tbl_doviz.item(r, 1)
-                sym_item = self.tbl_doviz.item(r, 2)
-                rate_item = self.tbl_doviz.item(r, 3)
-                status_item = self.tbl_doviz.item(r, 4)
-
-                code = code_item.text().strip().upper() if code_item else ""
-                if not code:
-                    continue
-                name = name_item.text().strip() if name_item else ""
-                symbol = sym_item.text().strip() if sym_item else ""
-                try:
-                    rate_val = (
-                        float(rate_item.text().replace(",", ".").strip())
-                        if rate_item
-                        else 1.0
-                    )
-                except ValueError:
-                    rate_val = 1.0
-                is_act = (
-                    (status_item.text().strip().lower() != "pasif")
-                    if status_item
-                    else True
-                )
-
-                if code in existing:
-                    c = existing[code]
-                    c.name = name
-                    c.symbol = symbol
-                    c.rate = rate_val
-                    c.is_active = is_act
-                else:
-                    new_c = Currency(
-                        code=code,
-                        name=name,
-                        symbol=symbol,
-                        rate=rate_val,
-                        is_active=is_act,
-                    )
-                    self.db.add(new_c)
-            self.db.commit()
-        except Exception as e:
-            self.db.rollback()
-            logger.error(f"Döviz tanımları kaydedilemedi: {e}")
-            raise
 
     def _load_birimler_from_db(self) -> None:
         """DB'den birim tanımlarını yükler."""
@@ -3532,6 +4644,9 @@ class GeneralSettingsScreen(QWidget):
             "sube_tanimlari": lambda: self._save_generic_table(
                 self.tbl_sube, "subeler",
             ),
+            "calisma_donemi": lambda: self._save_generic_table(
+                self.tbl_donem, "calisma_donemleri",
+            ),
             # roller / yetkiler: kayıt kendi editör diyaloglarında; panelde Kaydet no-op
             "roller": lambda: None,
             "yetkiler": lambda: None,
@@ -3591,10 +4706,12 @@ class GeneralSettingsScreen(QWidget):
         if self.active_panel_id == "firma_bilgileri":
             self.firma_tab.add_new()
             return
+        if self.active_panel_id == "doviz_kur":
+            self._open_yeni_doviz_dialog()
+            return
 
         panel_table_map = {
             "sube_tanimlari": "tbl_sube",
-            "doviz_kur": "tbl_doviz",
             "odeme_planlari": "tbl_odeme",
             "fiyat_listeleri": "tbl_fiyat",
             "stok_kategoriler": "tbl_kategori",
@@ -3627,10 +4744,12 @@ class GeneralSettingsScreen(QWidget):
         if self.active_panel_id == "gorunum_profilleri":
             self.view_settings_tab.delete_selected_profile()
             return
+        if self.active_panel_id == "doviz_kur":
+            self._delete_selected_doviz_currency()
+            return
 
         panel_table_map = {
             "sube_tanimlari": "tbl_sube",
-            "doviz_kur": "tbl_doviz",
             "odeme_planlari": "tbl_odeme",
             "fiyat_listeleri": "tbl_fiyat",
             "stok_kategoriler": "tbl_kategori",

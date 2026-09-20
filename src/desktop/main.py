@@ -24,8 +24,33 @@ def main():
     }
     apply_stylesheet(app, theme='light_teal.xml', extra=extra)
 
+    # Yedekten geri yükleme hazırlandıysa veritabanı AÇILMADAN önce uygulanır (dosya açıkken değiştirilemez).
+    try:
+        from pathlib import Path
+
+        from PyQt6.QtWidgets import QMessageBox
+
+        from src.core.config import settings as _settings
+        from src.desktop.services.backup import toya_backup
+
+        _db_file = Path(_settings.db.db_path)
+        _restored = toya_backup.apply_pending_restore(_db_file.parent, _db_file)
+        if _restored:
+            (QMessageBox.information if _restored[0] else QMessageBox.critical)(None, "Yedekten Geri Yükleme", _restored[1])
+    except Exception:  # noqa: BLE001
+        import logging
+        logging.getLogger(__name__).exception("Bekleyen geri yükleme uygulanamadı")
+
     db_manager = DatabaseManager()
     db_session = db_manager.get_db()
+
+    # İlk çalıştırmada kurulum sihirbazı (firma + admin güvenliği + SMTP)
+    try:
+        from src.desktop.ui.setup_wizard import maybe_run_setup_wizard
+        maybe_run_setup_wizard(db_session)
+    except Exception:  # noqa: BLE001
+        import logging
+        logging.getLogger(__name__).exception("Kurulum sihirbazı çalıştırılamadı")
 
     login = LoginWindow(db_session=db_session)
     login.show()

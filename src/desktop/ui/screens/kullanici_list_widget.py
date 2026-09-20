@@ -6,8 +6,9 @@ import logging
 
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QAction, QStandardItem
-from PyQt6.QtWidgets import QLabel, QLineEdit, QMenu, QMessageBox, QPushButton
+from PyQt6.QtWidgets import QInputDialog, QLabel, QLineEdit, QMenu, QMessageBox, QPushButton
 
+from src.desktop.services.auth_service import AuthService
 from src.desktop.services.user_service import UserService
 from src.desktop.ui.components.collapsible_section import CollapsibleSection
 from src.desktop.ui.components.three_panel_base import ThreePanelBaseWidget
@@ -19,6 +20,7 @@ logger = logging.getLogger(__name__)
 class KullaniciListWidget(ThreePanelBaseWidget):
     def __init__(self, db_session=None, parent=None, embedded: bool = False):
         self.service = UserService(db_session)
+        self.auth_service = AuthService(db_session)
         self._search = ""
         super().__init__(db_session=db_session, profile_key="users_v2",
                          module_name="Kullanıcı Tanımları", parent=parent, embedded=embedded)
@@ -50,6 +52,7 @@ class KullaniciListWidget(ThreePanelBaseWidget):
             ("➕ Yeni Kullanıcı", self.add_new, "#16a34a"),
             ("✏️ Düzenle", self.edit_selected, "#2563eb"),
             ("🗑️ Sil", self.delete_selected, "#ef4444"),
+            ("🔐 Şifre Sıfırlama E-postası Gönder", self.send_reset_email, "#d97706"),
             ("🔄 Yenile", self.load_data, "#64748b"),
         ):
             b = QPushButton(text)
@@ -131,6 +134,31 @@ class KullaniciListWidget(ThreePanelBaseWidget):
         else:
             QMessageBox.critical(self, "Hata", msg)
 
+    def _selected_username(self):
+        sel = self.table_view.selectionModel().selectedRows()
+        if not sel:
+            return None
+        it = self.table_model.item(sel[0].row(), 1)
+        return it.text() if it else None
+
+    def send_reset_email(self):
+        username = self._selected_username()
+        if not username:
+            QMessageBox.information(self, "Uyarı", "Şifre sıfırlama e-postası gönderilecek kullanıcıyı seçin.")
+            return
+        if QMessageBox.question(
+            self, "Şifre Sıfırlama E-postası",
+            f"'{username}' kullanıcısına şifre sıfırlama e-postası gönderilsin mi?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        ) != QMessageBox.StandardButton.Yes:
+            return
+        ok, masked, err = self.auth_service.start_email_reset(username)
+        if ok:
+            QMessageBox.information(self, "Şifre Sıfırlama E-postası", f"Sıfırlama e-postası gönderildi: {masked}")
+        else:
+            QMessageBox.critical(self, "Hata", err or "E-posta gönderilemedi.")
+
     def _menu(self, pos):
         m = QMenu(self)
         a_new = QAction("➕ Yeni Kullanıcı", self)
@@ -141,6 +169,9 @@ class KullaniciListWidget(ThreePanelBaseWidget):
             a_edit.triggered.connect(self.edit_selected)
             a_del = QAction("🗑️ Sil", self)
             a_del.triggered.connect(self.delete_selected)
+            a_reset = QAction("🔐 Şifre Sıfırlama E-postası Gönder", self)
+            a_reset.triggered.connect(self.send_reset_email)
             m.addAction(a_edit)
             m.addAction(a_del)
+            m.addAction(a_reset)
         m.exec(self.table_view.viewport().mapToGlobal(pos))

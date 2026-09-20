@@ -95,3 +95,17 @@ def test_data_field_text_acts_as_label_prefix(qapp):
 
     empty = ItemConfig(id="b", type="data_field", field="firma.yok", text="VKN: ")
     assert eng._resolve_item_text(empty, ctx, 1, 1) == ""
+
+
+def test_disabled_band_is_skipped_by_engine_but_pdf_still_exports(qapp, tmp_path, demo_data):
+    """BandManagerDialog'dan bir bant kapatılınca (enabled=False) baskı motoru
+    o bandı hiç çizmemeli; şablonun geri kalanı yine sorunsuz basılmalı."""
+    d = json.loads((_TPL_DIR / "tpl_fatura_kurumsal_a4.json").read_text(encoding="utf-8"))
+    tpl = ReportTemplate.from_dict(d)
+    footer = next(b for b in tpl.bands if b.type == "page_footer")
+    assert footer.enabled is True  # varsayılan: eski şablonlar etkilenmez
+    footer.enabled = False
+
+    out = tmp_path / "kapali_bant.pdf"
+    assert ReportPrinterEngine(tpl).export_to_pdf(demo_data, out) is True
+    assert out.exists()

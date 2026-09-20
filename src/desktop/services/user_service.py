@@ -77,6 +77,13 @@ class UserService:
             "is_active": user.is_active,
             "must_change_password": user.must_change_password,
             "allowed_site_ids": [s.id for s in user.allowed_sites],
+            # Güvenlik (soru metinleri açık; cevap hash'leri ASLA döndürülmez)
+            "security_question_1": user.security_question_1 or "",
+            "security_question_2": user.security_question_2 or "",
+            "has_security_questions": bool(
+                user.security_answer_1_hash and user.security_answer_2_hash,
+            ),
+            "has_recovery_code": bool(user.recovery_code_hash),
         }
 
     # ------------------------------------------------------------------

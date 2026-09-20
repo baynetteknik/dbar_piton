@@ -368,39 +368,6 @@ def test_save_print_confirms_when_unsaved(qapp, db, monkeypatch):
     assert s.doc_id is not None  # kaydedildi
 
 
-def test_mini_preview_collapsed_by_default_and_renders_on_expand(qapp, db):
-    from src.desktop.designer.ui.preview_widget import ReportPreviewWidget
-
-    s = DocumentDetailScreen(db_session=db)
-    s.lines.clear_rows()
-    s.lines.add_row({"kod": "K1", "aciklama": "Kalem", "miktar": "2",
-                     "birim_fiyat": "100", "kdv_yuzde": "20"})
-    s.lines._emit_totals()
-
-    assert isinstance(s.mini_preview, ReportPreviewWidget)
-    assert s.mini_preview.compact is True
-    # kapalıyken çizim yok (boşuna render maliyeti alınmaz)
-    assert s.sec_mini_preview.is_expanded is False
-    assert s.mini_preview.rendered_pages == []
-
-    s.sec_mini_preview.set_expanded(True)
-    assert len(s.mini_preview.rendered_pages) >= 1
-
-
-def test_mini_preview_refresh_is_debounced_and_guarded(qapp, db):
-    s = DocumentDetailScreen(db_session=db)
-    # kapalıyken tetikleme timer'ı başlatmaz
-    s._schedule_preview_refresh()
-    assert not s._preview_timer.isActive()
-
-    s.sec_mini_preview.set_expanded(True)
-    s.cari.txt_cari_unvan.setText("Yeni Cari")  # _refresh_summary -> schedule
-    assert s._preview_timer.isActive()
-    s._preview_timer.stop()
-    s._refresh_mini_preview()
-    assert s._build_print_data()["musteri"]["adi"] == "Yeni Cari"
-
-
 def test_save_and_reload_payload(qapp, db):
     s = DocumentDetailScreen(db_session=db)
     s.cari.txt_cari_unvan.setText("ACME LTD")
@@ -417,3 +384,54 @@ def test_save_and_reload_payload(qapp, db):
     assert lines[0]["kod"] == "STK9"
     assert s2.cari.get_data()["name"] == "ACME LTD"
     assert s2.txt_doc_no.text() == res.quotation_number
+
+
+def test_selected_customer_id_flows_to_saved_quotation(qapp, db):
+    from src.core.models import Quotation
+    from src.desktop.services.customer_service import CustomerService
+
+    cid = CustomerService(db).save(
+        {"customer_code": "C-1", "fullname": "ACME", "is_active": True},
+    ).customer_id
+    s = DocumentDetailScreen(db_session=db)
+    s.cari.apply_customer({"id": cid, "code": "C-1", "name": "ACME"})
+    s.lines.add_row({"kod": "A1", "aciklama": "Kalem", "miktar": "1",
+                     "birim_fiyat": "10", "kdv_yuzde": "20"})
+    s.lines._emit_totals()
+    assert s._persist(notify_empty=False)
+    assert db.get(Quotation, s.doc_id).customer_id == cid
+
+
+def test_import_lines_from_another_document(qapp, db):
+    src_screen = DocumentDetailScreen(db_session=db)
+    src_screen.cari.txt_cari_unvan.setText("KAYNAK")
+    src_screen.lines.add_row({"kod": "K1", "aciklama": "İlk", "miktar": "2",
+                              "birim_fiyat": "5", "kdv_yuzde": "20"})
+    src_screen.lines._emit_totals()
+    res = src_screen.service.save_payload(src_screen._collect_payload())
+
+    dst = DocumentDetailScreen(db_session=db)
+    from src.desktop.ui.widgets.kalem_aktar_dialog import KalemAktarDialog
+    dlg = KalemAktarDialog(db_session=db, products=[])
+    dlg.tabs.setCurrentIndex(0)
+    row = dlg._doc_ids.index(res.quotation_id)
+    dlg.tbl_docs.selectRow(row)
+    dlg._on_accept()
+    dst.lines.load_lines(dlg.result_lines)
+    kods = [x["kod"] for x in dst.lines.get_lines() if x["kod"]]
+    assert "K1" in kods
+
+
+def test_balance_requested_needs_selected_customer(qapp, db, monkeypatch):
+    opened = {}
+    import src.desktop.ui.widgets.cari_ekstre_dialog as m
+    monkeypatch.setattr(
+        m, "CariEkstreDialog",
+        lambda **k: type("D", (), {"exec": lambda self: opened.update(k)})(),
+    )
+    s = DocumentDetailScreen(db_session=db)
+    s._on_balance_requested("")                       # cari yok → sessiz
+    assert not opened
+    s.cari.apply_customer({"id": 42, "name": "X"})
+    s._on_balance_requested("")
+    assert opened.get("customer_id") == 42

@@ -1,0 +1,348 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  TOYA ERP - Stok Kartı Ekranı - Düzenlenebilir SVG Şablonu
+  ==========================================================
+  Bu dosya "Stok Kartı" ekranının güncel yapısını (sol İşlemler/Raporlar
+  paneli, sekmeli gövde, bölüm başlıkları, alan satırları, mavi büyüteç
+  butonları, sağ Özet Bilgi paneli, alt Vazgeç/Kaydet barı) yansıtan
+  düzenlenebilir bir taslaktır.
+
+  Nasıl kullanılır:
+   - Illustrator / Inkscape / Figma (SVG import) ile açıp öğeleri
+     taşıyabilir, renk/boyut/metin değiştirebilir, yeni alan satırları
+     kopyalayabilirsiniz.
+   - Tekrar eden görünümler <style> bloğundaki CSS sınıflarıyla
+     tanımlıdır (örn. tüm giriş kutularının rengini değiştirmek için
+     sadece ".input-box" sınıfını düzenlemek yeterlidir).
+   - Her bölüm/öğe grubu <g id="..."> ile adlandırılmıştır; katman
+     panelinden kolayca bulunabilir.
+   - Büyüteç ikonu <defs> içinde tek bir <symbol id="magnifier"> olarak
+     tanımlıdır ve <use> ile tekrar kullanılır — ikonu bir yerde
+     değiştirmek tüm kopyaları günceller.
+
+  Bu şablon aynı zamanda sonraki ekranlar (Cari Kartı, Görev Kartı, vb.)
+  için başlangıç noktası olarak kullanılabilir; genel iskelet (header,
+  sekmeler, sol/sağ panel, footer) aynı kalıptadır.
+-->
+<svg width="1900" height="1040" viewBox="0 0 1900 1040" xmlns="http://www.w3.org/2000/svg">
+  <style>
+    .bg { fill:#eef1f6; }
+    .panel-bg { fill:#ffffff; stroke:#cbd5e1; stroke-width:1; }
+    .section-box { fill:#ffffff; stroke:#e2e8f0; stroke-width:1; }
+    .section-header-blue { fill:#1e3a8a; }
+    .section-header-blue-text { fill:#ffffff; font-weight:800; font-size:13px; font-family:'Segoe UI',Arial,sans-serif; }
+    .section-header-plain-text { fill:#475569; font-weight:800; font-size:13px; font-family:'Segoe UI',Arial,sans-serif; }
+    .field-label { fill:#334155; font-size:12px; font-weight:600; font-family:'Segoe UI',Arial,sans-serif; }
+    .input-box { fill:#ffffff; stroke:#cbd5e1; stroke-width:1; }
+    .input-text { fill:#0f172a; font-size:12px; font-family:'Segoe UI',Arial,sans-serif; }
+    .search-btn { fill:#2563eb; }
+    .action-box { fill:#eef2ff; }
+    .action-text { fill:#4338ca; font-size:12px; font-weight:600; font-family:'Segoe UI',Arial,sans-serif; }
+    .group-title { fill:#1e3a8a; font-size:12px; font-weight:800; font-family:'Segoe UI',Arial,sans-serif; }
+    .group-box { fill:#e0e7ff; stroke:#cbd5e1; stroke-width:1; }
+    .header-bar { fill:#0f172a; }
+    .header-title { fill:#ffffff; font-size:16px; font-weight:800; font-family:'Segoe UI',Arial,sans-serif; }
+    .header-sub { fill:#cbd5e1; font-size:13px; font-weight:600; font-family:'Segoe UI',Arial,sans-serif; }
+    .status-badge { fill:#1e293b; stroke:#334155; }
+    .status-text { fill:#e2e8f0; font-size:12px; font-family:'Segoe UI',Arial,sans-serif; }
+    .tab { fill:#f1f5f9; stroke:#e2e8f0; stroke-width:1; }
+    .tab-active { fill:#ffffff; stroke:#2563eb; stroke-width:2; }
+    .tab-text { fill:#475569; font-size:12px; font-weight:700; font-family:'Segoe UI',Arial,sans-serif; }
+    .tab-text-active { fill:#1e3a8a; font-size:12px; font-weight:800; font-family:'Segoe UI',Arial,sans-serif; }
+    .footer-cancel { fill:#f1f5f9; stroke:#cbd5e1; stroke-width:1; }
+    .footer-cancel-text { fill:#475569; font-size:13px; font-weight:600; font-family:'Segoe UI',Arial,sans-serif; }
+    .footer-save { fill:#2563eb; }
+    .footer-save-text { fill:#ffffff; font-size:13px; font-weight:700; font-family:'Segoe UI',Arial,sans-serif; }
+    .checkbox { fill:#ffffff; stroke:#94a3b8; stroke-width:1.2; }
+    .kpi-value { fill:#0f172a; font-size:22px; font-weight:800; font-family:'Segoe UI',Arial,sans-serif; }
+    .kpi-label { fill:#64748b; font-size:11px; font-family:'Segoe UI',Arial,sans-serif; }
+  </style>
+
+  <defs>
+    <symbol id="magnifier" viewBox="0 0 14 14">
+      <circle cx="6" cy="6" r="4.4" fill="none" stroke="#ffffff" stroke-width="1.6"/>
+      <line x1="9" y1="9" x2="12.6" y2="12.6" stroke="#ffffff" stroke-width="1.6" stroke-linecap="round"/>
+    </symbol>
+    <symbol id="spinner" viewBox="0 0 12 20">
+      <polygon points="1,7 11,7 6,2" fill="#334155"/>
+      <polygon points="1,13 11,13 6,18" fill="#334155"/>
+    </symbol>
+  </defs>
+
+  <rect class="bg" x="0" y="0" width="1900" height="1040"/>
+
+  <!-- ============ HEADER ============ -->
+  <g id="header">
+    <rect class="header-bar" x="197" y="6" width="1463" height="34" rx="6"/>
+    <text class="header-title" x="216" y="28">📄 Stok Kartı</text>
+    <text class="header-sub" x="330" y="28">STK-001  ·  Örnek Ürün</text>
+    <rect class="status-badge" x="1560" y="12" width="90" height="22" rx="6"/>
+    <text class="status-text" x="1573" y="27">Aktif ▾</text>
+  </g>
+
+  <!-- ============ TABS ============ -->
+  <g id="tabs">
+    <rect class="tab-active" x="197" y="46" width="150" height="28" rx="2"/>
+    <text class="tab-text-active" x="209" y="65">1. Genel Bilgiler</text>
+    <rect class="tab" x="349" y="46" width="180" height="28" rx="2"/>
+    <text class="tab-text" x="361" y="65">2. Gelişmiş Fiyat Tanımlama</text>
+    <rect class="tab" x="531" y="46" width="110" height="28" rx="2"/>
+    <text class="tab-text" x="543" y="65">3. Depo &amp; Raf</text>
+    <rect class="tab" x="643" y="46" width="110" height="28" rx="2"/>
+    <text class="tab-text" x="655" y="65">4. Özellikler</text>
+    <rect class="tab" x="755" y="46" width="110" height="28" rx="2"/>
+    <text class="tab-text" x="767" y="65">5. E-Ticaret</text>
+  </g>
+
+  <!-- ============ SOL PANEL: İŞLEMLER / RAPORLAR ============ -->
+  <g id="sol-panel">
+    <!-- İŞLEMLER grubu -->
+    <g id="grup-islemler">
+      <rect class="group-box" x="6" y="6" width="185" height="24" rx="4"/>
+      <text class="group-title" x="14" y="22">▾ İŞLEMLER</text>
+      <rect class="panel-bg" x="6" y="30" width="185" height="112" rx="4"/>
+      <g id="btn-alan-adlarini-duzenle">
+        <rect class="action-box" x="12" y="36" width="173" height="26" rx="4"/>
+        <text class="action-text" x="20" y="53">✏ Alan Adlarını Düzenle ▾</text>
+      </g>
+      <g id="btn-birimler">
+        <rect class="action-box" x="12" y="68" width="173" height="26" rx="4"/>
+        <text class="action-text" x="20" y="85">📐 Birimler</text>
+      </g>
+      <g id="btn-kdv-tanimlari">
+        <rect class="action-box" x="12" y="100" width="173" height="26" rx="4"/>
+        <text class="action-text" x="20" y="117">% KDV Tanımları</text>
+      </g>
+    </g>
+
+    <!-- Alan Adlarını Düzenle menüsü (açık haliyle, referans) -->
+    <g id="menu-alan-adlarini-duzenle" opacity="0.95">
+      <rect class="panel-bg" x="12" y="146" width="150" height="112" rx="4"/>
+      <text class="field-label" x="20" y="164">Özel Kodlar</text>
+      <text class="field-label" x="20" y="190">Fiyatlar</text>
+      <text class="field-label" x="20" y="216">Ek fiyatlar</text>
+      <text class="field-label" x="20" y="242">Kategoriler</text>
+    </g>
+
+    <!-- RAPORLAR grubu -->
+    <g id="grup-raporlar">
+      <rect class="group-box" x="6" y="272" width="185" height="24" rx="4"/>
+      <text class="group-title" x="14" y="288">▾ RAPORLAR</text>
+      <rect class="panel-bg" x="6" y="296" width="185" height="80" rx="4"/>
+      <g id="btn-stok-hareketleri">
+        <rect class="action-box" x="12" y="302" width="173" height="26" rx="4"/>
+        <text class="action-text" x="20" y="319">📊 Stok Hareketleri</text>
+      </g>
+      <g id="btn-raporlar">
+        <rect class="action-box" x="12" y="334" width="173" height="26" rx="4"/>
+        <text class="action-text" x="20" y="351">📄 Raporlar</text>
+      </g>
+    </g>
+  </g>
+
+  <!-- ============ ANA İÇERİK (1. Genel Bilgiler sekmesi) ============ -->
+  <g id="ana-icerik">
+
+    <!-- Satır 1: 1. Ürün Kimliği + Kategorizasyon -->
+    <g id="section-urun-kimligi">
+      <rect class="section-box" x="197" y="82" width="969" height="170" rx="8"/>
+      <rect class="section-header-blue" x="197" y="82" width="969" height="26" rx="8"/>
+      <rect class="section-header-blue" x="197" y="95" width="969" height="13"/>
+      <text class="section-header-blue-text" x="209" y="100">1. Ürün Kimliği</text>
+
+      <text class="field-label" x="209" y="132">Ürün Tipi:</text>
+      <rect class="input-box" x="290" y="118" width="220" height="24" rx="4"/>
+      <text class="input-text" x="298" y="134">Ticari Mal</text>
+      <use href="#spinner" x="490" y="120" width="12" height="20"/>
+
+      <text class="field-label" x="530" y="132">Reçeteli (BOM):</text>
+      <rect class="checkbox" x="650" y="121" width="16" height="16" rx="3"/>
+      <text class="field-label" x="674" y="132">Ürün ağacı var</text>
+
+      <text class="field-label" x="209" y="168">Stok Kodu *:</text>
+      <rect class="input-box" x="290" y="154" width="856" height="24" rx="4"/>
+
+      <text class="field-label" x="209" y="204">Barkod:</text>
+      <rect class="input-box" x="290" y="190" width="856" height="24" rx="4"/>
+
+      <text class="field-label" x="209" y="228">Stok Adı *:</text>
+      <rect class="input-box" x="290" y="216" width="856" height="30" rx="4"/>
+    </g>
+
+    <g id="section-kategorizasyon">
+      <rect class="section-box" x="1174" y="82" width="486" height="170" rx="8"/>
+      <rect class="section-header-blue" x="1174" y="82" width="486" height="26" rx="8"/>
+      <rect class="section-header-blue" x="1174" y="95" width="486" height="13"/>
+      <text class="section-header-blue-text" x="1186" y="100">Kategorizasyon</text>
+
+      <text class="field-label" x="1186" y="132">Ana Kategori:</text>
+      <rect class="input-box" x="1290" y="118" width="140" height="24" rx="4"/>
+      <rect class="search-btn" x="1434" y="118" width="22" height="24" rx="4"/>
+      <use href="#magnifier" x="1439" y="123" width="12" height="12"/>
+
+      <text class="field-label" x="1470" y="132">Alt Kategori 1:</text>
+      <rect class="input-box" x="1580" y="118" width="50" height="24" rx="4"/>
+      <rect class="search-btn" x="1634" y="118" width="22" height="24" rx="4"/>
+      <use href="#magnifier" x="1639" y="123" width="12" height="12"/>
+
+      <text class="field-label" x="1186" y="180">Alt Kategori 2:</text>
+      <rect class="input-box" x="1290" y="166" width="140" height="24" rx="4"/>
+      <rect class="search-btn" x="1434" y="166" width="22" height="24" rx="4"/>
+      <use href="#magnifier" x="1439" y="171" width="12" height="12"/>
+
+      <text class="field-label" x="1470" y="180">Marka:</text>
+      <rect class="input-box" x="1580" y="166" width="50" height="24" rx="4"/>
+      <rect class="search-btn" x="1634" y="166" width="22" height="24" rx="4"/>
+      <use href="#magnifier" x="1639" y="171" width="12" height="12"/>
+    </g>
+
+    <!-- Satır 2: 2. Stok Takibi -->
+    <g id="section-stok-takibi">
+      <rect class="section-box" x="197" y="260" width="1463" height="60" rx="8"/>
+      <rect class="section-header-blue" x="197" y="260" width="1463" height="26" rx="8"/>
+      <rect class="section-header-blue" x="197" y="273" width="1463" height="13"/>
+      <text class="section-header-blue-text" x="209" y="278">2. Stok Takibi</text>
+
+      <text class="field-label" x="209" y="310">Birim:</text>
+      <rect class="input-box" x="260" y="296" width="140" height="24" rx="4"/>
+      <rect class="search-btn" x="404" y="296" width="22" height="24" rx="4"/>
+      <use href="#magnifier" x="409" y="301" width="12" height="12"/>
+
+      <text class="field-label" x="460" y="310">Kritik Minimum:</text>
+      <rect class="input-box" x="580" y="296" width="120" height="24" rx="4"/>
+      <use href="#spinner" x="690" y="298" width="12" height="20"/>
+
+      <text class="field-label" x="740" y="310">Azami Stok:</text>
+      <rect class="input-box" x="840" y="296" width="120" height="24" rx="4"/>
+      <use href="#spinner" x="950" y="298" width="12" height="20"/>
+    </g>
+
+    <!-- Satır 3: 3. Özel Kodlar (2 kolon x 5 satır) -->
+    <g id="section-ozel-kodlar">
+      <rect class="section-box" x="197" y="328" width="1463" height="220" rx="8"/>
+      <rect class="section-header-blue" x="197" y="328" width="1463" height="26" rx="8"/>
+      <rect class="section-header-blue" x="197" y="341" width="1463" height="13"/>
+      <text class="section-header-blue-text" x="209" y="346">3. Özel Kodlar</text>
+
+      <!-- 5 satır x 2 kolon şablon (Özel Kod 1..10) -->
+      <g id="ozel-kod-satirlari">
+        <!-- Sol kolon örnek satır -->
+        <text class="field-label" x="209" y="382">Özel Kod 1:</text>
+        <rect class="input-box" x="300" y="368" width="580" height="24" rx="4"/>
+        <rect class="search-btn" x="884" y="368" width="22" height="24" rx="4"/>
+        <use href="#magnifier" x="889" y="373" width="12" height="12"/>
+        <!-- Sağ kolon örnek satır -->
+        <text class="field-label" x="940" y="382">Özel Kod 2:</text>
+        <rect class="input-box" x="1030" y="368" width="580" height="24" rx="4"/>
+        <rect class="search-btn" x="1614" y="368" width="22" height="24" rx="4"/>
+        <use href="#magnifier" x="1619" y="373" width="12" height="12"/>
+        <!-- Not: kalan 8 satır (Özel Kod 3-10) aynı düzende 32px aralıkla tekrarlanır -->
+        <text class="field-label" x="209" y="414" opacity="0.55">Özel Kod 3:  …</text>
+        <text class="field-label" x="940" y="414" opacity="0.55">Özel Kod 4:  …</text>
+        <text class="field-label" x="209" y="446" opacity="0.55">Özel Kod 5:  …</text>
+        <text class="field-label" x="940" y="446" opacity="0.55">Özel Kod 6:  …</text>
+        <text class="field-label" x="209" y="478" opacity="0.55">Özel Kod 7:  …</text>
+        <text class="field-label" x="940" y="478" opacity="0.55">Özel Kod 8:  …</text>
+        <text class="field-label" x="209" y="510" opacity="0.55">Özel Kod 9:  …</text>
+        <text class="field-label" x="940" y="510" opacity="0.55">Özel Kod 10:  …</text>
+      </g>
+    </g>
+
+    <!-- Satır 4: KDV + 4. Fiyatlandırma & Vergi -->
+    <g id="section-kdv">
+      <rect class="section-box" x="197" y="556" width="364" height="170" rx="8"/>
+      <rect class="section-header-blue" x="197" y="556" width="364" height="26" rx="8"/>
+      <rect class="section-header-blue" x="197" y="569" width="364" height="13"/>
+      <text class="section-header-blue-text" x="209" y="574">KDV</text>
+
+      <text class="field-label" x="209" y="606">Alış KDV %:</text>
+      <rect class="input-box" x="330" y="592" width="120" height="24" rx="4"/>
+      <use href="#spinner" x="440" y="594" width="12" height="20"/>
+      <rect class="search-btn" x="460" y="592" width="22" height="24" rx="4"/>
+      <use href="#magnifier" x="465" y="597" width="12" height="12"/>
+
+      <text class="field-label" x="209" y="638">Satış KDV %:</text>
+      <rect class="input-box" x="330" y="624" width="120" height="24" rx="4"/>
+      <use href="#spinner" x="440" y="626" width="12" height="20"/>
+      <rect class="search-btn" x="460" y="624" width="22" height="24" rx="4"/>
+      <use href="#magnifier" x="465" y="629" width="12" height="12"/>
+
+      <text class="field-label" x="209" y="670">Toptan KDV %:</text>
+      <rect class="input-box" x="330" y="656" width="120" height="24" rx="4"/>
+      <use href="#spinner" x="440" y="658" width="12" height="20"/>
+      <rect class="search-btn" x="460" y="656" width="22" height="24" rx="4"/>
+      <use href="#magnifier" x="465" y="661" width="12" height="12"/>
+    </g>
+
+    <g id="section-fiyatlandirma-vergi">
+      <rect class="section-box" x="569" y="556" width="1091" height="170" rx="8"/>
+      <rect class="section-header-blue" x="569" y="556" width="1091" height="26" rx="8"/>
+      <rect class="section-header-blue" x="569" y="569" width="1091" height="13"/>
+      <text class="section-header-blue-text" x="581" y="574">4. Fiyatlandırma &amp; Vergi</text>
+
+      <text class="field-label" x="581" y="606">Alış Fiyatı:</text>
+      <rect class="input-box" x="660" y="592" width="90" height="24" rx="4"/>
+      <use href="#spinner" x="750" y="594" width="12" height="20"/>
+      <rect class="input-box" x="766" y="592" width="55" height="24" rx="4"/>
+      <text class="input-text" x="772" y="608">TRY ▾</text>
+
+      <text class="field-label" x="945" y="606">Satış Fiyatı:</text>
+      <rect class="input-box" x="1030" y="592" width="90" height="24" rx="4"/>
+      <use href="#spinner" x="1120" y="594" width="12" height="20"/>
+      <rect class="input-box" x="1136" y="592" width="55" height="24" rx="4"/>
+      <text class="input-text" x="1142" y="608">TRY ▾</text>
+
+      <text class="field-label" x="1310" y="606">Toptan Fiyatı:</text>
+      <rect class="input-box" x="1400" y="592" width="90" height="24" rx="4"/>
+      <use href="#spinner" x="1490" y="594" width="12" height="20"/>
+      <rect class="input-box" x="1506" y="592" width="55" height="24" rx="4"/>
+      <text class="input-text" x="1512" y="608">TRY ▾</text>
+
+      <text class="field-label" x="581" y="638">Fiyat 4:</text>
+      <rect class="input-box" x="660" y="624" width="240" height="24" rx="4"/>
+      <use href="#spinner" x="900" y="626" width="12" height="20"/>
+
+      <text class="field-label" x="945" y="638">Fiyat 5:</text>
+      <rect class="input-box" x="1030" y="624" width="240" height="24" rx="4"/>
+      <use href="#spinner" x="1270" y="626" width="12" height="20"/>
+
+      <text class="field-label" x="1310" y="638">Fiyat 6:</text>
+      <rect class="input-box" x="1400" y="624" width="240" height="24" rx="4"/>
+      <use href="#spinner" x="1640" y="626" width="12" height="20"/>
+
+      <text class="field-label" x="581" y="670" opacity="0.55">Fiyat 7 / 8 / 9 …  (aynı düzen, üstteki satırla aynı hizada)</text>
+    </g>
+  </g>
+
+  <!-- ============ SAĞ PANEL: ÖZET BİLGİ ============ -->
+  <g id="sag-panel">
+    <rect class="group-box" x="1672" y="6" width="228" height="24" rx="4"/>
+    <text class="group-title" x="1680" y="22">▾ Özet Bilgi</text>
+    <rect class="panel-bg" x="1672" y="30" width="228" height="230" rx="4"/>
+    <text class="kpi-label" x="1682" y="50">Toplam Stok Miktarı</text>
+    <text class="kpi-value" x="1682" y="80">0</text>
+    <text class="kpi-label" x="1682" y="104">Son Alış Tarihi     —</text>
+    <text class="kpi-label" x="1682" y="122">Son Satış Tarihi    —</text>
+    <text class="kpi-label" x="1682" y="140">Son Alış Fiyatı     —</text>
+    <text class="kpi-label" x="1682" y="158">Son Satış Fiyatı    —</text>
+    <rect class="checkbox" x="1682" y="176" width="16" height="16" rx="3"/>
+    <text class="field-label" x="1704" y="188">E-ticarette yayında</text>
+
+    <rect class="group-box" x="1672" y="266" width="228" height="24" rx="4"/>
+    <text class="group-title" x="1680" y="282">▾ Görsel</text>
+    <rect class="panel-bg" x="1672" y="290" width="228" height="150" rx="4"/>
+    <rect class="input-box" x="1732" y="330" width="108" height="70" rx="4"/>
+    <rect class="action-box" x="1682" y="410" width="100" height="24" rx="4"/>
+    <text class="action-text" x="1706" y="426">Seç…</text>
+    <rect class="action-box" x="1790" y="410" width="100" height="24" rx="4"/>
+    <text class="action-text" x="1808" y="426">Temizle</text>
+  </g>
+
+  <!-- ============ FOOTER ============ -->
+  <g id="footer">
+    <rect class="footer-cancel" x="1450" y="998" width="120" height="34" rx="6"/>
+    <text class="footer-cancel-text" x="1466" y="1020">❌ Vazgeç (Esc)</text>
+    <rect class="footer-save" x="1580" y="998" width="120" height="34" rx="6"/>
+    <text class="footer-save-text" x="1600" y="1020">💾 Kaydet (F2)</text>
+  </g>
+</svg>

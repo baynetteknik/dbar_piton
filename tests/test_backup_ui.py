@@ -42,8 +42,12 @@ def test_backup_widget_context_menu_indexat_fix(qapp, db_session):
     widget = BackupWidget(db_session)
     assert hasattr(widget, "task_table")
 
-    # Call show_task_context_menu with a point outside rows - should return cleanly without error
-    widget.show_task_context_menu(QPoint(1, 1))
+    # Call show_task_context_menu with a point outside rows - should return cleanly without error.
+    # NOTE: BackupWidget seeds demo rows by default (see load_tasks_from_json's
+    # fallback sample list), so QPoint(1, 1) actually lands on row 0 and opens a
+    # real (blocking) QMenu.exec() — a large Y coordinate is reliably below any
+    # seeded row and keeps indexAt(pos) invalid, matching the test's intent.
+    widget.show_task_context_menu(QPoint(5, 9999))
 
     # Test get_selected_task when no selection
     assert widget.get_selected_task() is None

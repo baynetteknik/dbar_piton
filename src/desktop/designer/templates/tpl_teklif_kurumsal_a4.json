@@ -20,27 +20,49 @@
       "height_mm": 28.0,
       "items": [
         {
-          "id": "txt_company_name",
-          "type": "text",
+          "id": "img_logo",
+          "type": "image",
           "x_mm": 6.0,
           "y_mm": 0.0,
-          "w_mm": 110.0,
+          "w_mm": 24.0,
+          "h_mm": 20.0,
+          "field": "firma.logo_base64"
+        },
+        {
+          "id": "txt_company_name",
+          "type": "data_field",
+          "x_mm": 34.0,
+          "y_mm": 0.0,
+          "w_mm": 82.0,
           "h_mm": 7.0,
-          "text": "TOYA TEKNOLOJİ VE BİLİŞİM SİSTEMLERİ A.Ş.",
+          "field": "firma.unvan",
           "font_size": 11,
           "font_bold": true,
+          "word_wrap": true,
           "text_color": "#1E3A8A"
         },
         {
           "id": "txt_company_sub",
-          "type": "text",
-          "x_mm": 5.0,
+          "type": "data_field",
+          "x_mm": 34.0,
           "y_mm": 7.0,
-          "w_mm": 110.0,
-          "h_mm": 10.0,
-          "text": "Maslak Mah. Büyükdere Cad. No:123 Sarıyer / İSTANBUL\nTel: +90 (212) 555 01 00 | info@toyaerp.com",
+          "w_mm": 82.0,
+          "h_mm": 7.0,
+          "field": "firma.adres",
           "font_size": 8,
           "word_wrap": true,
+          "text_color": "#6B7280"
+        },
+        {
+          "id": "txt_company_iletisim",
+          "type": "data_field",
+          "x_mm": 34.0,
+          "y_mm": 14.0,
+          "w_mm": 82.0,
+          "h_mm": 5.0,
+          "field": "firma.tel",
+          "text": "Tel: ",
+          "font_size": 8,
           "text_color": "#6B7280"
         },
         {

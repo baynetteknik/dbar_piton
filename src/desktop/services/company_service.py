@@ -4,8 +4,10 @@ TOYA ERP - CompanyService
 Firma (Company) tanımları için CRUD servisi. UI (FirmaListWidget /
 FirmaEditorScreen) ile DB arasında ince katman.
 
-Banka hesapları modelde JSON metin (`bank_accounts_json`) olarak tutulur;
-servis bunları list[dict] olarak açar/kapatır.
+Banka hesapları, dönemler, ortaklar ve yetkililer modelde JSON metin
+(`bank_accounts_json`, `periods_json`, `partners_json`,
+`authorized_persons_json`) olarak tutulur; servis bunları list[dict] olarak
+açar/kapatır.
 """
 
 from __future__ import annotations
@@ -20,10 +22,19 @@ from src.core.models import Company
 
 logger = logging.getLogger(__name__)
 
+# JSON metin olarak saklanan, list[dict] şeklinde açılıp kapatılan alanlar.
+_JSON_LIST_FIELDS = {
+    "bank_accounts": "bank_accounts_json",
+    "periods": "periods_json",
+    "partners": "partners_json",
+    "authorized_persons": "authorized_persons_json",
+}
+
 # FirmaEditorScreen'in beklediği alan adları (model kolon adlarıyla birebir).
 COMPANY_FIELDS = [c.name for c in Company.__table__.columns
                   if c.name not in ("id", "created_at", "updated_at",
-                                    "is_deleted", "version_id", "bank_accounts_json")]
+                                    "is_deleted", "version_id",
+                                    *_JSON_LIST_FIELDS.values())]
 
 
 @dataclass
@@ -64,7 +75,8 @@ class CompanyService:
         """Company -> düz sözlük (editör bunu doldurur)."""
         d = {f: getattr(company, f, None) for f in COMPANY_FIELDS}
         d["id"] = company.id
-        d["bank_accounts"] = self._load_banks(company.bank_accounts_json)
+        for key, json_col in _JSON_LIST_FIELDS.items():
+            d[key] = self._load_list(getattr(company, json_col, None))
         return d
 
     def save(self, payload: dict, company_id: int | None = None) -> SaveResult:
@@ -92,9 +104,10 @@ class CompanyService:
             for f in COMPANY_FIELDS:
                 if f in payload:
                     setattr(company, f, payload[f])
-            company.bank_accounts_json = json.dumps(
-                payload.get("bank_accounts", []), ensure_ascii=False,
-            )
+            for key, json_col in _JSON_LIST_FIELDS.items():
+                setattr(company, json_col, json.dumps(
+                    payload.get(key, []), ensure_ascii=False,
+                ))
             self.db.commit()
             return SaveResult(success=True, company_id=company.id, code=company.code)
         except Exception as exc:  # noqa: BLE001
@@ -119,7 +132,7 @@ class CompanyService:
 
     # ------------------------------------------------------------------
     @staticmethod
-    def _load_banks(raw: str | None) -> list[dict]:
+    def _load_list(raw: str | None) -> list[dict]:
         if not raw:
             return []
         try:
@@ -138,6 +151,6 @@ class CompanyService:
             "default_vat_rate": 20,
             "e_invoice_enabled": False, "e_archive_enabled": False,
             "e_dispatch_enabled": False, "is_active": True,
-            "bank_accounts": [],
         })
+        d.update({key: [] for key in _JSON_LIST_FIELDS})
         return d

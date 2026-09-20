@@ -17,3 +17,6 @@ installer/
 releases/
 *.exe
 MailArchiveSystem_*
+
+# portal gizli yapılandırma
+portal/config.local.php

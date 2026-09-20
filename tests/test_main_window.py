@@ -77,3 +77,50 @@ def test_main_window_tabs_and_dashboard(qapp, db_session):
     qapp.processEvents()
 
 
+def test_main_window_schedules_currency_autofetch_once(qapp, db_session, monkeypatch, mock_api):
+    """Program açılışında (MainWindow oluşturulunca) seçili döviz kuru
+    kaynağından bir kerelik otomatik çekim tetiklenmeli (bkz. `_schedule_currency_autofetch`
+    -> `currency_rate_service.startup_autofetch`)."""
+    from src.core.models import Currency
+    from src.desktop.services import currency_rate_service
+
+    db_session.add(Currency(code="USD", name="Amerikan Doları", symbol="$", rate=1.0, is_active=True))
+    db_session.commit()
+    currency_rate_service.set_source_config(db_session, currency_rate_service.SOURCE_TCMB)
+    mock_api.add(
+        mock_api.GET, currency_rate_service.TCMB_URL, status=200,
+        body=(
+            b'<Tarih_Date><Currency Kod="USD">'
+            b"<ForexSelling>41.25</ForexSelling></Currency></Tarih_Date>"
+        ),
+    )
+
+    # Yalnızca 800ms'lik döviz zamanlayıcısını hemen (senkron) tetikler. Diğer tüm
+    # singleShot çağrıları (örn. FilterableTableView'ın ertelenmiş profil uygulaması)
+    # gerçek davranışında kalmalı; global yama, tablo kurulmadan çalışıp yerel
+    # çökmeye (access violation) yol açıyordu.
+    from PyQt6.QtCore import QTimer
+
+    _orig_single_shot = QTimer.singleShot
+
+    def _fake_single_shot(ms, *args):
+        if ms == 800 and len(args) == 1 and callable(args[0]):
+            args[0]()
+        else:
+            _orig_single_shot(ms, *args)
+
+    monkeypatch.setattr(QTimer, "singleShot", staticmethod(_fake_single_shot))
+    # Bu test kasıtlı olarak gerçek tetiklemeyi doğruluyor; üretim kodu
+    # normalde pytest altında (PYTEST_CURRENT_TEST) atlar — bkz. main_window.py.
+    monkeypatch.delenv("PYTEST_CURRENT_TEST", raising=False)
+
+    window = MainWindow(db_session=db_session)
+
+    usd = db_session.query(Currency).filter_by(code="USD").one()
+    assert usd.rate == 41.25
+
+    window.close()
+    window.deleteLater()
+    qapp.processEvents()
+
+

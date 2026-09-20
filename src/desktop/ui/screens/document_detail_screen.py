@@ -23,7 +23,7 @@ from __future__ import annotations
 
 import logging
 
-from PyQt6.QtCore import Qt, QTimer, pyqtSignal
+from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import (
     QAction,
     QKeySequence,
@@ -53,6 +53,7 @@ from PyQt6.QtWidgets import (
 
 from src.desktop.services.quotation_save_service import QuotationSaveService
 from src.desktop.ui.components.collapsible_section import CollapsibleSection
+from src.desktop.ui.widgets.portal_publish_widget import PortalPublishWidget
 from src.desktop.ui.components.edge_panel import EdgeTriggeredPanel
 from src.desktop.ui.components.filterable_table import FilterableTableView
 from src.desktop.ui.widgets.belge_vade_widget import BelgeVadeWidget
@@ -174,6 +175,7 @@ class DocumentDetailScreen(QWidget):
 
         self._build_ui()
         self._load_products()
+        self._load_customers()
         self._wire()
 
         if self.doc_id:
@@ -371,7 +373,7 @@ class DocumentDetailScreen(QWidget):
         lyt.addStretch()
         lyt.addWidget(QLabel("🚦 Durum:"))
         self.cmb_status = QComboBox()
-        self.cmb_status.addItems(["🔵 Taslak", "✅ Kabul Edildi", "❌ Reddedildi"])
+        self.cmb_status.addItems(["🔵 Taslak", "📤 Gönderildi", "✅ Kabul Edildi", "❌ Reddedildi"])
         self.cmb_status.setMinimumWidth(140)
         self.cmb_status.currentTextChanged.connect(self._on_status_changed)
         lyt.addWidget(self.cmb_status)
@@ -383,6 +385,7 @@ class DocumentDetailScreen(QWidget):
     # Teklif durumu rozeti: seçime göre renklenir (Taslak mavi, Kabul Edildi yeşil, Reddedildi kırmızı).
     _STATUS_COLORS = {
         "Taslak": ("#dbeafe", "#1d4ed8"),
+        "Gönderildi": ("#fef3c7", "#b45309"),
         "Kabul Edildi": ("#dcfce7", "#15803d"),
         "Reddedildi": ("#fee2e2", "#b91c1c"),
     }
@@ -482,12 +485,10 @@ class DocumentDetailScreen(QWidget):
         # EVRAK İŞLEMLERİ  (Kaydet varyantları alt bardaki "Kaydet ▾" menüsünde)
         sec1 = CollapsibleSection("EVRAK İŞLEMLERİ", is_expanded=True)
         b_import = _btn("📥 Kalemleri Aktar")
-        b_import.clicked.connect(lambda: self._stub("Kalemleri Aktar"))
-        b_efatura = _btn("⚡ E-Fatura Gönder", "#7c3aed", "#ffffff", "#6d28d9", "#6d28d9")
-        b_efatura.clicked.connect(lambda: self._stub("E-Fatura Gönder"))
+        b_import.clicked.connect(self._on_import_lines)
         b_cancel = _btn("🚪 Vazgeç (Esc)", "#fee2e2", "#991b1b", "#fca5a5", "#fca5a5")
         b_cancel.clicked.connect(self.closed.emit)
-        for b in (b_import, b_efatura, b_cancel):
+        for b in (b_import, b_cancel):
             sec1.add_widget(b)
         lyt.addWidget(sec1)
 
@@ -581,32 +582,13 @@ class DocumentDetailScreen(QWidget):
             sec_print.add_widget(b)
         lyt.addWidget(sec_print)
 
-        # CANLI BASKI ÖNİZLEME — seçili şablon + ekrandaki güncel veri.
-        # Varsayılan kapalı: açılınca ilk kez çizilir, açıkken form değiştikçe
-        # (kalem / cari / durum / not) ~%400 ms gecikmeli tazelenir.
-        from src.desktop.designer.ui.preview_widget import ReportPreviewWidget
-
-        self.sec_mini_preview = CollapsibleSection(
-            "CANLI BASKI ÖNİZLEME", is_expanded=False,
-        )
-        self.mini_preview = ReportPreviewWidget(compact=True)
-        self.mini_preview.setMinimumHeight(340)
-        b_expand = _btn("⤢", "#0284c7", "#ffffff", "#0369a1", "#0369a1")
-        b_expand.setToolTip("Tam ekran önizleme ve yazdırma")
-        b_expand.setFixedWidth(30)
-        b_expand.clicked.connect(self._on_preview)
-        self.mini_preview.add_toolbar_widget(b_expand)
-        self.sec_mini_preview.add_widget(self.mini_preview)
-        self.sec_mini_preview.toggled.connect(self._on_mini_preview_toggled)
-        lyt.addWidget(self.sec_mini_preview)
-
-        self._preview_timer = QTimer(self)
-        self._preview_timer.setSingleShot(True)
-        self._preview_timer.setInterval(400)
-        self._preview_timer.timeout.connect(self._refresh_mini_preview)
-        self._tpl_selector.currentIndexChanged.connect(
-            lambda _i: self._schedule_preview_refresh(),
-        )
+        # ONLİNE TEKLİF (PORTAL)
+        sec_portal = CollapsibleSection("ONLİNE TEKLİF (PORTAL)", is_expanded=True)
+        self.portal_widget = PortalPublishWidget(self.db, ensure_saved=self._ensure_saved_for_portal)
+        self.portal_widget.set_document(self.doc_id)
+        self.portal_widget.state_changed.connect(self._on_portal_state_changed)
+        sec_portal.add_widget(self.portal_widget)
+        lyt.addWidget(sec_portal)
 
         # EVRAK ÖZETİ
         self.sec_summary = CollapsibleSection("EVRAK ÖZETİ", is_expanded=True)
@@ -623,9 +605,8 @@ class DocumentDetailScreen(QWidget):
         sec_quick = CollapsibleSection("HIZLI İŞLEMLER", is_expanded=True)
         _quick_colors = {
             "🔄 Siparişe Dönüştür": ("#0369a1", "#ffffff", "#075985", "#075985"),
-            "⚡ E-Fatura Gönder": ("#7c3aed", "#ffffff", "#6d28d9", "#6d28d9"),
         }
-        for label in ("🔄 Siparişe Dönüştür", "📋 Belgeyi Kopyala", "⚡ E-Fatura Gönder"):
+        for label in ("🔄 Siparişe Dönüştür", "📋 Belgeyi Kopyala"):
             b = _btn(label, *_quick_colors.get(label, ("#ffffff", "#1e293b", "#cbd5e1", "#f1f5f9")))
             b.clicked.connect(lambda _c=False, ll=label: self._stub(ll))
             sec_quick.add_widget(b)
@@ -772,6 +753,37 @@ class DocumentDetailScreen(QWidget):
         QMessageBox.information(self, name, f"'{name}' — sonraki adımda bağlanacak.")
 
     # ------------------------------------------------------------------
+    def _on_import_lines(self):
+        """'📥 Kalemleri Aktar' — başka belgeden veya stok listesinden kalem ekler."""
+        from src.desktop.ui.widgets.kalem_aktar_dialog import KalemAktarDialog
+
+        dlg = KalemAktarDialog(
+            db_session=self.db,
+            products=getattr(self.lines, "_products", []),
+            exclude_doc_id=self.doc_id,
+            parent=self,
+        )
+        if dlg.exec() != QDialog.DialogCode.Accepted or not dlg.result_lines:
+            return
+        existing = [
+            ln for ln in self.lines.get_lines()
+            if (ln.get("kod") or ln.get("aciklama"))
+        ]
+        self.lines.load_lines(existing + dlg.result_lines)
+        self.lines._emit_totals()
+        self._flash_status(f"✓ {len(dlg.result_lines)} kalem aktarıldı")
+
+    def _on_balance_requested(self, code: str):
+        """'💳 BAKİYE' — seçili carinin ekstre penceresini açar."""
+        cust = (self.cari.get_data() or {}).get("customer") or {}
+        cid = cust.get("id")
+        if not cid:
+            QMessageBox.information(self, "Cari Ekstresi", "Önce bir cari seçin.")
+            return
+        from src.desktop.ui.widgets.cari_ekstre_dialog import CariEkstreDialog
+        CariEkstreDialog(db_session=self.db, customer_id=cid, parent=self).exec()
+
+    # ------------------------------------------------------------------
     def _load_products(self):
         if not self.db:
             return
@@ -789,11 +801,41 @@ class DocumentDetailScreen(QWidget):
                     "name": p.name or "",
                     "unit": getattr(p, "unit", "Adet") or "Adet",
                     "price": float(p.base_price or p.price or 0),
+                    "vat_rate": getattr(p, "vat_rate", None),
                 }
                 for p in rows
             ])
         except Exception as e:
             logger.warning("Ürün kataloğu yüklenemedi: %s", e)
+
+    def _load_customers(self):
+        """Cari kataloğunu yükler — Cari Kodu/Ünvan alanlarında yazarken
+        açılan canlı arama (typeahead) dropdown'u bu kataloğu kullanır."""
+        if not self.db:
+            return
+        try:
+            from sqlalchemy import select
+
+            from src.core.models import Customer
+            rows = self.db.scalars(
+                select(Customer).where(Customer.is_deleted == False),  # noqa: E712
+            ).all()
+            self.cari.update_catalog([
+                {
+                    "id":         c.id,
+                    "code":       c.customer_code or f"CAR-{c.id}",
+                    "name":       c.fullname or "",
+                    "tax_office": getattr(c, "tax_office", "") or "",
+                    "tax_no":     c.tax_number or "",
+                    "address":    getattr(c, "address", "") or "",
+                    "city":       "",
+                    "balance":    "0,00 ₺",
+                    "terms":      30,
+                }
+                for c in rows
+            ])
+        except Exception as e:
+            logger.warning("Cari kataloğu yüklenemedi: %s", e)
 
     def _wire(self):
         self.lines.totals_changed.connect(self._on_lines_totals)
@@ -801,10 +843,7 @@ class DocumentDetailScreen(QWidget):
         self.finans.doviz_changed.connect(self._on_doviz_changed)
         self.cari.data_changed.connect(self._refresh_summary)
         self.cari.customer_selected.connect(lambda _d: self._refresh_summary())
-        self.cari.balance_requested.connect(
-            lambda code: logger.info("Bakiye istendi: %s", code),
-        )
-        self.notlar.notes_changed.connect(self._schedule_preview_refresh)
+        self.cari.balance_requested.connect(self._on_balance_requested)
 
     # ------------------------------------------------------------------
     def _on_lines_totals(self, t: dict):
@@ -867,7 +906,6 @@ class DocumentDetailScreen(QWidget):
         self.lbl_sum_cari.setText(f"👤 {cari}")
         self.lbl_sum_total.setText(f"💰 {fmt_num(self.toplam.get_grand_total())} ₺")
         self.lbl_sum_status.setText(f"Durum: {self.status_label()}")
-        self._schedule_preview_refresh()
 
     # ------------------------------------------------------------------
     def _collect_payload(self) -> dict:
@@ -949,6 +987,8 @@ class DocumentDetailScreen(QWidget):
             return False
         self.doc_id = result.quotation_id
         self.txt_doc_no.setText(result.quotation_number or "")
+        if hasattr(self, "portal_widget"):
+            self.portal_widget.set_document(self.doc_id)
         payload["doc_id"] = result.quotation_id
         payload["quotation_number"] = result.quotation_number
         self.document_saved.emit(payload)
@@ -1091,6 +1131,19 @@ class DocumentDetailScreen(QWidget):
         from src.desktop.reports.teklif_report_service import TeklifReportService
         return TeklifReportService(db_session=self.db, company_id=self.company_id)
 
+    def _ensure_saved_for_portal(self) -> int | None:
+        return self._require_saved("Portala Gönder")
+
+    def _on_portal_state_changed(self):
+        """Portal yayını/kararı Quotation.status'ü değiştirmiş olabilir; rozeti DB'den eşitler."""
+        from src.core.models import Quotation
+        q = self.db.get(Quotation, self.doc_id) if (self.db and self.doc_id) else None
+        if q is None:
+            return
+        self.db.refresh(q)
+        self.set_status_label(self.service._status_to_tr(q.status))
+        self._refresh_summary()
+
     def _require_saved(self, action: str) -> int | None:
         """
         Kayıtlı belge isteyen aksiyonlar için: belge kaydedilmemişse (veya boş
@@ -1223,36 +1276,6 @@ class DocumentDetailScreen(QWidget):
                 self, "Baskı Hatası",
                 f"Baskı önizlemesi açılamadı:\n{exc}",
             )
-
-    # ---- Canlı mini önizleme (sağ panel) ----------------------------
-    def _on_mini_preview_toggled(self, expanded: bool):
-        """Bölüm açıldığında ilk çizimi yap; kapalıyken boşuna render etme."""
-        if expanded:
-            self._refresh_mini_preview()
-
-    def _schedule_preview_refresh(self):
-        """Form değişince mini önizlemeyi gecikmeli (coalesced) tazele."""
-        timer = getattr(self, "_preview_timer", None)
-        sec = getattr(self, "sec_mini_preview", None)
-        if timer is not None and sec is not None and sec.is_expanded:
-            timer.start()
-
-    def _refresh_mini_preview(self):
-        """Seçili şablon + ekrandaki güncel veriyle mini önizlemeyi çizer."""
-        sec = getattr(self, "sec_mini_preview", None)
-        if sec is None or not sec.is_expanded:
-            return
-        try:
-            from src.desktop.designer.services.teklif_print_service import (
-                TeklifPrintService,
-            )
-            tpl_path = self._tpl_selector.currentData() if self._tpl_selector.count() else None
-            service = TeklifPrintService(db_session=self.db, template_path=tpl_path)
-            self.mini_preview.set_document(
-                service.get_template(), data=self._build_print_data(),
-            )
-        except Exception:  # noqa: BLE001 - önizleme kritik değil, sessiz geç
-            logger.exception("Mini baskı önizlemesi tazelenemedi")
 
     def _build_print_data(self) -> dict:
         """

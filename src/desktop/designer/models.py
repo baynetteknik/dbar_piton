@@ -8,6 +8,10 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any
 
+#: Araç kutusu / veri ağacından tuval üzerine sürükle-bırak ile eleman
+#: taşırken kullanılan özel MIME türü — ItemConfig'in JSON serileştirmesini taşır.
+MIME_ITEM_CONFIG = "application/x-toya-report-item"
+
 
 class PaperOrientation(str, Enum):
     PORTRAIT = "portrait"
@@ -115,6 +119,9 @@ class BandConfig:
     keep_together: bool = False
     print_on_first_page: bool = True
     print_on_last_page: bool = True
+    #: Bant Yönetimi diyaloğundan kapatılabilir — kapalıyken baskı motoru bu
+    #: bandı hiç çizmez (şablon dosyasından silmeden geçici olarak gizler).
+    enabled: bool = True
     items: list[ItemConfig] = field(default_factory=list)
 
 
@@ -195,6 +202,7 @@ class ReportTemplate:
                     keep_together=bool(b.get("keep_together", False)),
                     print_on_first_page=bool(b.get("print_on_first_page", True)),
                     print_on_last_page=bool(b.get("print_on_last_page", True)),
+                    enabled=bool(b.get("enabled", True)),
                     items=items,
                 )
             )

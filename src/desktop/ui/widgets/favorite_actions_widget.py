@@ -100,7 +100,7 @@ class FavoriteActionsWidget(QWidget):
                 border-color: #93c5fd;
             }
         """)
-        self.list_widget.itemClicked.connect(lambda item: self.module_selected.emit(item.text()))
+        self.list_widget.itemClicked.connect(self._on_favorite_clicked)
         card_lyt.addWidget(self.list_widget, 1)
 
         # Hızlı Kısayol Butonları
@@ -111,8 +111,8 @@ class FavoriteActionsWidget(QWidget):
         q_btn_lyt = QVBoxLayout()
         q_btn_lyt.setSpacing(6)
 
-        self.btn_cari = self._create_quick_button("👥 Yeni Cari Kartı Aç", "Müşteriler & Cariler")
-        self.btn_teklif = self._create_quick_button("📄 Yeni Teklif Hazırla", "Teklif Yönetimi")
+        self.btn_cari = self._create_quick_button("👥 Yeni Cari Kartı Aç", "Yeni Cari Kartı")
+        self.btn_teklif = self._create_quick_button("📄 Yeni Teklif Hazırla", "Yeni Teklif Hazırla")
 
         q_btn_lyt.addWidget(self.btn_cari)
         q_btn_lyt.addWidget(self.btn_teklif)
@@ -164,6 +164,14 @@ class FavoriteActionsWidget(QWidget):
         """)
         btn.clicked.connect(lambda: self.quick_action_triggered.emit(target))
         return btn
+
+    def _on_favorite_clicked(self, item: QListWidgetItem) -> None:
+        """Liste öğesi ikon önekiyle gösterilse bile (ör. "📄  Teklif Yönetimi"),
+        gerçek modül adını `Qt.ItemDataRole.UserRole`'den okur — aksi halde
+        ikonlu metin `open_module_in_tab`'daki tam eşleşmeyi kaçırıp boş bir
+        yer tutucu sayfa açılmasına yol açar."""
+        clean_name = item.data(Qt.ItemDataRole.UserRole)
+        self.module_selected.emit(clean_name if clean_name else item.text())
 
     def refresh_favorites(self):
         self.list_widget.clear()

@@ -1,0 +1,30 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python -)",
+      "Bash(timeout 200 python -m pytest tests/test_cari_stok_editors.py tests/test_definition_editor_screen.py tests/test_cari_ekstre_widget.py -p no:faulthandler -rA)",
+      "Bash(timeout 200 python -m pytest tests/test_quotation_save_service.py -p no:faulthandler -rA)",
+      "Bash(timeout 200 python -m pytest \"tests/test_quotation_save_service.py::test_save_payload_links_real_customer\" -p no:faulthandler --tb=short)",
+      "Bash(timeout 300 python -m pytest tests/test_document_detail_screen.py -p no:faulthandler -rA)",
+      "Bash(timeout 400 python -m pytest tests/test_database.py tests/test_migration.py tests/test_auth_service.py tests/test_setup_wizard.py tests/test_login_window.py tests/test_general_settings_screen.py tests/test_quotations_ui.py tests/test_permission_gating.py tests/test_firma_definition.py -p no:faulthandler -rA)",
+      "Bash(PYTHONIOENCODING=utf-8 PYTHONPATH=. timeout 120 python C:/Users/alp/AppData/Local/Temp/claude/c--toya-erp/6f1512d4-5267-49ed-901e-3409ccb8622f/scratchpad/shots2.py C:/Users/alp/AppData/Local/Temp/claude/c--toya-erp/6f1512d4-5267-49ed-901e-3409ccb8622f/scratchpad/shots)",
+      "Bash(sed -i 's/    p = Product\\(sku=\"STK-8690\", name=\"4K Güvenlik Kamerası\", marketplace=\"local\",/    p = Product\\(sku=\"STK-8690\", name=\"4K Güvenlik Kamerası\",/' shots2.py)",
+      "Bash(PYTHONIOENCODING=utf-8 PYTHONPATH=C:/toya_erp timeout 120 python shots2.py \"C:/Users/alp/AppData/Local/Temp/claude/c--toya-erp/6f1512d4-5267-49ed-901e-3409ccb8622f/scratchpad/shots\")",
+      "Bash(timeout 500 python -m pytest tests/test_cari_list_screen.py tests/test_stok_kart_dialog.py tests/test_customers_ui.py tests/test_three_panel_base.py tests/test_quotations_service.py tests/test_designer_templates.py tests/test_module_taxonomy_and_widgets.py -p no:faulthandler -rA)",
+      "Bash(git stash *)",
+      "Bash(timeout 120 python -m pytest tests/test_customers_ui.py::test_edge_triggered_panel_pin_and_tooltips tests/test_customers_ui.py::test_view_settings_widget_integration -p no:faulthandler -q)",
+      "Bash(python -c \"import py_compile; py_compile.compile\\('src/desktop/ui/screens/definition_editor_screen.py', doraise=True\\); print\\('OK'\\)\")",
+      "Bash(PYTHONIOENCODING=utf-8 timeout 60 python -c ' *)",
+      "Bash(python -c \"import py_compile; [py_compile.compile\\(f, doraise=True\\) for f in ['src/desktop/ui/widgets/card_summary_panel.py','src/desktop/ui/screens/stok_kart_editor.py']]; print\\('OK'\\)\")",
+      "Bash(PYTHONIOENCODING=utf-8 PYTHONPATH=. timeout 90 python C:/Users/alp/AppData/Local/Temp/claude/c--toya-erp/6f1512d4-5267-49ed-901e-3409ccb8622f/scratchpad/shots3.py C:/Users/alp/AppData/Local/Temp/claude/c--toya-erp/6f1512d4-5267-49ed-901e-3409ccb8622f/scratchpad/shots)",
+      "Bash(sed -i 's/d.resize\\(1024, 720\\)/d.resize\\(1440, 820\\)/; s/20_stok_kart_yeni/21_stok_kart_wide/' shots3.py)",
+      "Bash(PYTHONIOENCODING=utf-8 PYTHONPATH=C:/toya_erp timeout 90 python shots3.py \"C:/Users/alp/AppData/Local/Temp/claude/c--toya-erp/6f1512d4-5267-49ed-901e-3409ccb8622f/scratchpad/shots\")",
+      "Bash(timeout 300 python -m pytest tests/test_definition_editor_screen.py tests/test_cari_stok_editors.py tests/test_firma_definition.py tests/test_user_role_management.py -p no:faulthandler -rA)",
+      "Bash(timeout 300 python -m pytest tests/test_definition_editor_screen.py tests/test_card_summary_panel.py tests/test_cari_stok_editors.py -p no:faulthandler -rA)",
+      "Bash(timeout 120 python -m pytest \"tests/test_definition_editor_screen.py::test_summary_widget_update_from_called\" -p no:faulthandler --tb=short)",
+      "Bash(timeout 120 python -m pytest tests/test_definition_editor_screen.py -p no:faulthandler -rA)",
+      "Bash(timeout 400 python -m pytest tests/test_cari_stok_editors.py tests/test_firma_definition.py tests/test_user_role_management.py tests/test_general_settings_screen.py tests/test_cari_ekstre_widget.py tests/test_document_detail_screen.py tests/test_setup_wizard.py tests/test_auth_service.py -p no:faulthandler -rA)",
+      "Bash(python -c \"import py_compile; [py_compile.compile\\(f, doraise=True\\) for f in ['src/desktop/ui/screens/definition_editor_screen.py','src/desktop/ui/screens/stok_kart_editor.py','src/desktop/ui/widgets/card_summary_panel.py','src/desktop/ui/screens/cari_editor.py','src/desktop/ui/screens/kullanici_editor.py']]; print\\('OK'\\)\")"
+    ]
+  }
+}

@@ -52,8 +52,47 @@ logger.info(
 )
 
 
+_MODULE_LABELS = {
+    "Quotation": "Teklif Yönetimi", "Order": "Sipariş Yönetimi", "Invoice": "Fatura Yönetimi",
+}
+_ACTION_TITLES = {
+    "Quotation": "TEKLİF İŞLEMLERİ", "Order": "SİPARİŞ İŞLEMLERİ", "Invoice": "FATURA İŞLEMLERİ",
+}
+_CONVERT_LABELS = {
+    "Quotation": "🔄 Siparişe Dönüştür", "Order": "🔄 Faturaya Dönüştür",
+}
+_DEMO_ROWS = {
+    "Quotation": [
+        ("1", "TEK-20260816001", "Yıllık Bakım Anlaşması", "TATU HIRDAVAT LTD.", "16.08.2026", "15.09.2026", "12.500,00 ₺", "TRY", "Onaylandı"),
+        ("2", "SIP-20260816002", "VGA Kablo & Sarf Siparişi", "DENEME BİLİŞİM A.Ş.", "16.08.2026", "23.08.2026", "1.450,00 ₺", "TRY", "Taslak"),
+    ],
+    "Order": [
+        ("1", "SIP-20260816001", "VGA Kablo & Sarf Siparişi", "TATU HIRDAVAT LTD.", "16.08.2026", "23.08.2026", "1.450,00 ₺", "TRY", "Onaylandı"),
+        ("2", "SIP-20260816002", "Ofis Kırtasiye İhtiyacı", "DENEME BİLİŞİM A.Ş.", "16.08.2026", "30.08.2026", "8.900,00 ₺", "TRY", "Fatura Edildi"),
+    ],
+    "Invoice": [
+        ("1", "FAT-20260816001", "Yıllık Bakım Anlaşması Faturası", "TATU HIRDAVAT LTD.", "16.08.2026", "23.08.2026", "1.450,00 ₺", "TRY", "Ödendi"),
+        ("2", "FAT-20260816002", "Ofis Kırtasiye Faturası", "DENEME BİLİŞİM A.Ş.", "16.08.2026", "30.08.2026", "8.900,00 ₺", "TRY", "Bekliyor"),
+    ],
+}
+_DEMO_EMPTY_ROWS = {
+    "Quotation": [
+        ("1", "TEK-DEMO-001", "Örnek Teklif — Yeni kayıt eklemek için ➕ Yeni butonuna tıklayın", "Demo Müşteri A.Ş.", "27.08.2026", "26.09.2026", "10.000,00 ₺", "TRY", "draft"),
+        ("2", "TEK-DEMO-002", "İkinci Örnek Teklif", "Test Cari Ltd.", "27.08.2026", "10.09.2026", "5.500,00 ₺", "TRY", "sent"),
+    ],
+    "Order": [
+        ("1", "SIP-DEMO-001", "Örnek Sipariş — Yeni kayıt eklemek için ➕ Yeni butonuna tıklayın", "Demo Müşteri A.Ş.", "27.08.2026", "05.09.2026", "8.200,00 ₺", "TRY", "draft"),
+        ("2", "SIP-DEMO-002", "İkinci Örnek Sipariş", "Test Cari Ltd.", "27.08.2026", "12.09.2026", "3.750,00 ₺", "TRY", "accepted"),
+    ],
+    "Invoice": [
+        ("1", "FAT-DEMO-001", "Örnek Fatura — Yeni kayıt eklemek için ➕ Yeni butonuna tıklayın", "Demo Müşteri A.Ş.", "27.08.2026", "26.09.2026", "10.000,00 ₺", "TRY", "draft"),
+        ("2", "FAT-DEMO-002", "İkinci Örnek Fatura", "Test Cari Ltd.", "27.08.2026", "10.09.2026", "5.500,00 ₺", "TRY", "sent"),
+    ],
+}
+
+
 class BaseQuotationOrderWidget(ThreePanelBaseWidget):
-    """Base class for 3-Panel Quotations and Orders management widgets."""
+    """Base class for 3-Panel Quotations, Orders and Invoices management widgets."""
 
     status_message = pyqtSignal(str)
 
@@ -69,7 +108,7 @@ class BaseQuotationOrderWidget(ThreePanelBaseWidget):
             company_id=self.company_id,
         )
 
-        module_label = "Teklif Yönetimi" if quotation_type == "Quotation" else "Sipariş Yönetimi"
+        module_label = _MODULE_LABELS.get(quotation_type, "Sipariş Yönetimi")
         super().__init__(
             db_session=db_session,
             profile_key=profile_key,
@@ -117,7 +156,7 @@ class BaseQuotationOrderWidget(ThreePanelBaseWidget):
         main_layout.setContentsMargins(10, 10, 10, 10)
         main_layout.setSpacing(5)
 
-        module_label = "Teklif Yönetimi" if getattr(self, "quotation_type", "") == "Quotation" else "Sipariş Yönetimi"
+        module_label = _MODULE_LABELS.get(getattr(self, "quotation_type", ""), "Sipariş Yönetimi")
 
         combo_style = """
             QComboBox, QLineEdit {
@@ -152,13 +191,18 @@ class BaseQuotationOrderWidget(ThreePanelBaseWidget):
         # ----------------------------------------------------
         # 1. SOL PANEL (ActionBarWidget & Görünüm Profilleri)
         # ----------------------------------------------------
-        action_title = "TEKLİF İŞLEMLERİ" if self.quotation_type == "Quotation" else "SİPARİŞ İŞLEMLERİ"
-        conv_label = "🔄 Siparişe Dönüştür" if self.quotation_type == "Quotation" else "🔄 Faturaya Dönüştür"
+        action_title = _ACTION_TITLES.get(self.quotation_type, "SİPARİŞ İŞLEMLERİ")
+        conv_label = _CONVERT_LABELS.get(self.quotation_type, "🔄 Dönüştür")
+        hide_action_buttons = ["bulk_delete", "passive"]
+        if self.quotation_type not in _CONVERT_LABELS:
+            # Fatura gibi zincirin son halkası olan belge türlerinde bir
+            # sonraki aşamaya "dönüştür" eylemi anlamsızdır.
+            hide_action_buttons.append("convert")
 
         self.action_bar = ActionBarWidget(
             group_title=action_title,
             convert_label=conv_label,
-            hide_buttons=["bulk_delete", "passive"],
+            hide_buttons=hide_action_buttons,
             initial_open=False,
             panel_width=220,
             parent=self,
@@ -522,13 +566,7 @@ class BaseQuotationOrderWidget(ThreePanelBaseWidget):
         self.table_model.removeRows(0, self.table_model.rowCount())
         if not self.db:
             # Demo Satırları Ekle (Veritabanı boşsa bile kullanıcı görsün)
-            demo_items = [
-                ("1", "TEK-20260816001", "Yıllık Bakım Anlaşması", "TATU HIRDAVAT LTD.", "16.08.2026", "15.09.2026", "12.500,00 ₺", "TRY", "Onaylandı"),
-                ("2", "SIP-20260816002", "VGA Kablo & Sarf Siparişi", "DENEME BİLİŞİM A.Ş.", "16.08.2026", "23.08.2026", "1.450,00 ₺", "TRY", "Taslak"),
-            ] if self.quotation_type == "Quotation" else [
-                ("1", "SIP-20260816001", "VGA Kablo & Sarf Siparişi", "TATU HIRDAVAT LTD.", "16.08.2026", "23.08.2026", "1.450,00 ₺", "TRY", "Onaylandı"),
-                ("2", "SIP-20260816002", "Ofis Kırtasiye İhtiyacı", "DENEME BİLİŞİM A.Ş.", "16.08.2026", "30.08.2026", "8.900,00 ₺", "TRY", "Fatura Edildi"),
-            ]
+            demo_items = _DEMO_ROWS.get(self.quotation_type, _DEMO_ROWS["Order"])
             for row_data in demo_items:
                 chk = QStandardItem("")
                 chk.setCheckable(True)
@@ -606,13 +644,7 @@ class BaseQuotationOrderWidget(ThreePanelBaseWidget):
         # DB'de bu türe ait hiç kayıt yoksa demo verisi göster (kolon filtresi nedeniyle
         # 0 sonuç dönmesi farklıdır — o durumda kullanıcı gerçekten "sonuç yok" görmeli).
         if unfiltered_total == 0:
-            demo_items = [
-                ("1", "TEK-DEMO-001", "Örnek Teklif — Yeni kayıt eklemek için ➕ Yeni butonuna tıklayın", "Demo Müşteri A.Ş.", "27.08.2026", "26.09.2026", "10.000,00 ₺", "TRY", "draft"),
-                ("2", "TEK-DEMO-002", "İkinci Örnek Teklif", "Test Cari Ltd.", "27.08.2026", "10.09.2026", "5.500,00 ₺", "TRY", "sent"),
-            ] if self.quotation_type == "Quotation" else [
-                ("1", "SIP-DEMO-001", "Örnek Sipariş — Yeni kayıt eklemek için ➕ Yeni butonuna tıklayın", "Demo Müşteri A.Ş.", "27.08.2026", "05.09.2026", "8.200,00 ₺", "TRY", "draft"),
-                ("2", "SIP-DEMO-002", "İkinci Örnek Sipariş", "Test Cari Ltd.", "27.08.2026", "12.09.2026", "3.750,00 ₺", "TRY", "accepted"),
-            ]
+            demo_items = _DEMO_EMPTY_ROWS.get(self.quotation_type, _DEMO_EMPTY_ROWS["Order"])
             for row_data in demo_items:
                 chk = QStandardItem("")
                 chk.setCheckable(True)
@@ -752,7 +784,7 @@ class BaseQuotationOrderWidget(ThreePanelBaseWidget):
 
     def _on_checked_rows_changed(self, count: int):
         """İşaretli satır sayısı değiştiğinde aksiyon çubuğunu bilgilendir."""
-        title = "TEKLİF İŞLEMLERİ" if self.quotation_type == "Quotation" else "SİPARİŞ İŞLEMLERİ"
+        title = _ACTION_TITLES.get(self.quotation_type, "SİPARİŞ İŞLEMLERİ")
         if count > 0:
             title = f"{title}  ·  {count} seçili"
         if hasattr(self, "action_bar") and hasattr(self.action_bar, "set_group_title"):
@@ -1000,10 +1032,6 @@ class BaseQuotationOrderWidget(ThreePanelBaseWidget):
             act_dup = QAction("📋 Kopyala", self)
             act_dup.triggered.connect(self.on_duplicate_clicked)
 
-            conv_txt = "🔄 Siparişe Dönüştür" if self.quotation_type == "Quotation" else "🔄 Faturaya Dönüştür"
-            act_conv = QAction(conv_txt, self)
-            act_conv.triggered.connect(self.on_convert_clicked)
-
             act_xls = QAction("📊 Excel'e Aktar", self)
             act_xls.triggered.connect(self.on_excel_clicked)
 
@@ -1011,7 +1039,13 @@ class BaseQuotationOrderWidget(ThreePanelBaseWidget):
             menu.addAction(act_del)
             menu.addSeparator()
             menu.addAction(act_dup)
-            menu.addAction(act_conv)
+            conv_txt = _CONVERT_LABELS.get(self.quotation_type)
+            if conv_txt:
+                # Fatura gibi zincirin son halkası olan belge türlerinde bir
+                # sonraki aşamaya "dönüştür" eylemi anlamsızdır.
+                act_conv = QAction(conv_txt, self)
+                act_conv.triggered.connect(self.on_convert_clicked)
+                menu.addAction(act_conv)
             menu.addAction(act_xls)
 
         # ---- Yazdırma / Baskı (tekli + çoklu) ----
@@ -1103,3 +1137,10 @@ class OrdersWidget(BaseQuotationOrderWidget):
 
     def __init__(self, db_session=None):
         super().__init__(db_session=db_session, quotation_type="Order", profile_key="orders")
+
+
+class InvoicesWidget(BaseQuotationOrderWidget):
+    """Fatura Yönetimi Paneli (Invoice)."""
+
+    def __init__(self, db_session=None):
+        super().__init__(db_session=db_session, quotation_type="Invoice", profile_key="invoices")

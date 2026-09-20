@@ -287,7 +287,7 @@ def get_git_status() -> dict[str, Any]:
                 info["ahead_count"] = len(info["unpushed_hashes"])
 
         # 4. Changed / Untracked Files (git status --porcelain)
-        res_status = run_git_cmd(["status", "--porcelain"])
+        res_status = run_git_cmd(["-c", "core.quotepath=false", "status", "--porcelain", "-uall"])  # yeni klasörler dosya dosya sayılır
         if res_status and res_status.returncode == 0 and res_status.stdout.strip():
             lines = res_status.stdout.strip().split("\n")
             changed = []
@@ -530,6 +530,14 @@ class GitWorker(QThread):
                 self._run_stash()
             elif self.action == "stash_pop":
                 self._run_stash_pop()
+            elif self.action == "push":
+                self._run_push()
+            elif self.action == "test_remote":
+                self._run_test_remote()
+            elif self.action == "login":
+                self._run_login()
+            elif self.action == "rollback":
+                self._run_rollback()
             else:
                 self.finished.emit(False, f"Bilinmeyen eylem: {self.action}")
         except Exception as e:
@@ -563,6 +571,7 @@ class GitWorker(QThread):
                 errors="replace",
                 bufsize=1,
                 startupinfo=startupinfo,
+                env={**os.environ, "GIT_TERMINAL_PROMPT": "0"},  # kimlik yoksa terminalde takılıp beklemesin
             )
             full_out = []
             if process.stdout:
@@ -658,6 +667,50 @@ class GitWorker(QThread):
             self.finished.emit(True, "Değişiklikler başarıyla stash'e alındı.")
         else:
             self.finished.emit(False, f"Stash hatası: {out}")
+
+    def _service(self):
+        from src.desktop.services.git_service import GitService
+
+        return GitService(self.params.get("repo_path"))
+
+    def _record_profile(self, ok: bool, message: str) -> None:
+        pid = self.params.get("profile_id")
+        if pid:
+            from src.desktop.services import git_profile_store
+
+            git_profile_store.record_result(int(pid), ok, message)
+
+    def _run_push(self):
+        branch = self.params.get("branch") or get_git_status()["branch"]
+        self.stage_progress.emit(f"🚀 origin/{branch} dalına gönderiliyor...", 50)
+        ok, out = self._exec_cmd(["git", "push", "-u", "origin", branch], "Git Push")
+        sync_git_history()
+        self.stage_progress.emit("Tamamlandı", 100)
+        self.finished.emit(ok, f"'{branch}' dalı uzak depoya gönderildi." if ok else f"Push hatası: {out}")
+
+    def _run_test_remote(self):
+        self.stage_progress.emit("🔌 Uzak depo bağlantısı test ediliyor...", 50)
+        ok, msg = self._service().test_remote()
+        self.log_line.emit(("✅ " if ok else "❌ ") + msg)
+        self._record_profile(ok, msg)
+        self.stage_progress.emit("Tamamlandı", 100)
+        self.finished.emit(ok, msg)
+
+    def _run_login(self):
+        self.stage_progress.emit("🔵 Tarayıcı açılıyor: GitHub'da Google hesabınızla giriş yapın...", 30)
+        ok, msg = self._service().login_with_browser()
+        self.log_line.emit(("✅ " if ok else "❌ ") + msg)
+        self._record_profile(ok, msg)
+        self.stage_progress.emit("Tamamlandı", 100)
+        self.finished.emit(ok, msg)
+
+    def _run_rollback(self):
+        self.stage_progress.emit("↩ Geri dönüş noktası oluşturuluyor ve dosyalar geri alınıyor...", 50)
+        res = self._service().rollback(str(self.params.get("hash", "")))
+        self.log_line.emit(("✅ " if res["ok"] else "❌ ") + res["message"])
+        sync_git_history()
+        self.stage_progress.emit("Tamamlandı", 100)
+        self.finished.emit(res["ok"], res["message"])
 
     def _run_stash_pop(self):
         self.stage_progress.emit("📦 Geçici değişiklikler geri yükleniyor (git stash pop)...", 50)

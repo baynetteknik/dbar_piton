@@ -7,7 +7,8 @@ tuvali) bir ``QWidget`` olarak paketler; böylece:
 
 * ``ReportPreviewDialog`` bu widget'ı sarar (davranış aynı kalır), ve
 * evrak detay ekranının sağ paneline "canlı mini önizleme" olarak gömülebilir
-  (``compact=True`` — yazdır/PDF butonları gizli, varsayılan zoom genişliğe sığdır).
+  (``compact=True`` — yazdır/PDF butonları gizli; varsayılan zoom her iki modda
+  da genişliğe sığdır).
 
 Veriyi çalışırken yeniden beslemek için ``set_document(...)`` kullanılır.
 """
@@ -18,7 +19,7 @@ import logging
 from pathlib import Path
 from typing import Any
 
-from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtCore import Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import QColor, QImage, QPainter, QResizeEvent
 from PyQt6.QtWidgets import (
     QComboBox,
@@ -94,7 +95,7 @@ class ReportPreviewWidget(QWidget):
         self.current_page_idx = 0
         self.rendered_pages: list[QImage] = []
         self.scale_factor = 1.0
-        self.zoom_mode = "fit_width" if compact else "fit_page"
+        self.zoom_mode = "fit_width"
 
         self._init_ui()
         if template is not None:
@@ -154,7 +155,7 @@ class ReportPreviewWidget(QWidget):
             "↔️ Genişliğe Sığdır",
             "%25", "%35", "%50", "%75", "%100", "%125", "%150", "%200",
         ])
-        self.cmb_zoom.setCurrentIndex(1 if self.compact else 0)
+        self.cmb_zoom.setCurrentIndex(1)
         self.cmb_zoom.currentTextChanged.connect(self._on_zoom_changed)
         tb.addWidget(self.cmb_zoom)
 
@@ -202,6 +203,10 @@ class ReportPreviewWidget(QWidget):
         self.engine = ReportPrinterEngine(template)
         self._render_all_pages()
         self._apply_zoom_mode(self.zoom_mode)
+        # Widget henüz ekrana yerleşmeden (örn. dialog show() öncesi)
+        # çağrılmış olabilir; bu durumda viewport boyutu güvenilir değildir,
+        # o yüzden ilk yerleşimden sonra ölçeği bir kez daha tazeliyoruz.
+        QTimer.singleShot(0, self._refresh_fit_scale)
 
     def _show_empty_state(self) -> None:
         while self.canvas_layout.count():
@@ -304,6 +309,14 @@ class ReportPreviewWidget(QWidget):
 
     def resizeEvent(self, event: QResizeEvent) -> None:
         super().resizeEvent(event)
+        if self.zoom_mode in ("fit_page", "fit_width") and self.rendered_pages:
+            # Bu noktada scroll_area'nın viewport'u henüz yeniden
+            # yerleşmemiş olabilir (Qt layout güncellemesini bir sonraki
+            # döngüye erteler); bu yüzden ölçek hesaplamasını da erteliyoruz,
+            # yoksa ilk açılışta sayfa gerçek boyutundan çok küçük çizilir.
+            QTimer.singleShot(0, self._refresh_fit_scale)
+
+    def _refresh_fit_scale(self) -> None:
         if self.zoom_mode in ("fit_page", "fit_width") and self.rendered_pages:
             self.scale_factor = self._calculate_fit_scale(self.zoom_mode)
             self._display_current_page()

@@ -1,5 +1,6 @@
 import logging
 
+from PyQt6 import sip
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtWidgets import (
     QDialog,
@@ -311,9 +312,26 @@ class FilterableTableView(QWidget):
         self.table_view.horizontalScrollBar().rangeChanged.connect(lambda *_: self.sync_filter_widths())
 
         # En son kullanılan aktif profili otomatik yükle
-        from PyQt6.QtCore import QTimer
         pm = ProfileManager(profile_key=self.profile_key)
-        QTimer.singleShot(0, lambda: self.apply_view_profile(pm.get_active_profile()))
+        self._defer(0, lambda: self.apply_view_profile(pm.get_active_profile()))
+
+    def _defer(self, ms: int, fn) -> None:
+        """Ertelenmiş çağrı; pencere bu arada kapatılıp silindiyse sessizce atlar.
+
+        PyQt6, slot/zamanlayıcı içinde yakalanmamış Python istisnasında süreci
+        abort eder; silinmiş widget'a dokunan bir `singleShot` geri çağrısı bu
+        yüzden tüm uygulamayı (ve test sürecini) çökertebiliyordu."""
+        from PyQt6.QtCore import QTimer
+
+        def _run():
+            try:
+                if sip.isdeleted(self):
+                    return
+                fn()
+            except RuntimeError:
+                pass
+
+        QTimer.singleShot(ms, _run)
 
     def sync_filter_widths(self, *args):
         """Tablo yatay kaydırıldığında veya sütunlar yeniden boyutlandırıldığında filtre kutularını pikseli pikseline hizalar."""
@@ -346,8 +364,7 @@ class FilterableTableView(QWidget):
 
     def showEvent(self, event):
         super().showEvent(event)
-        from PyQt6.QtCore import QTimer
-        QTimer.singleShot(50, self.sync_filter_widths)
+        self._defer(50, self.sync_filter_widths)
 
     @property
     def inputs_layout(self):
@@ -595,10 +612,10 @@ class FilterableTableView(QWidget):
         col_menu = menu.addMenu("👁️ Sütunlar")
         col_menu.setStyleSheet("""
             QMenu {
-                background:#ffffff; border:1px solid #cbd5e1;
+                background:#1e3a8a; border:1px solid #3b82f6;
                 font-size:10px; padding:2px;
             }
-            QMenu::item { padding:4px 16px; }
+            QMenu::item { padding:4px 16px; color:#ffffff; }
             QMenu::item:selected { background:#2563eb; color:#ffffff; }
         """)
 

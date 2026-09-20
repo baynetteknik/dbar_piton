@@ -17,11 +17,17 @@ from src.core.models import Product
 logger = logging.getLogger(__name__)
 
 PRODUCT_FIELDS = [
-    "sku", "name", "barcode", "custom_code",
-    "category", "brand", "unit",
-    "base_price", "purchase_price", "vat_rate",
+    "sku", "name", "barcode",
+    "category", "category_sub1", "category_sub2", "brand", "unit",
+    "base_price", "purchase_price", "wholesale_price",
+    "vat_rate", "purchase_vat_rate", "wholesale_vat_rate",
     "stock", "min_stock",
     "description", "image_path",
+    # Kart standardı (tpl.card.001)
+    "product_type", "currency", "max_stock", "warehouse_id",
+    "shelf_code", "has_bom", "is_ecommerce",
+    # Parametrik alan grupları (Özel Kodlar 1-10 / Ek Fiyatlar 4-10) — JSON metin
+    "extra_codes_json", "extra_prices_json",
 ]
 
 
@@ -136,7 +142,10 @@ class ProductService:
     @staticmethod
     def blank_product() -> dict:
         d = {f: None for f in PRODUCT_FIELDS}
-        d.update({"sku": "", "name": "", "unit": "Adet", "vat_rate": 20,
-                  "base_price": 0.0, "purchase_price": 0.0, "stock": 0,
-                  "min_stock": 0.0, "is_active": True})
+        d.update({"sku": "", "name": "", "unit": "Adet",
+                  "vat_rate": 20, "purchase_vat_rate": 20, "wholesale_vat_rate": 20,
+                  "base_price": 0.0, "purchase_price": 0.0, "wholesale_price": 0.0,
+                  "stock": 0, "min_stock": 0.0, "is_active": True,
+                  "product_type": "Ticari Mal", "currency": "TRY",
+                  "max_stock": 0.0, "has_bom": False, "is_ecommerce": False})
         return d

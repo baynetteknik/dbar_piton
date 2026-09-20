@@ -5,9 +5,13 @@ Sol paneldeki hiyerarşik ERP veri modelleri ve alanları ağacı.
 
 from __future__ import annotations
 
+import dataclasses
+import json
 import uuid
-from PyQt6.QtCore import Qt, pyqtSignal
+
+from PyQt6.QtCore import QMimeData, Qt, pyqtSignal
 from PyQt6.QtWidgets import (
+    QAbstractItemView,
     QGroupBox,
     QHeaderView,
     QTreeWidget,
@@ -16,7 +20,47 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from src.desktop.designer.models import ItemConfig
+from src.desktop.designer.models import MIME_ITEM_CONFIG, ItemConfig
+
+
+def _build_item_config(data: dict) -> ItemConfig:
+    """Ağaç düğümünün UserRole verisinden yeni bir ItemConfig üretir."""
+    is_expr = data["format"] == "expression"
+    item_type = "expression" if is_expr else ("system_var" if data["format"] == "system_var" else "data_field")
+
+    return ItemConfig(
+        id=f"fld_{uuid.uuid4().hex[:6]}",
+        type=item_type,
+        field="" if is_expr else data["field"],
+        expression=data["field"] if is_expr else "",
+        format=data["format"] if data["format"] in ("currency", "number", "date", "percent") else "",
+        x_mm=10.0,
+        y_mm=2.0,
+        w_mm=40.0,
+        h_mm=6.0,
+        font_size=8,
+        align="right" if data["format"] in ("currency", "number") else "left",
+    )
+
+
+class _DataTree(QTreeWidget):
+    """Yalnızca veri alanı yapraklarının sürüklenebildiği ağaç.
+
+    Kategori düğümlerinin (UserRole verisi olmayan) sürüklenmesi anlamsız
+    olduğundan onlar için boş MIME verisi döner — tuval bunu görmezden gelir.
+    """
+
+    def mimeData(self, items):
+        mime = super().mimeData(items)
+        if items:
+            data = items[0].data(0, Qt.ItemDataRole.UserRole)
+            if data:
+                cfg = _build_item_config(data)
+                mime.setData(
+                    MIME_ITEM_CONFIG,
+                    json.dumps(dataclasses.asdict(cfg)).encode("utf-8"),
+                )
+        return mime
 
 
 class DataTreeWidget(QWidget):
@@ -38,8 +82,10 @@ class DataTreeWidget(QWidget):
         grp_layout = QVBoxLayout(grp)
         grp_layout.setContentsMargins(4, 8, 4, 4)
 
-        self.tree = QTreeWidget(grp)
+        self.tree = _DataTree(grp)
         self.tree.setHeaderHidden(True)
+        self.tree.setDragEnabled(True)
+        self.tree.setDragDropMode(QAbstractItemView.DragDropMode.DragOnly)
         self.tree.setStyleSheet("""
             QTreeWidget {
                 border: 1px solid #CBD5E1;
@@ -68,11 +114,14 @@ class DataTreeWidget(QWidget):
     def _populate_tree(self):
         categories = [
             ("📁 Şirket Bilgileri", "page_header", [
-                ("Firma Ünvanı", "sirket.unvan", "text"),
-                ("Firma Logosu", "sirket.logo", "image"),
-                ("Firma Adresi", "sirket.adres", "text"),
-                ("Vergi Dairesi & No", "sirket.vergi_no", "text"),
-                ("Telefon & E-posta", "sirket.tel", "text"),
+                ("Firma Ünvanı", "firma.adi", "text"),
+                ("Firma Logosu", "firma.logo_base64", "image"),
+                ("Firma Adresi", "firma.adres", "text"),
+                ("Vergi Dairesi", "firma.vergi_daire", "text"),
+                ("Vergi No", "firma.vergi_no", "text"),
+                ("Telefon", "firma.tel", "text"),
+                ("E-posta", "firma.email", "text"),
+                ("Web Sitesi", "firma.web", "text"),
             ]),
             ("📁 Cari / Müşteri", "header_group", [
                 ("Müşteri Ünvanı", "musteri.adi", "text"),
@@ -130,21 +179,5 @@ class DataTreeWidget(QWidget):
         data = tree_item.data(0, Qt.ItemDataRole.UserRole)
         if not data:
             return
-
-        is_expr = data["format"] == "expression"
-        item_type = "expression" if is_expr else ("system_var" if data["format"] == "system_var" else "data_field")
-
-        cfg = ItemConfig(
-            id=f"fld_{uuid.uuid4().hex[:6]}",
-            type=item_type,
-            field="" if is_expr else data["field"],
-            expression=data["field"] if is_expr else "",
-            format=data["format"] if data["format"] in ("currency", "number", "date", "percent") else "",
-            x_mm=10.0,
-            y_mm=2.0,
-            w_mm=40.0,
-            h_mm=6.0,
-            font_size=8,
-            align="right" if data["format"] in ("currency", "number") else "left",
-        )
+        cfg = _build_item_config(data)
         self.field_requested.emit(cfg, data["target_band"])

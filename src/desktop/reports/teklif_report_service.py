@@ -146,7 +146,32 @@ class TeklifReportService:
             return self._demo_data()
 
     def _get_firma_data(self) -> dict[str, Any]:
-        """Sistem ayarlarından firma bilgilerini çek."""
+        """Firma (Company) tanımından şirket bilgilerini çek.
+
+        Firma Tanımları ekranında (CompanyService/Company tablosu) girilen kayıt
+        asıl kaynaktır; SystemSetting sadece o firma hiç tanımlanmamışsa devreye
+        giren eski bir yedek yoldur.
+        """
+        try:
+            from src.desktop.services.company_service import CompanyService
+
+            company = CompanyService(self.db).get(self.company_id)
+            if company:
+                unvan = company.title or company.short_name or ""
+                return {
+                    "adi":    unvan,
+                    "unvan":  unvan,  # baskı şablonları "firma.unvan" alanını kullanıyor
+                    "adres":  company.address or "",
+                    "tel":    company.phone1 or "",
+                    "email":  company.email or "",
+                    "web":    company.website or "",
+                    "vergi_daire": company.tax_office or "",
+                    "vergi_no":    company.tax_number or "",
+                    "logo_base64": company.logo_base64 or "",
+                }
+        except Exception:
+            logger.exception("Firma bilgisi Company tablosundan okunamadı")
+
         try:
             from sqlalchemy import select
             from src.core.models import SystemSetting
@@ -157,19 +182,25 @@ class TeklifReportService:
                 )
                 return row.value if row else default
 
+            unvan = get("firma.adi", "BAYNET BİLİŞİM TEKNOLOJİLERİ")
             return {
-                "adi":    get("firma.adi", "BAYNET BİLİŞİM TEKNOLOJİLERİ"),
+                "adi":    unvan,
+                "unvan":  unvan,
                 "adres":  get("firma.adres", "Ankara"),
                 "tel":    get("firma.tel", ""),
                 "email":  get("firma.email", ""),
                 "web":    get("firma.web", ""),
+                "vergi_daire": get("firma.vergi_daire", ""),
+                "vergi_no":    get("firma.vergi_no", ""),
                 "logo_base64": get("firma.logo_base64", ""),
             }
         except Exception:
             return {
                 "adi":   "BAYNET BİLİŞİM TEKNOLOJİLERİ",
+                "unvan": "BAYNET BİLİŞİM TEKNOLOJİLERİ",
                 "adres": "Ankara",
                 "tel":   "", "email": "", "web": "",
+                "vergi_daire": "", "vergi_no": "",
                 "logo_base64": "",
             }
 

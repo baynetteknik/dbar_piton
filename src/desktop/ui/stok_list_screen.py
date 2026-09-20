@@ -29,7 +29,10 @@ from src.core.models import Product
 from src.desktop.managers.profile_manager import ProfileManager
 from src.desktop.managers.theme_manager import ThemeManager
 from src.desktop.ui.components.collapsible_section import CollapsibleSection
-from src.desktop.ui.components.filterable_table import FilterableTableView
+from src.desktop.ui.components.filterable_table import (
+    FilterableTableView,
+    value_matches_filter,
+)
 from src.desktop.ui.components.layout_hint_helper import register_layout_hint
 from src.desktop.ui.components.three_panel_base import ThreePanelBaseWidget
 from src.desktop.ui.widgets.action_bar_widget import ActionBarWidget
@@ -220,13 +223,14 @@ class StokListScreen(ThreePanelBaseWidget):
         )
         self.filter_widget.filter_changed.connect(self._on_filter_changed)
         self.filter_widget.filters_cleared.connect(self._on_filters_cleared)
+        self.filterable_table.filter_changed.connect(self._on_filter_changed)
 
         # Export widget'ı sağ panele ekle
         self.export_widget = ExportWidget(
-            hide_buttons=["import_excel"],
             parent=self,
         )
         self.export_widget.export_excel_clicked.connect(self.on_excel_clicked)
+        self.export_widget.import_excel_clicked.connect(self.on_import_excel_clicked)
         self.export_widget.export_pdf_clicked.connect(
             lambda: QMessageBox.information(self, "PDF", "PDF raporu hazırlanıyor..."),
         )
@@ -354,6 +358,39 @@ class StokListScreen(ThreePanelBaseWidget):
 
             stmt = stmt.order_by(Product.name)
             records = self.db.scalars(stmt).all()
+
+            # Grid üstündeki kolon filtreleri (Stok Kodu, Ürün Adı vb.) — sayfalamadan
+            # önce, tam kayıt listesi üzerinde Python tarafında uygulanır.
+            column_filters = {
+                field: text
+                for field, text in getattr(self.filterable_table, "filters", {}).items()
+                if (text or "").strip()
+            }
+            if column_filters:
+                def _field_values(p):
+                    return {
+                        "id": p.id,
+                        "sku": p.sku or "",
+                        "barcode": getattr(p, "barcode", "") or "",
+                        "name": p.name or "",
+                        "unit": getattr(p, "unit", "Adet") or "Adet",
+                        "category": getattr(p, "category", "") or "",
+                        "brand": getattr(p, "brand", "") or "",
+                        "purchase_price": float(getattr(p, "purchase_price", 0) or 0),
+                        "sale_price": float(p.sale_price or 0),
+                        "vat_rate": int(getattr(p, "vat_rate", 20) or 20),
+                        "stock_quantity": float(getattr(p, "stock_quantity", 0) or 0),
+                        "min_stock": float(getattr(p, "min_stock", 0) or 0),
+                        "status": "Aktif" if getattr(p, "is_active", True) else "Pasif",
+                    }
+                records = [
+                    p for p in records
+                    if all(
+                        value_matches_filter(_field_values(p).get(field), raw_text)
+                        for field, raw_text in column_filters.items()
+                    )
+                ]
+
             self._products_cache = records
             self.total_records = len(records)
 
@@ -608,6 +645,13 @@ class StokListScreen(ThreePanelBaseWidget):
             QMessageBox.warning(self, "Uyarı", "openpyxl bulunamadı.\npip install openpyxl")
         except Exception as e:
             QMessageBox.critical(self, "Hata", str(e))
+
+    def on_import_excel_clicked(self):
+        from src.desktop.ui.import_dialog import ExcelImportDialog
+        dlg = ExcelImportDialog(self.db, entity_type="product", parent=self)
+        if dlg.exec():
+            self.refresh_table()
+            self.toast_requested.emit("Excel'den stok aktarımı tamamlandı.", "success")
 
     # ─────────────────────────────────────────────
     # SAĞ TIK MENÜSÜ

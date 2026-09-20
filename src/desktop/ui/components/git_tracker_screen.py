@@ -28,178 +28,16 @@ from PyQt6.QtWidgets import (
 )
 
 import git_tracker
+from src.desktop.services.git_service import GitService
 from src.desktop.managers.profile_manager import ProfileManager
 from src.desktop.ui.components.collapsible_section import CollapsibleSection
 from src.desktop.ui.components.layout_hint_helper import register_layout_hint
 from src.desktop.ui.components.three_panel_base import ThreePanelBaseWidget
+from src.desktop.ui.widgets.git_change_summary_widget import GitChangeSummaryWidget
+from src.desktop.ui.widgets.git_profile_panel_widget import GitProfilePanelWidget
+from src.desktop.ui.widgets.git_sync_advisor_widget import GitSyncAdvisorWidget
 
 logger = logging.getLogger(__name__)
-
-
-class GitRepositoryDialog(QDialog):
-    """Git Uzak Depo (Remote Repository) Ekleme ve Düzenleme Diyalogu."""
-
-    def __init__(self, repo_data: dict[str, Any] | None = None, parent=None):
-        super().__init__(parent)
-        self.repo_data = repo_data
-        self.setWindowTitle("🌐 Git Deposu Ekle / Düzenle" if not repo_data else "🌐 Git Deposunu Düzenle")
-        self.setMinimumWidth(480)
-        self._init_ui()
-
-    def _init_ui(self):
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(16, 16, 16, 16)
-        layout.setSpacing(10)
-
-        combo_style = """
-            QLineEdit, QComboBox {
-                border: 1px solid #cbd5e1;
-                border-radius: 4px;
-                padding: 6px 10px;
-                background-color: white;
-                font-size: 12px;
-            }
-        """
-
-        layout.addWidget(QLabel("🏷️ Depo / Tanım Adı:"))
-        self.txt_name = QLineEdit()
-        self.txt_name.setPlaceholderText("Örn: GitHub Ana Depo (origin)")
-        self.txt_name.setStyleSheet(combo_style)
-        layout.addWidget(self.txt_name)
-
-        layout.addWidget(QLabel("🌐 Uzak Depo URL (Remote Git URL):"))
-        self.txt_url = QLineEdit()
-        self.txt_url.setPlaceholderText("https://github.com/kullanici/proje.git veya git@github.com:...")
-        self.txt_url.setStyleSheet(combo_style)
-        layout.addWidget(self.txt_url)
-
-        layout.addWidget(QLabel("🌿 Varsayılan Dal (Branch):"))
-        self.txt_branch = QLineEdit("main")
-        self.txt_branch.setStyleSheet(combo_style)
-        layout.addWidget(self.txt_branch)
-
-        self.chk_default = QCheckBox("🌟 Varsayılan Depo Olarak Ayarla")
-        self.chk_default.setStyleSheet("font-weight: 600; color: #1e3a8a;")
-        layout.addWidget(self.chk_default)
-
-        if self.repo_data:
-            self.txt_name.setText(self.repo_data.get("name", ""))
-            self.txt_url.setText(self.repo_data.get("remote_url", ""))
-            self.txt_branch.setText(self.repo_data.get("default_branch", "main"))
-            self.chk_default.setChecked(bool(self.repo_data.get("is_default", 0)))
-
-        btn_box = QHBoxLayout()
-        btn_box.addStretch()
-        btn_cancel = QPushButton("Vazgeç")
-        btn_cancel.setStyleSheet("padding: 6px 12px; border: 1px solid #cbd5e1; border-radius: 4px; background: white;")
-        btn_cancel.clicked.connect(self.reject)
-        btn_box.addWidget(btn_cancel)
-
-        btn_save = QPushButton("💾 Depoyu Kaydet")
-        btn_save.setStyleSheet("background-color: #2563eb; color: white; font-weight: bold; padding: 6px 16px; border-radius: 4px; border: none;")
-        btn_save.clicked.connect(self._save_repo)
-        btn_box.addWidget(btn_save)
-        layout.addLayout(btn_box)
-
-    def _save_repo(self):
-        name = self.txt_name.text().strip()
-        url = self.txt_url.text().strip()
-        branch = self.txt_branch.text().strip() or "main"
-        is_def = 1 if self.chk_default.isChecked() else 0
-
-        if not name or not url:
-            QMessageBox.warning(self, "Uyarı", "Lütfen Depo Adı ve URL alanlarını doldurunuz.")
-            return
-
-        try:
-            git_tracker.add_repository(name=name, remote_url=url, default_branch=branch, is_default=is_def)
-            self.accept()
-        except Exception as e:
-            QMessageBox.critical(self, "Hata", f"Depo kaydedilirken hata: {e}")
-
-
-class GitAccountDialog(QDialog):
-    """Git Kullanıcı ve Kimlik (Credentials / Token) Ekleme Diyalogu."""
-
-    def __init__(self, account_data: dict[str, Any] | None = None, parent=None):
-        super().__init__(parent)
-        self.account_data = account_data
-        self.setWindowTitle("👤 Git Kullanıcısı / Token Ekle" if not account_data else "👤 Git Kullanıcısını Düzenle")
-        self.setMinimumWidth(460)
-        self._init_ui()
-
-    def _init_ui(self):
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(16, 16, 16, 16)
-        layout.setSpacing(10)
-
-        combo_style = """
-            QLineEdit {
-                border: 1px solid #cbd5e1;
-                border-radius: 4px;
-                padding: 6px 10px;
-                background-color: white;
-                font-size: 12px;
-            }
-        """
-
-        layout.addWidget(QLabel("👤 Kullanıcı Adı (Git Username):"))
-        self.txt_user = QLineEdit()
-        self.txt_user.setPlaceholderText("Örn: ahmet_toya")
-        self.txt_user.setStyleSheet(combo_style)
-        layout.addWidget(self.txt_user)
-
-        layout.addWidget(QLabel("📧 E-Posta (Git Email):"))
-        self.txt_email = QLineEdit()
-        self.txt_email.setPlaceholderText("Örn: ahmet@toya.com.tr")
-        self.txt_email.setStyleSheet(combo_style)
-        layout.addWidget(self.txt_email)
-
-        layout.addWidget(QLabel("🔑 Kişisel Erişim Tokeni (PAT) / Şifre:"))
-        self.txt_token = QLineEdit()
-        self.txt_token.setEchoMode(QLineEdit.EchoMode.Password)
-        self.txt_token.setPlaceholderText("ghp_... veya erişim tokeni")
-        self.txt_token.setStyleSheet(combo_style)
-        layout.addWidget(self.txt_token)
-
-        self.chk_default = QCheckBox("🌟 Varsayılan Kullanıcı Olarak Ayarla")
-        self.chk_default.setStyleSheet("font-weight: 600; color: #1e3a8a;")
-        layout.addWidget(self.chk_default)
-
-        if self.account_data:
-            self.txt_user.setText(self.account_data.get("username", ""))
-            self.txt_email.setText(self.account_data.get("email", ""))
-            self.txt_token.setText(self.account_data.get("token", ""))
-            self.chk_default.setChecked(bool(self.account_data.get("is_default", 0)))
-
-        btn_box = QHBoxLayout()
-        btn_box.addStretch()
-        btn_cancel = QPushButton("Vazgeç")
-        btn_cancel.setStyleSheet("padding: 6px 12px; border: 1px solid #cbd5e1; border-radius: 4px; background: white;")
-        btn_cancel.clicked.connect(self.reject)
-        btn_box.addWidget(btn_cancel)
-
-        btn_save = QPushButton("💾 Kullanıcıyı Kaydet")
-        btn_save.setStyleSheet("background-color: #2563eb; color: white; font-weight: bold; padding: 6px 16px; border-radius: 4px; border: none;")
-        btn_save.clicked.connect(self._save_account)
-        btn_box.addWidget(btn_save)
-        layout.addLayout(btn_box)
-
-    def _save_account(self):
-        user = self.txt_user.text().strip()
-        email = self.txt_email.text().strip()
-        token = self.txt_token.text().strip()
-        is_def = 1 if self.chk_default.isChecked() else 0
-
-        if not user:
-            QMessageBox.warning(self, "Uyarı", "Lütfen Kullanıcı Adı alanını doldurunuz.")
-            return
-
-        try:
-            git_tracker.add_account(username=user, email=email, token=token, is_default=is_def)
-            self.accept()
-        except Exception as e:
-            QMessageBox.critical(self, "Hata", f"Kullanıcı kaydedilirken hata: {e}")
 
 
 class GitCommitDialog(QDialog):
@@ -323,6 +161,7 @@ class GitTrackerScreen(ThreePanelBaseWidget):
         self.active_view_mode = "commits"  # 'commits', 'tasks', 'changes'
         self.worker: git_tracker.GitWorker | None = None
         self._raw_records: list[dict[str, Any]] = []
+        self.git_service = GitService()
 
         super().__init__(
             db_session=db_session,
@@ -336,7 +175,6 @@ class GitTrackerScreen(ThreePanelBaseWidget):
 
         self.profile_manager = ProfileManager(profile_key=self.profile_key)
         self._inject_stage_progress_and_console()
-        self.load_repositories_and_accounts()
         self.load_sidebar_profiles()
         self.load_data()
 
@@ -468,51 +306,13 @@ class GitTrackerScreen(ThreePanelBaseWidget):
 
         layout.addWidget(self.sec_git_actions)
 
-        # 2. GRUP: DEPO & KULLANICI YÖNETİMİ
-        self.sec_repos_users = CollapsibleSection("DEPO & KULLANICI YÖNETİMİ", is_expanded=True)
-
-        # Depo Seçimi & Ekleme
-        lbl_repo = QLabel("🌐 Aktif Git Deposu:")
-        lbl_repo.setStyleSheet("font-weight: bold; color: #475569; font-size: 11px;")
-        self.combo_repos = QComboBox()
-        self.combo_repos.setStyleSheet(combo_style)
-        self.sec_repos_users.add_widget(lbl_repo)
-        self.sec_repos_users.add_widget(self.combo_repos)
-
-        repo_btn_box = QHBoxLayout()
-        repo_btn_box.setSpacing(4)
-        btn_add_repo = QPushButton("➕ Depo Ekle")
-        btn_add_repo.setStyleSheet(self.toolbar_btn_style())
-        btn_add_repo.clicked.connect(self.open_add_repo_dialog)
-        btn_del_repo = QPushButton("🗑️ Sil")
-        btn_del_repo.setFixedWidth(50)
-        btn_del_repo.setStyleSheet(self.toolbar_btn_style())
-        btn_del_repo.clicked.connect(self.delete_selected_repo)
-        repo_btn_box.addWidget(btn_add_repo)
-        repo_btn_box.addWidget(btn_del_repo)
-        self.sec_repos_users.add_layout(repo_btn_box)
-
-        # Kullanıcı Seçimi & Ekleme
-        lbl_user = QLabel("👤 Aktif Git Kullanıcısı:")
-        lbl_user.setStyleSheet("font-weight: bold; color: #475569; font-size: 11px; margin-top: 6px;")
-        self.combo_users = QComboBox()
-        self.combo_users.setStyleSheet(combo_style)
-        self.sec_repos_users.add_widget(lbl_user)
-        self.sec_repos_users.add_widget(self.combo_users)
-
-        user_btn_box = QHBoxLayout()
-        user_btn_box.setSpacing(4)
-        btn_add_user = QPushButton("➕ Kullanıcı Ekle")
-        btn_add_user.setStyleSheet(self.toolbar_btn_style())
-        btn_add_user.clicked.connect(self.open_add_user_dialog)
-        btn_del_user = QPushButton("🗑️ Sil")
-        btn_del_user.setFixedWidth(50)
-        btn_del_user.setStyleSheet(self.toolbar_btn_style())
-        btn_del_user.clicked.connect(self.delete_selected_user)
-        user_btn_box.addWidget(btn_add_user)
-        user_btn_box.addWidget(btn_del_user)
-        self.sec_repos_users.add_layout(user_btn_box)
-
+        # 2. GRUP: BAĞLANTI PROFİLLERİ (depo + kimlik; Google girişi, test)
+        self.sec_repos_users = CollapsibleSection("BAĞLANTI PROFİLLERİ", is_expanded=True)
+        self.profile_panel = GitProfilePanelWidget(self.git_service)
+        self.profile_panel.worker_requested.connect(self._on_profile_worker_requested)
+        self.profile_panel.changed.connect(self.load_data)
+        self.profile_panel.message.connect(self._on_profile_message)
+        self.sec_repos_users.add_widget(self.profile_panel)
         layout.addWidget(self.sec_repos_users)
 
         # 3. GRUP: GÖRÜNÜM PROFİLLERİ (Açık Tekliflerdeki gibi)
@@ -617,6 +417,12 @@ class GitTrackerScreen(ThreePanelBaseWidget):
         self.sec_repo_status.add_widget(self.lbl_changed)
         layout.addWidget(self.sec_repo_status)
 
+        # 2b. GRUP: DEĞİŞİKLİK ÖZETİ (fark inceleme)
+        self.sec_change_summary = CollapsibleSection("DEĞİŞİKLİK ÖZETİ", is_expanded=True)
+        self.change_summary = GitChangeSummaryWidget()
+        self.sec_change_summary.add_widget(self.change_summary)
+        layout.addWidget(self.sec_change_summary)
+
         # 3. GRUP: SEÇİLİ KAYIT DETAY KARTI
         self.sec_selected_detail = CollapsibleSection("SEÇİLİ KAYIT DETAYI", is_expanded=True)
         
@@ -652,6 +458,13 @@ class GitTrackerScreen(ThreePanelBaseWidget):
         self.lbl_detail_message.setStyleSheet("font-size: 11px; color: #1e293b; background: #f8fafc; padding: 4px; border: 1px solid #e2e8f0; border-radius: 4px;")
         d_lyt.addWidget(self.lbl_detail_message)
 
+        self.btn_rollback = QPushButton("↩ Bu Sürüme Geri Dön")
+        self.btn_rollback.setToolTip("Seçili commit'teki dosya durumunu geri yükler. Önce bekleyen değişiklikler saklanır "
+                                     "ve geri dönüş noktası (etiket) oluşturulur; geçmiş silinmez.")
+        self.btn_rollback.setStyleSheet(self.toolbar_btn_style("#fff7ed", "#9a3412"))
+        self.btn_rollback.setEnabled(False)
+        self.btn_rollback.clicked.connect(self.on_rollback_clicked)
+        d_lyt.addWidget(self.btn_rollback)
         self.sec_selected_detail.add_widget(detail_card)
         layout.addWidget(self.sec_selected_detail)
 
@@ -693,6 +506,11 @@ class GitTrackerScreen(ThreePanelBaseWidget):
 
         # Insert to top of center_layout
         self.center_layout.insertWidget(0, self.progress_frame)
+
+        # Eşitleme tavsiyesi kartı (ne yapılmalı? tek tıkla işlem)
+        self.advisor = GitSyncAdvisorWidget()
+        self.advisor.action_requested.connect(self._on_advice_action)
+        self.center_layout.insertWidget(0, self.advisor)
 
         # 2. Konsol Çekmecesi (Bottom)
         self.console_drawer = QPlainTextEdit()
@@ -755,24 +573,6 @@ class GitTrackerScreen(ThreePanelBaseWidget):
         # Header Kolon 0 için Tooltip Ayarı ("Seçim Yapın")
         self.table_model.setHeaderData(0, Qt.Orientation.Horizontal, "Seçim Yapın", Qt.ItemDataRole.ToolTipRole)
 
-    def load_repositories_and_accounts(self):
-        """Depo ve Kullanıcı listesini yükler."""
-        repos = git_tracker.get_repositories()
-        self.combo_repos.blockSignals(True)
-        self.combo_repos.clear()
-        for r in repos:
-            is_def = " (Varsayılan)" if r.get("is_default") else ""
-            self.combo_repos.addItem(f"{r['name']}{is_def}", r)
-        self.combo_repos.blockSignals(False)
-
-        accounts = git_tracker.get_accounts()
-        self.combo_users.blockSignals(True)
-        self.combo_users.clear()
-        for a in accounts:
-            is_def = " (Varsayılan)" if a.get("is_default") else ""
-            self.combo_users.addItem(f"{a['username']}{is_def}", a)
-        self.combo_users.blockSignals(False)
-
     def load_sidebar_profiles(self):
         if not hasattr(self, "combo_sidebar_profiles") or not hasattr(self, "profile_manager"):
             return
@@ -802,36 +602,6 @@ class GitTrackerScreen(ThreePanelBaseWidget):
 
     def open_column_manager(self):
         self.filterable_table.open_column_manager_dialog()
-
-    def open_add_repo_dialog(self):
-        dlg = GitRepositoryDialog(parent=self)
-        if dlg.exec() == QDialog.DialogCode.Accepted:
-            self.load_repositories_and_accounts()
-            QMessageBox.information(self, "Başarılı", "Git deposu başarıyla eklendi.")
-
-    def delete_selected_repo(self):
-        repo_data = self.combo_repos.currentData()
-        if not repo_data:
-            return
-        res = QMessageBox.question(self, "Depo Sil", f"'{repo_data['name']}' deposunu silmek istiyor musunuz?")
-        if res == QMessageBox.StandardButton.Yes:
-            git_tracker.delete_repository(repo_data["id"])
-            self.load_repositories_and_accounts()
-
-    def open_add_user_dialog(self):
-        dlg = GitAccountDialog(parent=self)
-        if dlg.exec() == QDialog.DialogCode.Accepted:
-            self.load_repositories_and_accounts()
-            QMessageBox.information(self, "Başarılı", "Git kullanıcısı başarıyla eklendi.")
-
-    def delete_selected_user(self):
-        user_data = self.combo_users.currentData()
-        if not user_data:
-            return
-        res = QMessageBox.question(self, "Kullanıcı Sil", f"'{user_data['username']}' kullanıcısını silmek istiyor musunuz?")
-        if res == QMessageBox.StandardButton.Yes:
-            git_tracker.delete_account(user_data["id"])
-            self.load_repositories_and_accounts()
 
     def _on_view_mode_changed(self, idx: int):
         modes = ["commits", "tasks", "changes"]
@@ -992,6 +762,7 @@ class GitTrackerScreen(ThreePanelBaseWidget):
 
             conn.close()
             self._update_pagination_ui()
+            self.refresh_advice()
 
         except Exception as e:
             logger.error(f"GitTrackerScreen load_data error: {e}", exc_info=True)
@@ -1048,12 +819,14 @@ class GitTrackerScreen(ThreePanelBaseWidget):
             status = self.table_model.item(row, 2).text() if self.table_model.item(row, 2) else ""
 
             self.lbl_hash.setText(f"Hash: {chash}")
+            self.btn_rollback.setEnabled(bool(chash))
             self.btn_copy_hash.setProperty("full_hash", chash)
             self.lbl_author_date.setText(f"👤 {author}\n📅 {date_s} (🌿 {branch})")
             self.lbl_status_badge.setText(f"Durum: {status}")
             self.lbl_detail_message.setText(msg)
 
         elif self.active_view_mode == "tasks":
+            self.btn_rollback.setEnabled(False)
             tid = self.table_model.item(row, 1).text() if self.table_model.item(row, 1) else ""
             cat = self.table_model.item(row, 2).text() if self.table_model.item(row, 2) else ""
             title = self.table_model.item(row, 3).text() if self.table_model.item(row, 3) else ""
@@ -1067,6 +840,7 @@ class GitTrackerScreen(ThreePanelBaseWidget):
             self.lbl_detail_message.setText(f"{title}\n\n{desc}")
 
         elif self.active_view_mode == "changes":
+            self.btn_rollback.setEnabled(False)
             fpath = self.table_model.item(row, 3).text() if self.table_model.item(row, 3) else ""
             code_c = self.table_model.item(row, 2).text() if self.table_model.item(row, 2) else ""
             badge = self.table_model.item(row, 1).text() if self.table_model.item(row, 1) else ""
@@ -1108,6 +882,23 @@ class GitTrackerScreen(ThreePanelBaseWidget):
         if self.worker and self.worker.isRunning():
             QMessageBox.warning(self, "Meşgul", "Devam eden bir Git işlemi var. Lütfen bekleyiniz.")
             return
+
+        cmp = self.git_service.comparison()
+        if cmp.get("ok"):
+            if cmp["remote"]["behind"] and QMessageBox.question(
+                self, "Uzak Depoda Yeni Commit Var",
+                f"Uzak depoda yerelde olmayan {cmp['remote']['behind']} commit var.\n"
+                "Önce 'Değişiklikleri Çek (Pull)' yapmanız önerilir; aksi halde gönderim reddedilebilir.\n\nYine de devam edilsin mi?",
+                defaultButton=QMessageBox.StandardButton.No,
+            ) != QMessageBox.StandardButton.Yes:
+                return
+            if cmp["sensitive"] and QMessageBox.question(
+                self, "Hassas Dosya Uyarısı",
+                "Şu dosyalar gizli bilgi içeriyor olabilir ve GitHub'a gönderilecek:\n\n• " + "\n• ".join(cmp["sensitive"][:10])
+                + "\n\nGizli bilgi içeriyorsa .gitignore'a ekleyin. Yine de gönderilsin mi?",
+                defaultButton=QMessageBox.StandardButton.No,
+            ) != QMessageBox.StandardButton.Yes:
+                return
 
         status_info = git_tracker.get_git_status()
         dlg = GitCommitDialog(status_info["branch"], status_info["modified_count"], self)
@@ -1164,7 +955,54 @@ class GitTrackerScreen(ThreePanelBaseWidget):
             self.lbl_stage.setStyleSheet("font-size: 11px; font-weight: bold; color: #dc2626;")
             QMessageBox.critical(self, "Git İşlem Hatası", f"İşlem tamamlanamadı:\n{message}")
 
+        self.profile_panel.reload()
         self.load_data()
+
+    # ------------------------------------------------------------------ Aidat'tan taşınan işlevler
+    def refresh_advice(self):
+        """Eşitleme tavsiyesi ve değişiklik özeti (ağ kullanmaz; uzak durum için önce Fetch gerekir)."""
+        try:
+            self.advisor.set_advice(self.git_service.sync_advice())
+            self.change_summary.set_comparison(self.git_service.comparison())
+        except Exception:  # noqa: BLE001 - tavsiye kartı ekranı bozmamalı
+            logger.exception("Git tavsiyesi hesaplanamadı")
+
+    def _on_advice_action(self, action: str):
+        if action == "backup":
+            self.on_commit_push_clicked()
+        elif action == "push":
+            self._start_worker("push")
+        elif action == "pull":
+            self._start_worker("pull")
+        elif action == "remote":
+            self.profile_panel.add_profile()
+
+    def _on_profile_worker_requested(self, action: str, params: dict):
+        self._start_worker(action, dict(params))
+
+    def _on_profile_message(self, text: str, ok: bool):
+        self.lbl_stage.setText(("✅ " if ok else "❌ ") + text)
+        self.lbl_stage.setStyleSheet(f"font-size: 11px; font-weight: bold; color: {'#16a34a' if ok else '#dc2626'};")
+        self.console_drawer.appendPlainText(("✅ " if ok else "❌ ") + text)
+        self.refresh_advice()
+
+    def on_rollback_clicked(self):
+        chash = (self.btn_copy_hash.property("full_hash") or "").strip()
+        if not chash or self.active_view_mode != "commits":
+            return
+        if self.worker and self.worker.isRunning():
+            QMessageBox.warning(self, "Meşgul", "Devam eden bir Git işlemi var.")
+            return
+        ans = QMessageBox.question(
+            self, "Sürüme Geri Dön",
+            f"Dosyalar {chash} sürümündeki hale getirilecek.\n\n"
+            "• Bekleyen (commit edilmemiş) değişiklikleriniz önce 'stash'e alınır.\n"
+            "• Şu anki sürüme bir geri dönüş etiketi konur; geçmiş silinmez.\n"
+            "• Bu sürümden sonra EKLENEN dosyalar silinmez.\n\nDevam edilsin mi?",
+            defaultButton=QMessageBox.StandardButton.No,
+        )
+        if ans == QMessageBox.StandardButton.Yes:
+            self._start_worker("rollback", {"hash": chash})
 
     def close_tab(self):
         parent_tab = self.parentWidget()

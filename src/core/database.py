@@ -65,6 +65,7 @@ class DatabaseManager:
         # Otomatik tablo oluşturma (Alembic dışı yerel çalıştırma ve testler için)
         Base.metadata.create_all(self.engine)
         self._ensure_compatibility_columns()
+        self._fix_legacy_not_null_columns()
         self._ensure_default_admin()
         logger.info("Database schemas ensured and initialized.")
 
@@ -150,6 +151,66 @@ class DatabaseManager:
                 conn.commit()
         except Exception as e:
             logger.warning(f"Error during schema compatibility check: {e}")
+
+    def _fix_legacy_not_null_columns(self):
+        """Eski migration'larla NOT NULL olarak oluşturulmuş ama modelde artık
+        nullable=True olan sütunları (ör. `products.site_id` / `remote_id` —
+        sync/uzak-CMS alanları, salt yerel kayıtlarda boş kalabilmeli) düzeltir.
+
+        SQLite `ALTER TABLE` bir sütunun NOT NULL kısıtlamasını kaldıramaz;
+        bu yüzden ilgili tablo modele göre yeniden oluşturulup veri taşınır.
+        `_ensure_compatibility_columns` sadece eksik sütun ekler, mevcut bir
+        sütunun kısıtlamasını değiştirmez — bu yöntem onu tamamlar.
+        """
+        try:
+            inspector = inspect(self.engine)
+            for table_name, table in Base.metadata.tables.items():
+                if not inspector.has_table(table_name):
+                    continue
+                try:
+                    existing_cols = {
+                        c["name"]: c for c in inspector.get_columns(table_name)
+                    }
+                except Exception as e:
+                    logger.warning(
+                        f"Could not inspect columns for table '{table_name}': {e}",
+                    )
+                    continue
+
+                drifted = [
+                    col.name for col in table.columns
+                    if col.name in existing_cols
+                    and col.nullable
+                    and not existing_cols[col.name].get("nullable", True)
+                ]
+                if not drifted:
+                    continue
+                try:
+                    with self.engine.begin() as conn:
+                        self._rebuild_table_for_nullability(
+                            conn, table_name, table, list(existing_cols.keys()),
+                        )
+                    logger.info(
+                        f"Table '{table_name}' rebuilt to relax NOT NULL on: {drifted}",
+                    )
+                except Exception as e:
+                    logger.warning(f"Could not rebuild table '{table_name}': {e}")
+        except Exception as e:
+            logger.warning(f"Error during legacy NOT NULL check: {e}")
+
+    @staticmethod
+    def _rebuild_table_for_nullability(conn, table_name: str, table, existing_col_names: list) -> None:
+        """`table_name`'i `table` (güncel model) şemasına göre yeniden kurar,
+        ortak sütunlardaki veriyi eski tablodan yeni tabloya taşır."""
+        tmp_name = f"_legacy_{table_name}"
+        conn.exec_driver_sql(f'ALTER TABLE {table_name} RENAME TO "{tmp_name}"')
+        table.create(conn)
+        cols = [c.name for c in table.columns if c.name in existing_col_names]
+        col_list = ", ".join(f'"{c}"' for c in cols)
+        conn.exec_driver_sql(
+            f'INSERT INTO {table_name} ({col_list}) SELECT {col_list} FROM "{tmp_name}"',
+        )
+        conn.exec_driver_sql(f'DROP TABLE "{tmp_name}"')
 
     def get_db(self) -> Session:
         """Returns a new DB session instance."""

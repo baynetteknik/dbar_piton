@@ -92,7 +92,8 @@ def test_git_tracker_3panel_screen_instantiation(qapp, tmp_path, monkeypatch):
     test_db = str(tmp_path / "test_git_tracker.db")
     monkeypatch.setattr(git_tracker, "DB_PATH", test_db)
 
-    from src.desktop.ui.components.git_tracker_screen import GitTrackerScreen, GitRepositoryDialog, GitAccountDialog
+    from src.desktop.ui.components.git_tracker_screen import GitTrackerScreen
+    from src.desktop.ui.widgets.git_profile_dialog import GitProfileDialog
     from src.desktop.ui.components.git_tracker_widget import GitTrackerWidget
     from src.desktop.ui.components.edge_panel import EdgeTriggeredPanel
     from src.desktop.ui.components.filterable_table import FilterableTableView
@@ -109,12 +110,9 @@ def test_git_tracker_3panel_screen_instantiation(qapp, tmp_path, monkeypatch):
     assert screen.headers_dict[0][0] == "☑"
     assert screen.table_model.headerData(0, Qt.Orientation.Horizontal, Qt.ItemDataRole.ToolTipRole) == "Seçim Yapın"
 
-    # Dialogs
-    dlg_repo = GitRepositoryDialog()
-    assert dlg_repo is not None
-
-    dlg_acc = GitAccountDialog()
-    assert dlg_acc is not None
+    # Yeni: bağlantı profilleri paneli, eşitleme tavsiyesi ve profil diyaloğu (eski düz-token diyalogları kaldırıldı)
+    assert screen.profile_panel is not None and screen.advisor is not None and screen.change_summary is not None
+    assert GitProfileDialog() is not None
 
     widget = GitTrackerWidget()
     assert widget is not None

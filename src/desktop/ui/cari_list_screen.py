@@ -27,7 +27,10 @@ from sqlalchemy import select
 from src.core.models import Customer
 from src.desktop.managers.profile_manager import ProfileManager
 from src.desktop.ui.components.collapsible_section import CollapsibleSection
-from src.desktop.ui.components.filterable_table import FilterableTableView
+from src.desktop.ui.components.filterable_table import (
+    FilterableTableView,
+    value_matches_filter,
+)
 from src.desktop.ui.components.layout_hint_helper import register_layout_hint
 from src.desktop.ui.components.three_panel_base import ThreePanelBaseWidget
 from src.desktop.ui.widgets.action_bar_widget import ActionBarWidget
@@ -192,6 +195,14 @@ class CariListScreen(ThreePanelBaseWidget):
         self.sec_profiles.add_layout(prof_btn_lyt)
         self.action_bar.add_custom_section(self.sec_profiles)
 
+        # GRUP 3: CARİ HESAP — ekstre / hareketler
+        self.sec_hesap = CollapsibleSection("CARİ HESAP", is_expanded=True)
+        self.btn_ekstre = QPushButton("📜 Ekstre / Hareketler")
+        self.btn_ekstre.setStyleSheet(self.toolbar_btn_style())
+        self.btn_ekstre.clicked.connect(self.on_ekstre_clicked)
+        self.sec_hesap.add_widget(self.btn_ekstre)
+        self.action_bar.add_custom_section(self.sec_hesap)
+
         main_layout.addWidget(self.action_bar)
 
         # ─────────────────────────────────────────
@@ -284,6 +295,7 @@ class CariListScreen(ThreePanelBaseWidget):
 
         self.filter_widget.filter_changed.connect(lambda _: self._on_filter_changed())
         self.filter_widget.filters_cleared.connect(self.clear_filters)
+        self.filterable_table.filter_changed.connect(lambda _: self._on_filter_changed())
 
         # Geriye dönük filtre referansları
         self.search_box = self.filter_widget.search_box
@@ -294,11 +306,12 @@ class CariListScreen(ThreePanelBaseWidget):
         # GRUP 2: DOSYA & AKTARIM (ExportWidget)
         self.export_widget = ExportWidget(
             group_title="DOSYA & AKTARIM",
-            show_buttons=["export_excel", "report"],
+            show_buttons=["export_excel", "import_excel", "report"],
             initial_open=True,
             parent=self,
         )
         self.export_widget.export_excel_clicked.connect(self.on_excel_clicked)
+        self.export_widget.import_excel_clicked.connect(self.on_import_excel_clicked)
         self.export_widget.report_clicked.connect(
             lambda: QMessageBox.information(self, "Rapor", "Cari hesap ekstresi üretiliyor..."),
         )
@@ -485,6 +498,37 @@ class CariListScreen(ThreePanelBaseWidget):
 
             stmt = stmt.order_by(Customer.fullname)
             records = self.db.scalars(stmt).all()
+
+            # Grid üstündeki kolon filtreleri (Cari Kodu, Ünvan vb.) — sayfalamadan
+            # önce, tam kayıt listesi üzerinde Python tarafında uygulanır.
+            column_filters = {
+                field: text
+                for field, text in getattr(self.filterable_table, "filters", {}).items()
+                if (text or "").strip()
+            }
+            if column_filters:
+                def _field_values(c):
+                    return {
+                        "id": c.id,
+                        "customer_code": c.customer_code or "",
+                        "fullname": c.fullname or "",
+                        "tax_office": getattr(c, "tax_office", "") or "",
+                        "tax_number": c.tax_number or "",
+                        "phone": c.phone or "",
+                        "email": getattr(c, "email", "") or "",
+                        "address": getattr(c, "address", "") or "",
+                        "status": "Aktif" if getattr(c, "status", 1) else "Pasif",
+                        "group_name": getattr(c, "group_name", "") or "",
+                        "sub_group_1": getattr(c, "sub_group_1", "") or "",
+                    }
+                records = [
+                    c for c in records
+                    if all(
+                        value_matches_filter(_field_values(c).get(field), raw_text)
+                        for field, raw_text in column_filters.items()
+                    )
+                ]
+
             self.total_records = len(records)
 
             if hasattr(self, "pagination_widget"):
@@ -588,6 +632,14 @@ class CariListScreen(ThreePanelBaseWidget):
             logger.error(f"Cari editörü açılamadı: {e}")
             QMessageBox.critical(self, "Hata", f"Form açılamadı:\n{e}")
 
+    def on_ekstre_clicked(self):
+        cid = self.get_selected_id()
+        if not cid:
+            QMessageBox.information(self, "Ekstre", "Ekstresi görüntülenecek cariyi seçin.")
+            return
+        from src.desktop.ui.widgets.cari_ekstre_dialog import CariEkstreDialog
+        CariEkstreDialog(db_session=self.db, customer_id=cid, parent=self).exec()
+
     def on_duplicate_clicked(self):
         customer = self.get_selected_customer()
         if not customer:
@@ -664,6 +716,13 @@ class CariListScreen(ThreePanelBaseWidget):
             QMessageBox.warning(self, "Uyarı", "openpyxl bulunamadı.\npip install openpyxl")
         except Exception as e:
             QMessageBox.critical(self, "Hata", str(e))
+
+    def on_import_excel_clicked(self):
+        from src.desktop.ui.import_dialog import ExcelImportDialog
+        dlg = ExcelImportDialog(self.db, entity_type="customer", parent=self)
+        if dlg.exec():
+            self.refresh_table()
+            self.toast_requested.emit("Excel'den cari aktarımı tamamlandı.", "success")
 
     # ─────────────────────────────────────────────
     # SAĞ TIK MENÜSÜ

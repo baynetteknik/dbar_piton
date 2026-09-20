@@ -49,6 +49,45 @@ def test_login_local_mode_toggles_fields(qapp, db):
     assert w.remote_box.isVisibleTo(w) or not w.local_box.isVisibleTo(w)
 
 
+def test_username_not_editable_in_local_mode(qapp, db):
+    w = LoginWindow(db_session=db)
+    w.cms_combo.setCurrentIndex(0)   # yerel + kullanıcı listesi dolu
+    assert not w.username_input.isEditable()
+    w.cms_combo.setCurrentIndex(1)   # uzak CMS → serbest metin
+    assert w.username_input.isEditable()
+
+
+def test_forgot_password_button_present(qapp, db):
+    w = LoginWindow(db_session=db)
+    assert w.forgot_btn is not None and w.forgot_btn.isVisible() in (True, False)
+
+
+def test_failed_login_opens_popup(qapp, db, monkeypatch):
+    opened = {}
+
+    class _FakePopup:
+        def __init__(self, *a, **k):
+            opened.update(k)
+            self.forgot_requested = _Sig()
+
+        def exec(self):
+            opened["exec"] = True
+
+    class _Sig:
+        def connect(self, *_a):
+            pass
+
+    import src.desktop.ui.widgets.login_error_popup as m
+    monkeypatch.setattr(m, "LoginErrorPopup", _FakePopup)
+
+    w = LoginWindow(db_session=db)
+    w.cms_combo.setCurrentIndex(0)
+    w.username_input.setCurrentText("admin")
+    w.password_input.setText("yanlis")
+    w._on_connect()
+    assert opened.get("exec") and opened.get("error_kind") == "bad_password"
+
+
 def test_login_local_result_carries_db_path(qapp, db, monkeypatch):
     captured = {}
     w = LoginWindow(db_session=db)

@@ -6,9 +6,9 @@ sağ ve sol tıklama destekli bağımsız merkez/gövde bileşeni.
 
 from typing import List, Tuple, Optional
 from PyQt6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, 
-    QLabel, QPushButton, QFrame, QScrollArea, 
-    QGraphicsDropShadowEffect
+    QWidget, QVBoxLayout, QHBoxLayout, QGridLayout,
+    QLabel, QPushButton, QFrame, QScrollArea,
+    QGraphicsDropShadowEffect, QGraphicsOpacityEffect
 )
 from PyQt6.QtCore import Qt, pyqtSignal, QPoint
 from PyQt6.QtGui import QColor, QFont
@@ -25,7 +25,7 @@ class MenuGridButton(QPushButton):
         self.emoji = emoji
         self.target_module = target_module
         self.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.setFixedSize(115, 96)
+        self.setFixedSize(130, 112)
 
         self.setStyleSheet("""
             QPushButton {
@@ -48,7 +48,7 @@ class MenuGridButton(QPushButton):
         btn_lyt.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
         self.lbl_emoji = QLabel(emoji)
-        self.lbl_emoji.setFont(QFont("Segoe UI", 24))
+        self.lbl_emoji.setFont(QFont("Segoe UI", 34))
         self.lbl_emoji.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.lbl_emoji.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
         btn_lyt.addWidget(self.lbl_emoji)
@@ -197,3 +197,18 @@ class MenuGridWidget(QWidget):
         for target, btn in self._buttons.items():
             perm = module_permission(target)
             btn.setVisible(can(perm) if perm else True)
+
+    def set_implemented(self, implemented: set[str] | frozenset[str]) -> None:
+        """Henüz hazır olmayan modülleri tıklanamaz + soluk yapar (madde 12)."""
+        for target, btn in self._buttons.items():
+            is_ready = target in implemented
+            btn.setEnabled(is_ready)
+            btn.setCursor(
+                Qt.CursorShape.PointingHandCursor if is_ready
+                else Qt.CursorShape.ForbiddenCursor,
+            )
+            btn.setToolTip("" if is_ready else "Bu modül yakında aktif edilecek.")
+            if not is_ready:
+                effect = QGraphicsOpacityEffect(btn)
+                effect.setOpacity(0.45)
+                btn.setGraphicsEffect(effect)

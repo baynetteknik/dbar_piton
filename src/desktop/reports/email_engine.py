@@ -207,12 +207,7 @@ class EmailEngine:
                 msg.attach(attachment)
 
             # SMTP gönder
-            with smtplib.SMTP(self.config.host, self.config.port) as server:
-                if self.config.use_tls:
-                    server.starttls()
-                if self.config.username and self.config.password:
-                    server.login(self.config.username, self.config.password)
-                server.send_message(msg, to_addrs=[to_email])
+            self._send(msg, [to_email])
 
             logger.info(f"E-posta gönderildi: {to_email} — {teklif_no}")
             return True, f"E-posta başarıyla gönderildi: {to_email}"
@@ -227,6 +222,105 @@ class EmailEngine:
             return False, msg
         except Exception as e:
             logger.error(f"E-posta gönderilemedi: {e}")
+            return False, str(e)
+
+    def _send(self, msg: MIMEMultipart, to_addrs: list[str]) -> None:
+        """MIME mesajını yapılandırılmış SMTP sunucusuna gönderir."""
+        with smtplib.SMTP(self.config.host, self.config.port) as server:
+            if self.config.use_tls:
+                server.starttls()
+            if self.config.username and self.config.password:
+                server.login(self.config.username, self.config.password)
+            server.send_message(msg, to_addrs=to_addrs)
+
+    def send_password_reset(
+        self,
+        to_email: str,
+        username: str,
+        code: str,
+        valid_minutes: int = 30,
+    ) -> tuple[bool, str]:
+        """Parola sıfırlama kodunu e-posta ile gönderir."""
+        try:
+            subject = f"{self.config.from_name} — Parola Sıfırlama Kodu"
+            html_body = f"""
+            <div style="font-family:'Inter',sans-serif; max-width:520px; margin:0 auto;
+                        padding:24px; border:1px solid #e2e8f0; border-radius:12px;
+                        background-color:#ffffff;">
+                <h2 style="color:#3b82f6; font-size:19px; margin:0 0 12px;">
+                    Parola Sıfırlama Talebi
+                </h2>
+                <p style="color:#475569; font-size:14px; line-height:1.6;">
+                    <strong>{username}</strong> kullanıcısı için parola sıfırlama kodu:
+                </p>
+                <div style="text-align:center; margin:24px 0;">
+                    <span style="display:inline-block; font-size:32px; font-weight:800;
+                                 letter-spacing:8px; color:#0f172a; background:#f1f5f9;
+                                 padding:14px 24px; border-radius:10px;">{code}</span>
+                </div>
+                <p style="color:#ef4444; font-size:13px; font-weight:500;">
+                    ⚠️ Bu kod {valid_minutes} dakika geçerlidir. Bu talebi siz yapmadıysanız
+                    bu e-postayı yok sayın.
+                </p>
+                <hr style="border:0; border-top:1px solid #e2e8f0; margin:20px 0;">
+                <p style="color:#94a3b8; font-size:11px; margin:0;">{self.config.from_name}</p>
+            </div>
+            """
+
+            msg = MIMEMultipart("alternative")
+            msg["Subject"] = subject
+            msg["From"] = f"{self.config.from_name} <{self.config.from_email}>"
+            msg["To"] = to_email
+            msg.attach(MIMEText(html_body, "html", "utf-8"))
+
+            self._send(msg, [to_email])
+            logger.info("Parola sıfırlama e-postası gönderildi: %s", to_email)
+            return True, f"Sıfırlama kodu gönderildi: {to_email}"
+
+        except smtplib.SMTPAuthenticationError:
+            return False, "SMTP kimlik doğrulama hatası. Kullanıcı adı/şifre kontrol edin."
+        except smtplib.SMTPConnectError:
+            return False, f"SMTP sunucusuna bağlanılamadı: {self.config.host}:{self.config.port}"
+        except Exception as e:  # noqa: BLE001
+            logger.error(f"Sıfırlama e-postası gönderilemedi: {e}")
+            return False, str(e)
+
+    def send_test_email(self, to_email: str) -> tuple[bool, str]:
+        """SMTP ayarlarını gerçek bir e-posta göndererek test eder (parola sıfırlama akışını tetiklemez)."""
+        try:
+            subject = f"{self.config.from_name} — Test E-postası"
+            html_body = f"""
+            <div style="font-family:'Inter',sans-serif; max-width:520px; margin:0 auto;
+                        padding:24px; border:1px solid #e2e8f0; border-radius:12px;
+                        background-color:#ffffff;">
+                <h2 style="color:#3b82f6; font-size:19px; margin:0 0 12px;">
+                    Test E-postası
+                </h2>
+                <p style="color:#475569; font-size:14px; line-height:1.6;">
+                    Bu e-posta, <strong>{self.config.from_name}</strong> SMTP ayarlarının
+                    doğru çalıştığını doğrulamak için gönderilmiştir.
+                </p>
+                <hr style="border:0; border-top:1px solid #e2e8f0; margin:20px 0;">
+                <p style="color:#94a3b8; font-size:11px; margin:0;">{self.config.from_name}</p>
+            </div>
+            """
+
+            msg = MIMEMultipart("alternative")
+            msg["Subject"] = subject
+            msg["From"] = f"{self.config.from_name} <{self.config.from_email}>"
+            msg["To"] = to_email
+            msg.attach(MIMEText(html_body, "html", "utf-8"))
+
+            self._send(msg, [to_email])
+            logger.info("Test e-postası gönderildi: %s", to_email)
+            return True, f"Test e-postası gönderildi: {to_email}"
+
+        except smtplib.SMTPAuthenticationError:
+            return False, "SMTP kimlik doğrulama hatası. Kullanıcı adı/şifre kontrol edin."
+        except smtplib.SMTPConnectError:
+            return False, f"SMTP sunucusuna bağlanılamadı: {self.config.host}:{self.config.port}"
+        except Exception as e:  # noqa: BLE001
+            logger.error(f"Test e-postası gönderilemedi: {e}")
             return False, str(e)
 
     def test_connection(self) -> tuple[bool, str]:

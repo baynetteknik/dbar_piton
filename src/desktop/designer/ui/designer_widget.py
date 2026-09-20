@@ -30,9 +30,10 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from src.desktop.designer.models import ItemConfig, ReportTemplate
+from src.desktop.designer.models import ItemConfig, PaperOrientation, ReportTemplate
 from src.desktop.designer.preview_dialog import ReportPreviewDialog
 from src.desktop.designer.services.teklif_print_service import TeklifPrintService
+from src.desktop.designer.ui.band_manager_dialog import BandManagerDialog
 from src.desktop.designer.ui.data_tree_widget import DataTreeWidget
 from src.desktop.designer.ui.designer_canvas import DesignerCanvas
 from src.desktop.designer.ui.property_inspector import PropertyInspector
@@ -43,6 +44,14 @@ logger = logging.getLogger(__name__)
 DEFAULT_TEMPLATE_PATH = (
     Path(__file__).parent.parent / "templates" / "tpl_teklif_kurumsal_a4.json"
 )
+
+#: Sayfa boyutu seçici — dikey (portrait) mm ölçüleri; yatayda genişlik/yükseklik yer değiştirir.
+PAGE_SIZES_MM: dict[str, tuple[float, float]] = {
+    "A3": (297.0, 420.0),
+    "A4": (210.0, 297.0),
+    "A5": (148.0, 210.0),
+    "Letter": (215.9, 279.4),
+}
 
 _BTN_PRIMARY = "QPushButton { background-color: #2563EB; color: white; font-weight: bold; padding: 5px 12px; border-radius: 4px; } QPushButton:hover { background-color: #1D4ED8; }"
 _BTN_SUCCESS = "QPushButton { background-color: #16A34A; color: white; font-weight: bold; padding: 5px 12px; border-radius: 4px; } QPushButton:hover { background-color: #15803D; }"
@@ -164,6 +173,34 @@ class ReportDesignerWidget(QWidget):
         self.btn_preview.clicked.connect(self._on_live_preview)
         lyt.addWidget(self.btn_preview)
 
+        self.btn_bands = QPushButton("🗂️ Bantlar...", bar)
+        self.btn_bands.setStyleSheet(_BTN_NEUTRAL)
+        self.btn_bands.setToolTip(
+            "Bantları etkinleştir/kapat, yüksekliklerini mm olarak düzenle.",
+        )
+        self.btn_bands.clicked.connect(self._open_band_manager)
+        lyt.addWidget(self.btn_bands)
+
+        sep_page = QLabel("  Sayfa: ", bar)
+        sep_page.setStyleSheet("color: #94A3B8; font-size: 11px;")
+        lyt.addWidget(sep_page)
+
+        self.cmb_page_size = QComboBox(bar)
+        self.cmb_page_size.addItems(list(PAGE_SIZES_MM.keys()))
+        self.cmb_page_size.setCurrentText(
+            self.template.page.size if self.template.page.size in PAGE_SIZES_MM else "A4",
+        )
+        self.cmb_page_size.currentTextChanged.connect(self._on_page_size_changed)
+        lyt.addWidget(self.cmb_page_size)
+
+        self.cmb_orientation = QComboBox(bar)
+        self.cmb_orientation.addItems(["Dikey", "Yatay"])
+        self.cmb_orientation.setCurrentIndex(
+            1 if self.template.page.orientation == PaperOrientation.LANDSCAPE else 0,
+        )
+        self.cmb_orientation.currentIndexChanged.connect(self._on_orientation_changed)
+        lyt.addWidget(self.cmb_orientation)
+
         sep = QLabel("  Izgara: ", bar)
         sep.setStyleSheet("color: #94A3B8; font-size: 11px;")
         lyt.addWidget(sep)
@@ -228,6 +265,74 @@ class ReportDesignerWidget(QWidget):
             self.canvas.set_snap_grid(5.0)
         else:
             self.canvas.set_snap_grid(0.0)
+
+    # ------------------------------------------------------------------
+    # Sayfa Boyutu / Yön
+    # ------------------------------------------------------------------
+    def _has_placed_items(self) -> bool:
+        return any(b.items for b in self.template.bands)
+
+    def _confirm_page_change(self, prompt: str) -> bool:
+        """Bantlarda zaten yerleştirilmiş eleman varsa onay ister."""
+        if not self._has_placed_items():
+            return True
+        reply = QMessageBox.question(
+            self, "Sayfa Ayarı Değişikliği",
+            f"{prompt}\n\n"
+            "Tuval üzerinde zaten yerleştirilmiş elemanlar var; sayfa boyutu/yönü "
+            "değişince bu elemanların konumu yeni sayfa sınırlarına göre elle "
+            "kontrol edilmelidir.\n\nYine de devam edilsin mi?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        return reply == QMessageBox.StandardButton.Yes
+
+    def _apply_page_dimensions(self) -> None:
+        base_w, base_h = PAGE_SIZES_MM.get(self.template.page.size, (210.0, 297.0))
+        if self.template.page.orientation == PaperOrientation.LANDSCAPE:
+            base_w, base_h = base_h, base_w
+        self.template.page.width_mm = base_w
+        self.template.page.height_mm = base_h
+        self.canvas.page_canvas._update_size()
+        self.canvas.page_canvas.update()
+
+    def _on_page_size_changed(self, size_name: str) -> None:
+        if not self._confirm_page_change(f"Sayfa boyutu '{size_name}' olarak değiştirilecek."):
+            self.cmb_page_size.blockSignals(True)
+            self.cmb_page_size.setCurrentText(self.template.page.size)
+            self.cmb_page_size.blockSignals(False)
+            return
+        self.template.page.size = size_name
+        self._apply_page_dimensions()
+        self._set_status(f"Sayfa boyutu değiştirildi: {size_name}")
+
+    def _on_orientation_changed(self, index: int) -> None:
+        new_orientation = PaperOrientation.LANDSCAPE if index == 1 else PaperOrientation.PORTRAIT
+        if new_orientation == self.template.page.orientation:
+            return
+        if not self._confirm_page_change(
+            f"Sayfa yönü '{'Yatay' if index == 1 else 'Dikey'}' olarak değiştirilecek.",
+        ):
+            self.cmb_orientation.blockSignals(True)
+            self.cmb_orientation.setCurrentIndex(
+                1 if self.template.page.orientation == PaperOrientation.LANDSCAPE else 0,
+            )
+            self.cmb_orientation.blockSignals(False)
+            return
+        self.template.page.orientation = new_orientation
+        self._apply_page_dimensions()
+        self._set_status(f"Sayfa yönü değiştirildi: {'Yatay' if index == 1 else 'Dikey'}")
+
+    # ------------------------------------------------------------------
+    # Bant Yönetimi
+    # ------------------------------------------------------------------
+    def _open_band_manager(self) -> None:
+        dlg = BandManagerDialog(self.template, parent=self)
+        if dlg.exec():
+            for band_widget in self.canvas.band_widgets:
+                band_widget.update_geometry_from_model()
+                band_widget.update()
+            self._set_status("Bant ayarları güncellendi.")
 
     def _delete_selected_item(self) -> None:
         self.canvas.delete_selected_item()

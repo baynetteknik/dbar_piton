@@ -17,17 +17,18 @@
     {
       "id": "band_page_header",
       "type": "page_header",
-      "height_mm": 30.0,
+      "height_mm": 45.0,
       "items": [
-        { "id": "txt_firma", "type": "data_field", "field": "firma.unvan", "text": "", "x_mm": 0.0, "y_mm": 0.0, "w_mm": 74.0, "h_mm": 5.0, "font_size": 9, "font_bold": true, "align": "center", "text_color": "#000000" },
-        { "id": "txt_firma_adr", "type": "data_field", "field": "firma.adres", "x_mm": 0.0, "y_mm": 5.0, "w_mm": 74.0, "h_mm": 8.0, "font_size": 6.5, "align": "center", "word_wrap": true, "text_color": "#111111" },
-        { "id": "txt_firma_vkn", "type": "data_field", "field": "firma.vergi_no", "text": "VKN: ", "x_mm": 0.0, "y_mm": 13.0, "w_mm": 74.0, "h_mm": 4.0, "font_size": 6.5, "align": "center", "text_color": "#111111" },
-        { "id": "line_h1", "type": "line", "x_mm": 0.0, "y_mm": 17.5, "w_mm": 74.0, "h_mm": 0.0, "border_color": "#000000" },
-        { "id": "txt_baslik", "type": "text", "text": "SATIŞ FİŞİ", "x_mm": 0.0, "y_mm": 18.5, "w_mm": 74.0, "h_mm": 5.0, "font_size": 8, "font_bold": true, "align": "center" },
-        { "id": "txt_fis_no", "type": "data_field", "field": "belge.teklif_no", "text": "Fiş No: ", "x_mm": 0.0, "y_mm": 23.5, "w_mm": 44.0, "h_mm": 4.0, "font_size": 6.5 },
-        { "id": "txt_fis_tarih", "type": "data_field", "field": "belge.tarih", "x_mm": 44.0, "y_mm": 23.5, "w_mm": 30.0, "h_mm": 4.0, "font_size": 6.5, "align": "right" },
-        { "id": "txt_fis_saat", "type": "data_field", "field": "belge.saat", "x_mm": 44.0, "y_mm": 27.0, "w_mm": 30.0, "h_mm": 4.0, "font_size": 6.5, "align": "right" },
-        { "id": "txt_kasiyer", "type": "data_field", "field": "musteri.adi", "text": "Müşteri: ", "x_mm": 0.0, "y_mm": 27.0, "w_mm": 44.0, "h_mm": 4.0, "font_size": 6.5 }
+        { "id": "img_logo", "type": "image", "field": "firma.logo_base64", "x_mm": 27.0, "y_mm": 0.0, "w_mm": 20.0, "h_mm": 14.0 },
+        { "id": "txt_firma", "type": "data_field", "field": "firma.unvan", "text": "", "x_mm": 0.0, "y_mm": 15.0, "w_mm": 74.0, "h_mm": 5.0, "font_size": 9, "font_bold": true, "align": "center", "text_color": "#000000" },
+        { "id": "txt_firma_adr", "type": "data_field", "field": "firma.adres", "x_mm": 0.0, "y_mm": 20.0, "w_mm": 74.0, "h_mm": 8.0, "font_size": 6.5, "align": "center", "word_wrap": true, "text_color": "#111111" },
+        { "id": "txt_firma_vkn", "type": "data_field", "field": "firma.vergi_no", "text": "VKN: ", "x_mm": 0.0, "y_mm": 28.0, "w_mm": 74.0, "h_mm": 4.0, "font_size": 6.5, "align": "center", "text_color": "#111111" },
+        { "id": "line_h1", "type": "line", "x_mm": 0.0, "y_mm": 32.5, "w_mm": 74.0, "h_mm": 0.0, "border_color": "#000000" },
+        { "id": "txt_baslik", "type": "text", "text": "SATIŞ FİŞİ", "x_mm": 0.0, "y_mm": 33.5, "w_mm": 74.0, "h_mm": 5.0, "font_size": 8, "font_bold": true, "align": "center" },
+        { "id": "txt_fis_no", "type": "data_field", "field": "belge.teklif_no", "text": "Fiş No: ", "x_mm": 0.0, "y_mm": 38.5, "w_mm": 44.0, "h_mm": 4.0, "font_size": 6.5 },
+        { "id": "txt_fis_tarih", "type": "data_field", "field": "belge.tarih", "x_mm": 44.0, "y_mm": 38.5, "w_mm": 30.0, "h_mm": 4.0, "font_size": 6.5, "align": "right" },
+        { "id": "txt_fis_saat", "type": "data_field", "field": "belge.saat", "x_mm": 44.0, "y_mm": 42.0, "w_mm": 30.0, "h_mm": 4.0, "font_size": 6.5, "align": "right" },
+        { "id": "txt_kasiyer", "type": "data_field", "field": "musteri.adi", "text": "Müşteri: ", "x_mm": 0.0, "y_mm": 42.0, "w_mm": 44.0, "h_mm": 4.0, "font_size": 6.5 }
       ]
     },
     {

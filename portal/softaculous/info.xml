@@ -1,0 +1,27 @@
+<script>
+  <name>TOYA Portal</name>
+  <package>toya-portal</package>
+  <version>{{VERSION}}</version>
+  <description>TOYA ERP çevrimiçi portalı: cari bakiye/ekstre, fatura aynası ve çevrimiçi teklif onayı. Veriyi TOYA masaüstünden alır.</description>
+  <categoryname>ERP</categoryname>
+  <language>tr</language>
+  <requires>
+    <require>PHP 8.0+</require>
+    <require>MySQL 5.7+</require>
+    <require>zip, mbstring, pdo_mysql</require>
+  </requires>
+  <dirs>
+    <dir>storage</dir>
+    <dir>update_inbox</dir>
+  </dirs>
+  <crons>
+    <cron>
+      <command>php {{softpath}}/bin/backup.php create</command>
+      <minute>15</minute>
+      <hour>3</hour>
+      <day>*</day>
+      <month>*</month>
+      <weekday>*</weekday>
+    </cron>
+  </crons>
+</script>

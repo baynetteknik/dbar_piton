@@ -692,6 +692,7 @@ class CariKunyeWidget(QFrame):
                 if rows:
                     return [
                         {
+                            "id":         c.id,
                             "code":       c.customer_code or f"CAR-{c.id}",
                             "name":       c.fullname or "",
                             "tax_office": getattr(c, "tax_office", "") or "",
@@ -759,6 +760,7 @@ class CariKunyeWidget(QFrame):
                 )
                 if c:
                     self.apply_customer({
+                        "id":         c.id,
                         "code":       c.customer_code or "",
                         "name":       c.fullname or "",
                         "tax_office": getattr(c, "tax_office", "") or "",
@@ -1155,6 +1157,7 @@ class HizliCariEkleDialog(QDialog):
                         if reply == QMessageBox.StandardButton.No:
                             # Mevcut cariyi seç
                             self.customer_added.emit({
+                                "id":         existing.id,
                                 "code":       existing.customer_code or "",
                                 "name":       existing.fullname or "",
                                 "tax_office": getattr(existing, "tax_office", "") or "",
@@ -1167,15 +1170,20 @@ class HizliCariEkleDialog(QDialog):
                             self.accept()
                             return
 
-                c = Customer()
-                c.customer_code = code
-                c.fullname      = name
-                c.tax_number    = tax_no or None
-                if hasattr(c, "tax_office"):
-                    c.tax_office = tax_d or None
-                c.is_deleted    = False
-                self.db.add(c)
-                self.db.commit()
+                # CustomerService üzerinden kaydet (marketplace vb. zorunlu alanlar
+                # ve doğrulama servis katmanında ele alınır).
+                from src.desktop.services.customer_service import CustomerService
+                res = CustomerService(self.db).save({
+                    "customer_code": code,
+                    "fullname": name,
+                    "tax_number": tax_no or None,
+                    "tax_office": tax_d or None,
+                    "is_active": True,
+                })
+                if not res.success:
+                    QMessageBox.critical(self, "Hata", res.error or "Cari eklenemedi.")
+                    return
+                self._new_customer_id = res.customer_id
 
             except Exception as e:
                 logger.error(f"Hızlı cari eklenemedi: {e}")
@@ -1186,6 +1194,7 @@ class HizliCariEkleDialog(QDialog):
                 return
 
         self.customer_added.emit({
+            "id":         getattr(self, "_new_customer_id", None),
             "code":       code,
             "name":       name,
             "tax_office": tax_d,
