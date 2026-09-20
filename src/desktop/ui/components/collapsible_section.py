@@ -14,6 +14,9 @@ from PyQt6.QtWidgets import (
 )
 
 
+from src.desktop.ui.components.tooltip_style import with_tooltip  # noqa: E402
+
+
 class CollapsibleSection(QWidget):
     """Açılır/kapanır başlık ve alt içerik çerçevesine sahip akordiyon bileşeni."""
 
@@ -41,8 +44,8 @@ class CollapsibleSection(QWidget):
         # Kod rozeti (isteğe bağlı): başlığın hemen altında küçük hap biçiminde
         self.code_label = QLabel()
         self.code_label.setStyleSheet(
-            "background:#eef2ff; color:#4f46e5; border:1px solid #c7d2fe; border-radius:6px; padding:0px 6px;"
-            " font-size:8px; font-weight:700; font-family:'Consolas','Segoe UI'; margin-left:8px; margin-top:1px;",
+            "background:transparent; color:#94a3b8; border:none; padding:0px;"
+            " font-size:8px; font-weight:600; font-family:'Consolas','Segoe UI'; margin-left:10px; margin-top:0px;",
         )
         self.code_label.hide()
         main_layout.addWidget(self.code_label, 0, Qt.AlignmentFlag.AlignLeft)
@@ -69,7 +72,7 @@ class CollapsibleSection(QWidget):
         fsz = "10px" if self.compact else "11px"
 
         if self.is_expanded:
-            self.header_btn.setStyleSheet(f"""
+            self.header_btn.setStyleSheet(with_tooltip(f"""
                 QPushButton {{
                     background-color: #e0e7ff;
                     color: #1e3a8a;
@@ -88,7 +91,7 @@ class CollapsibleSection(QWidget):
                 QPushButton:hover {{
                     background-color: #c7d2fe;
                 }}
-            """)
+            """))
             self.content_frame.setStyleSheet("""
                 QFrame#CollapsibleContentFrame {
                     background-color: #ffffff;
@@ -99,7 +102,7 @@ class CollapsibleSection(QWidget):
                 }
             """)
         else:
-            self.header_btn.setStyleSheet(f"""
+            self.header_btn.setStyleSheet(with_tooltip(f"""
                 QPushButton {{
                     background-color: #f8fafc;
                     color: #334155;
@@ -115,7 +118,7 @@ class CollapsibleSection(QWidget):
                     background-color: #e2e8f0;
                     border-color: #94a3b8;
                 }}
-            """)
+            """))
 
     def toggle(self):
         self.set_expanded(not self.is_expanded)

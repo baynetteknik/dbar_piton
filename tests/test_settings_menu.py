@@ -78,26 +78,62 @@ def test_only_the_selected_menus_actions_are_visible_in_the_right_panel(screen):
     assert [pid for pid, box in screen.menu_sub_boxes.items() if box.isVisibleTo(screen.right_sidebar)] == ["kullanicilar"]
 
 
-def test_codes_are_shown_as_badges_below_names_and_can_be_toggled(screen, db_session):
+def test_code_display_is_a_parameter_defaulting_to_hover_hints(screen, db_session):
     m = screen.menu_buttons["cari_gruplari"]
-    assert m.text() == "Cari Grupları" and m.code() == "sys.set.501" and m.code_visible()   # kod adın ALTINDA rozet, metne eklenmez
     grp = screen.menu_sections[4]
-    assert grp.code_label.text() == "sys.set.50" and not grp.code_label.isHidden()
-    screen.switch_panel("cari_gruplari")
-    assert "[sys.set.501]" in screen.lbl_breadcrumb.text() and "sys.set.001" in screen.lbl_breadcrumb.text()
+    assert screen.code_mode == "ipucu" and screen.cmb_code_mode.currentData() == "ipucu"
+    assert not m.code_visible() and grp.code_label.isHidden()                       # varsayılan: rozet yok, sade görünüm
+    tip = m.toolTip()
+    assert "sys.set.501" in tip and "<b>" in tip and "Cari Grupları" in tip           # kod ipucunda
+    assert "sys.set.50" in grp.header_btn.toolTip() and "sys.rp.02" in screen.right_sidebar.section("filtre").header_btn.toolTip()
     btn, _label, code = screen.menu_sub_boxes["cari_gruplari"].action_buttons[0]
-    assert code == "sys.set.501.01" and btn.code() == code and btn.code_visible() and code in btn.toolTip()
-    assert "[" not in btn.text()
-    assert screen.right_sidebar.section("filtre").code_label.text() == "sys.rp.02"
+    assert code == "sys.set.501.01" and code in btn.toolTip() and not btn.code_visible()
+    assert "sys.rp.03.01" in screen.right_sidebar._entries["yazdir"].items[0][0].toolTip()
+
+    screen.switch_panel("cari_gruplari")
+    screen.cmb_code_mode.setCurrentIndex(screen.cmb_code_mode.findData("rozet"))     # rozet: adın altında
+    assert m.code_visible() and btn.code_visible() and not grp.code_label.isHidden()
+    assert grp.code_label.text() == "sys.set.50" and screen.right_sidebar.section("filtre").code_label.text() == "sys.rp.02"
+    assert "[sys.set.501]" in screen.lbl_breadcrumb.text() and sm.code_mode(db_session) == "rozet"
     yazdir = screen.right_sidebar._entries["yazdir"].items[0][0]
     assert yazdir.code() == "sys.rp.03.01" and yazdir.code_visible()
-    screen.chk_show_codes.setChecked(False)
-    assert not m.code_visible() and not btn.code_visible() and not yazdir.code_visible()
-    assert grp.code_label.isHidden() and screen.right_sidebar.section("filtre").code_label.isHidden()
-    assert code in btn.toolTip()                                                    # ipucunda kod kalır
-    assert sm.show_codes(db_session) is False                                       # tercih kaydedildi
-    screen.chk_show_codes.setChecked(True)
-    assert m.code_visible() and not grp.code_label.isHidden() and yazdir.code_visible()
+
+    screen.cmb_code_mode.setCurrentIndex(screen.cmb_code_mode.findData("gizli"))     # gizli: hiçbir yerde kod yok
+    assert not m.code_visible() and grp.code_label.isHidden() and "sys.set.501" not in m.toolTip()
+    assert "[sys.set.501]" not in screen.lbl_breadcrumb.text() and sm.code_mode(db_session) == "gizli"
+    assert sm.matches("501", "Cari Grupları", sm.item_code("cari_gruplari"))          # arama yine kodla çalışır
+
+    screen.set_code_mode("ipucu")
+    assert "sys.set.501" in m.toolTip() and not m.code_visible() and screen.cmb_code_mode.currentData() == "ipucu"
+
+
+def test_reopening_restores_the_saved_code_mode(qapp, db_session):
+    s = GeneralSettingsScreen(db_session=db_session)
+    s.set_code_mode("rozet")
+    s.close()
+    s2 = GeneralSettingsScreen(db_session=db_session)
+    assert s2.code_mode == "rozet" and s2.menu_buttons["cari_gruplari"].code_visible() and s2.cmb_code_mode.currentData() == "rozet"
+    s2.close()
+
+
+def test_hints_are_blue_with_white_text_and_real_buttons_have_depth(screen):
+    from PyQt6.QtWidgets import QApplication
+
+    css = QApplication.instance().styleSheet()
+    assert css.count("toya-tooltip") == 1 and "#2563eb" in css.split("toya-tooltip")[-1]   # uygulama düzeyinde, bir kez
+    m0 = screen.menu_buttons["cari_gruplari"]
+    for w in (m0, screen.menu_sub_boxes["cari_gruplari"].action_buttons[0][0], screen.right_sidebar.section("filtre").header_btn,
+              screen.txt_right_filter):
+        assert "QToolTip" in w.styleSheet() and "#2563eb" in w.styleSheet()          # kendi stili olan widget ipucu kuralını KAYBETMEZ
+    m = screen.menu_buttons["cari_gruplari"]
+    assert "border-bottom:3px" in m.styleSheet() and "border-radius:6px" in m.styleSheet()   # asıl düğme: kart + derinlik
+    assert "border-bottom:3px" in screen.btn_style() and "pressed" in screen.btn_style()
+    active = screen.menu_btn_style(True)
+    assert "#2563eb" in active and "font-weight:800" in active
+    btn = screen.menu_sub_boxes["cari_gruplari"].action_buttons[0][0]
+    assert "border-bottom:3px" in btn.styleSheet()
+    badge_css = m._badge.styleSheet()                                               # rozet düğme gibi görünmemeli
+    assert "border:none" in badge_css and "background:transparent" in badge_css
 
 
 def test_badge_takes_less_width_than_appending_the_code_to_the_text(qapp):
@@ -240,14 +276,17 @@ def test_context_actions_are_the_same_as_the_right_panel_and_actually_work(scree
     screen.switch_panel("cari_gruplari")
     acts = screen.tbl_cari_grup.context_actions_provider()
     labels = [a[0] for a in acts]
-    assert any("Yeni Grup Ekle" in x and "[sys.set.501.01]" in x for x in labels)
+    assert all("[" not in x for x in labels)                                                  # ipucu modunda etikette kod yok
+    assert any("Yeni Grup Ekle" in a[0] and "sys.set.501.01" in a[2] for a in acts)           # kod ipucunda (menüde ipucu görünür)
     right = [lab for _b, lab, _c in screen.menu_sub_boxes["cari_gruplari"].action_buttons]
-    assert [x.split("  [")[0] for x in labels] == right                                       # tek kaynak
+    assert labels == right                                                                    # tek kaynak
     n = screen.tbl_cari_grup.rowCount()
-    dict((x.split("  [")[0], cb) for x, cb in acts)["➕ Yeni Grup Ekle"]()
+    dict((a[0], a[1]) for a in acts)["➕ Yeni Grup Ekle"]()
     assert screen.tbl_cari_grup.rowCount() == n + 1
-    screen.chk_show_codes.setChecked(False)
-    assert all("[" not in a[0] for a in screen.tbl_cari_grup.context_actions_provider())
+    screen.set_code_mode("rozet")
+    assert any("Yeni Grup Ekle" in a[0] and "[sys.set.501.01]" in a[0] for a in screen.tbl_cari_grup.context_actions_provider())
+    screen.set_code_mode("gizli")
+    assert all("[" not in a[0] and "sys.set" not in a[2] for a in screen.tbl_cari_grup.context_actions_provider())
 
 
 def test_new_category_and_brand_actions_now_work(screen):
@@ -342,3 +381,132 @@ def test_every_embedded_widget_method_used_by_menu_actions_exists(screen):
     missing = [f"{tab}.{m}" for tab, m in sorted(set(re.findall(r"self\.(\w+_tab)\.(\w+)\(", src)))
                if not hasattr(getattr(screen, tab, None), m)]
     assert missing == []
+
+
+def test_git_connection_section_lives_in_the_shell_sidebar_only_on_the_git_menu(qapp, db_session, tmp_path, monkeypatch):
+    """Gerçek sorun: profil ekle/düzenle/sil ve Google girişi gömülü ekranın GİZLİ sol panelindeydi; kullanıcı hiç göremiyordu."""
+    import git_tracker
+
+    monkeypatch.setattr(git_tracker, "DB_PATH", str(tmp_path / "gt.db"))
+    s = GeneralSettingsScreen(db_session=db_session)
+    s.show()
+    sb = s.right_sidebar
+    panel = s.git_tracker_tab.screen.profile_panel
+    assert sb.section("git_baglanti").isAncestorOf(panel) and not s.git_tracker_tab.screen.left_panel.isAncestorOf(panel)
+    assert not sb.section("git_baglanti").isVisibleTo(sb)                            # diğer menülerde görünmez
+    s.switch_panel("surum_git")
+    assert sb.section("git_baglanti").isVisibleTo(sb)
+    assert "sys.rp.07" in sb.section("git_baglanti").header_btn.toolTip()
+    texts = [tx for _w, tx, _c in sb._entries["git_baglanti"].items]
+    assert texts == ["Bağlantı profili ekle", "Profili düzenle", "Profili sil (gizle)", "Etkin yap", "Bağlantıyı test et", "Google ile giriş yap"]
+    assert "Sil" in panel.btn_hide.text()
+    sb.search.setText("google")                                                        # aranabilir
+    assert sb.section("git_baglanti").isVisibleTo(sb) and not sb.section("filtre").isVisibleTo(sb)
+    s.switch_panel("cari_gruplari")
+    assert not sb.section("git_baglanti").isVisibleTo(sb)
+    s.close()
+
+
+def test_git_menu_actions_include_profile_management_and_login_and_they_work(qapp, db_session, tmp_path, monkeypatch):
+    import git_tracker
+    from src.desktop.services import git_profile_store as store
+
+    monkeypatch.setattr(git_tracker, "DB_PATH", str(tmp_path / "gt.db"))
+    s = GeneralSettingsScreen(db_session=db_session)
+    labels = [lab for lab, _cb in s._panel_actions("surum_git")]
+    for need in ("Google ile Giriş", "Bağlantıyı Test", "Profili Ekle", "Profili Düzenle", "Profili Sil"):
+        assert any(need in x for x in labels), need
+    panel = s.git_tracker_tab.screen.profile_panel
+    ok, _m, pid = store.save_profile({"title": "Ana", "repo_url": "https://github.com/baynetteknik/dbar_piton.git", "auth_type": "gcm"}, make_active=True)
+    panel.reload(pid)
+    reqs = []
+    panel.worker_requested.connect(lambda a, p: reqs.append(a))
+    actions = dict(s._panel_actions("surum_git"))
+    actions["🔵 Google ile Giriş Yap"]()
+    actions["🔌 Bağlantıyı Test Et"]()
+    assert reqs == ["login", "test_remote"]
+    s.close()
+
+
+def test_refresh_button_gives_visible_feedback(qapp, db_session, tmp_path, monkeypatch):
+    """Gerçek sorun: 'Git Durumunu Yenile' işlevsiz görünüyordu (hiçbir geri bildirim yoktu)."""
+    import git_tracker
+
+    monkeypatch.setattr(git_tracker, "DB_PATH", str(tmp_path / "gt.db"))
+    s = GeneralSettingsScreen(db_session=db_session)
+    toasts = []
+    s.toast_requested.connect(lambda m, k: toasts.append((m, k)))
+    dict(s._panel_actions("surum_git"))["🔄 Git Durumunu Yenile"]()
+    assert toasts and "Yenilendi" in toasts[0][0] and "değişen dosya" in toasts[0][0] and toasts[0][1] == "success"
+    assert "Yenilendi" in s.git_tracker_tab.screen.lbl_stage.text()
+    assert "Yenilendi" in s.git_tracker_tab.screen.console_drawer.toPlainText()
+    s.close()
+
+
+def test_authentication_failures_offer_google_login_instead_of_a_dead_end_error(qapp, db_session, tmp_path, monkeypatch):
+    import git_tracker
+    from PyQt6.QtWidgets import QMessageBox
+    from src.desktop.services import git_profile_store as store
+    from src.desktop.ui.components import git_tracker_screen as gts
+
+    real = ("Push hatası (Uzak depoya aktarılamadı): remote: Invalid username or token. Password authentication is not supported "
+            "for Git operations.\nfatal: Authentication failed for 'https://github.com/baynetteknik/dbar_piton.git/'")
+    assert gts._is_auth_failure(real) and gts._is_auth_failure("could not read Username for 'https://github.com'")
+    assert not gts._is_auth_failure("error: failed to push some refs (non-fast-forward)") and not gts._is_auth_failure("")
+
+    monkeypatch.setattr(git_tracker, "DB_PATH", str(tmp_path / "gt.db"))
+    s = GeneralSettingsScreen(db_session=db_session)
+    screen = s.git_tracker_tab.screen
+    ok, _m, pid = store.save_profile({"title": "Ana", "repo_url": "https://github.com/baynetteknik/dbar_piton.git", "auth_type": "gcm"}, make_active=True)
+    screen.profile_panel.reload(pid)
+    reqs = []
+    screen.profile_panel.worker_requested.connect(lambda a, p: reqs.append(a))
+    shown = []
+    monkeypatch.setattr(QMessageBox, "question", lambda *a, **k: (shown.append(a[2]), QMessageBox.StandardButton.Yes)[1])
+    monkeypatch.setattr(QMessageBox, "critical", lambda *a, **k: shown.append("KRITIK"))
+    monkeypatch.setattr(QMessageBox, "information", lambda *a, **k: None)
+    screen._on_worker_finished(False, real)
+    assert reqs == ["login"] and "Google" in shown[0] and "KRITIK" not in shown           # doğrudan giriş önerildi ve başlatıldı
+    reqs.clear()
+    shown.clear()
+    monkeypatch.setattr(QMessageBox, "question", lambda *a, **k: QMessageBox.StandardButton.No)
+    screen._on_worker_finished(False, real)
+    assert reqs == []                                                                    # vazgeçilirse giriş başlamaz
+    screen._on_worker_finished(False, "error: failed to push some refs")
+    assert shown == ["KRITIK"]                                                           # kimlik dışı hatalar eskisi gibi
+    s.close()
+
+
+def test_tooltip_style_helper_is_idempotent_and_never_uses_rounded_corners():
+    from src.desktop.ui.components import tooltip_style as ts
+
+    once = ts.with_tooltip("QPushButton{color:red;}")
+    assert ts.with_tooltip(once) == once and once.count("QToolTip") == 1 and once.startswith("QPushButton{color:red;}")
+    assert "background-color:#2563eb" in ts.QSS and "color:#ffffff" in ts.QSS
+    assert "border-radius:0px" in ts.QSS                                             # Windows'ta yuvarlak köşe ipucunu siyah çizer
+
+
+def test_real_tooltip_window_is_blue_with_white_text_for_a_styled_widget(screen):
+    """Gerçek sorun: kendi stil sayfası olan widget'ın ipucu siyah çiziliyordu (uygulama düzeyindeki kural kayboluyordu)."""
+    import os
+
+    import pytest
+    from PyQt6.QtCore import QPoint
+    from PyQt6.QtGui import QColor
+    from PyQt6.QtTest import QTest
+    from PyQt6.QtWidgets import QApplication, QToolTip
+
+    if os.environ.get("QT_QPA_PLATFORM") == "offscreen":
+        pytest.skip("gerçek ekran pikseli gerekir")
+    screen.show()
+    screen.menu_sections[4].set_expanded(True)
+    QApplication.processEvents()
+    btn = screen.menu_buttons["cari_gruplari"]
+    QToolTip.showText(btn.mapToGlobal(QPoint(30, 12)), btn.toolTip(), btn)
+    QTest.qWait(300)
+    tips = [w for w in QApplication.allWidgets() if w.metaObject().className() == "QTipLabel" and w.isVisible()]
+    if not tips:
+        pytest.skip("bu ortamda ipucu penceresi oluşmadı")
+    g = tips[0].geometry()
+    px = QColor(QApplication.primaryScreen().grabWindow(0, g.x(), g.y(), g.width(), g.height()).toImage().pixel(6, 6))
+    assert px.name() == "#2563eb"

@@ -262,8 +262,12 @@ class AppGrid(QTableWidget):
         menu.setStyleSheet(self.theme.get_context_menu_stylesheet())
 
         extra = self.context_actions_provider() if callable(self.context_actions_provider) else []
-        for label, callback in extra:
+        menu.setToolTipsVisible(True)
+        for item in extra:                       # (etiket, geri çağrı) ya da (etiket, geri çağrı, ipucu)
+            label, callback = item[0], item[1]
             act = QAction(label, menu)
+            if len(item) > 2 and item[2]:
+                act.setToolTip(item[2])
             act.triggered.connect(lambda _=False, cb=callback: cb())
             menu.addAction(act)
         if extra:

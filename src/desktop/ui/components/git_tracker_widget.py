@@ -33,6 +33,15 @@ class GitTrackerWidget(QWidget):
     def refresh_data(self):
         self.screen._load_git_data()
 
-    def refresh_all(self):
-        """Ayarlar kabuğu eski adla çağırıyordu; durum + tavsiye + tabloyu yeniler."""
+    def refresh_all(self) -> str:
+        """Durum + tavsiye + tabloyu yeniler ve kullanıcıya görünür bir sonuç mesajı döner (ve ekranda gösterir)."""
+        import git_tracker
+
         self.screen.load_data()
+        self.screen.profile_panel.reload()
+        st = git_tracker.get_git_status()
+        msg = f"🔄 Yenilendi: {st.get('modified_count', 0)} değişen dosya, {st.get('ahead_count', 0)} gönderilmemiş commit"
+        self.screen.lbl_stage.setText(msg)
+        self.screen.lbl_stage.setStyleSheet("font-size: 11px; font-weight: bold; color: #16a34a;")
+        self.screen.console_drawer.appendPlainText(msg)
+        return msg

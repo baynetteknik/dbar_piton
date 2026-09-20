@@ -53,10 +53,13 @@ SIDEBAR_SECTIONS: dict[str, tuple[str, str]] = {
     "hizli": ("sys.rp.04", "HIZLI İŞLEMLER"),
     "doviz": ("sys.rp.05", "DÖVİZ İŞLEMLERİ"),
     "kur_rapor": ("sys.rp.06", "KUR RAPORLARI"),
+    "git_baglanti": ("sys.rp.07", "GİT BAĞLANTISI"),
 }
 DEFAULT_SIDEBAR_ORDER = list(SIDEBAR_SECTIONS)
 
-KEY_SHOW_CODES = "ui.genel_ayarlar.kodlari_goster"
+KEY_CODE_MODE = "ui.genel_ayarlar.kod_gosterim"
+#: kod gösterim modları: ipucu = yalnızca üzerine gelince (varsayılan), rozet = adın altında, gizli = hiç
+CODE_MODES = (("ipucu", "💬 İpucu"), ("rozet", "🏷 Rozet"), ("gizli", "🚫 Gizli"))
 KEY_SIDEBAR_ORDER = "ui.genel_ayarlar.sag_panel_sirasi"
 
 _FOLD = str.maketrans({"İ": "i", "I": "i", "ı": "i", "Ç": "c", "ç": "c", "Ğ": "g", "ğ": "g",
@@ -124,9 +127,16 @@ class SidebarOrderStore:
         set_setting(self.db, self.key, "")
 
 
-def show_codes(db) -> bool:
-    return (get_setting(db, KEY_SHOW_CODES, "1") or "1") != "0"
+def code_mode(db) -> str:
+    v = get_setting(db, KEY_CODE_MODE, "ipucu") or "ipucu"
+    return v if v in dict(CODE_MODES) else "ipucu"
 
 
-def set_show_codes(db, on: bool) -> None:
-    set_setting(db, KEY_SHOW_CODES, "1" if on else "0")
+def set_code_mode(db, mode: str) -> None:
+    set_setting(db, KEY_CODE_MODE, mode if mode in dict(CODE_MODES) else "ipucu")
+
+
+def tooltip(name: str, code: str, mode: str = "ipucu", extra: str = "") -> str:
+    """Üzerine gelince görünen ipucu (zengin metin). Mod 'gizli' ise kod yazılmaz."""
+    head = f"<b>[{code}]</b>&nbsp;&nbsp;{name}" if (code and mode != "gizli") else name
+    return head + (f"<br><i>{extra}</i>" if extra else "")

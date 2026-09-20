@@ -59,6 +59,7 @@ from src.desktop.core.grid_presets import GRID_PRESETS, register_preset
 from src.desktop.services import settings_menu as sm
 from src.desktop.ui.components.app_grid import AppGrid
 from src.desktop.ui.components.coded_button import CodedButton
+from src.desktop.ui.components.tooltip_style import apply_app_style, with_tooltip
 from src.desktop.ui.components.collapsible_section import CollapsibleSection
 from src.desktop.ui.components.edge_panel import EdgeTriggeredPanel
 from src.desktop.ui.components.filterable_table import FilterableTableView
@@ -1674,7 +1675,8 @@ class GeneralSettingsScreen(QWidget):
     def __init__(self, db_session=None, parent=None) -> None:
         super().__init__(parent)
         self.db = db_session
-        self.show_codes = sm.show_codes(db_session)
+        self.code_mode = sm.code_mode(db_session)
+        self.show_codes = self.code_mode == "rozet"
         self.active_panel_id: str | None = None
         self.panels: dict[str, QWidget] = {}
         self.menu_buttons: dict[str, QPushButton] = {}
@@ -1683,6 +1685,7 @@ class GeneralSettingsScreen(QWidget):
             "cari": {},
         }
 
+        apply_app_style()                              # ipuçları: mavi zemin, beyaz yazı (bkz. tooltip_style)
         self.init_ui()
         register_layout_hint(self, "Ayarlar", "Genel Ayarlar Ana Ekranı")
         self.switch_panel("firma_bilgileri")
@@ -1753,11 +1756,17 @@ class GeneralSettingsScreen(QWidget):
         self.chk_layout_hints.toggled.connect(self.on_layout_hints_toggled)
         lyt.addWidget(self.chk_layout_hints)
 
-        self.chk_show_codes = QCheckBox("🔢 Kodları Göster")
-        self.chk_show_codes.setStyleSheet("font-weight: bold; color: #7c3aed; font-size: 11px;")
-        self.chk_show_codes.setChecked(self.show_codes)
-        self.chk_show_codes.toggled.connect(self.set_codes_visible)
-        lyt.addWidget(self.chk_show_codes)
+        lbl_kod = QLabel("🔢 Kodlar:")
+        lbl_kod.setStyleSheet("font-weight: bold; color: #7c3aed; font-size: 11px;")
+        self.cmb_code_mode = QComboBox()
+        for key, label in sm.CODE_MODES:
+            self.cmb_code_mode.addItem(label, key)
+        self.cmb_code_mode.setCurrentIndex(max(0, self.cmb_code_mode.findData(self.code_mode)))
+        self.cmb_code_mode.setToolTip("Menü/işlem kodlarının gösterimi: İpucu (üzerine gelince), Rozet (adın altında) veya Gizli.")
+        self.cmb_code_mode.setStyleSheet("font-size: 11px; padding: 2px 6px;")
+        self.cmb_code_mode.currentIndexChanged.connect(lambda _i: self.set_code_mode(self.cmb_code_mode.currentData()))
+        lyt.addWidget(lbl_kod)
+        lyt.addWidget(self.cmb_code_mode)
 
         self.chk_global_text_select = QCheckBox("🔍 Metinleri Seçilebilir Yap")
         self.chk_global_text_select.setStyleSheet(
@@ -1830,6 +1839,7 @@ class GeneralSettingsScreen(QWidget):
             gcode = sm.GROUP_CODES.get(grup_adi, "")
             sec = CollapsibleSection(f"{ikon} {grup_adi}", is_expanded=False)
             sec.set_code(gcode if self.show_codes else "")
+            sec.header_btn.setToolTip(sm.tooltip(f"{ikon} {grup_adi}", gcode, self.code_mode))
             self.menu_sections.append(sec)
             self._group_sections.append((sec, f"{ikon} {grup_adi}", gcode))
 
@@ -1838,7 +1848,7 @@ class GeneralSettingsScreen(QWidget):
                 btn = CodedButton(menu_adi, code, show_code=self.show_codes, left_padding=11)
                 btn.setStyleSheet(self.menu_btn_style())
                 btn.setCheckable(True)
-                btn.setToolTip(f"[{code}] {menu_adi}" if code else menu_adi)
+                btn.setToolTip(sm.tooltip(menu_adi, code, self.code_mode))
                 btn.clicked.connect(
                     lambda _, pid=panel_id, b=btn: self.on_menu_clicked(pid, b),
                 )
@@ -1957,13 +1967,18 @@ class GeneralSettingsScreen(QWidget):
                 ("📐 Şablonları Yenile", lambda: getattr(self, "screen_defs_tab", None) and self.screen_defs_tab.load_screen_definitions()),
             ],
             "surum_git": [
+                ("🔵 Google ile Giriş Yap", lambda: self._git_profile_call("btn_login")),
+                ("🔌 Bağlantıyı Test Et", lambda: self._git_profile_call("btn_test")),
+                ("➕ Bağlantı Profili Ekle", lambda: self._git_profile_call("add_profile")),
+                ("✏️ Profili Düzenle", lambda: self._git_profile_call("edit_profile")),
+                ("🗑 Profili Sil (Gizle)", lambda: self._git_profile_call("hide_selected")),
                 ("🚀 Git'e Gönder (Push)", lambda: self._git_call("on_commit_push_clicked")),
                 ("🔄 Fetch (Durum Tara)", lambda: self._git_call("_start_worker", "fetch")),
                 ("📥 Değişiklikleri Çek (Pull)", lambda: self._git_call("_start_worker", "pull")),
                 ("📦 Stash", lambda: self._git_call("_start_worker", "stash")),
                 ("📦 Stash Pop", lambda: self._git_call("_start_worker", "stash_pop")),
                 ("📄 Rapor Üret (.md)", lambda: self._git_call("on_report_clicked")),
-                ("🔄 Git Durumunu Yenile", lambda: self._git_call("load_data")),
+                ("🔄 Git Durumunu Yenile", lambda: self._git_refresh()),
             ],
         }
 
@@ -1977,6 +1992,23 @@ class GeneralSettingsScreen(QWidget):
             return
         fn(*args)
 
+    def _git_profile_call(self, name: str) -> None:
+        """Git bağlantı profili panelinin (sağ paneldeki GİT BAĞLANTISI) bir işlemini çalıştırır."""
+        tab = getattr(self, "git_tracker_tab", None)
+        panel = getattr(getattr(tab, "screen", None), "profile_panel", None)
+        target = getattr(panel, name, None)
+        if target is None:
+            logger.warning("Git profil işlemi bulunamadı: %s", name)
+            return
+        target.click() if name.startswith("btn_") else target()
+
+    def _git_refresh(self) -> None:
+        """'Git Durumunu Yenile': işlem sonucunu ekranda ve bildirimde açıkça gösterir."""
+        tab = getattr(self, "git_tracker_tab", None)
+        if tab is None:
+            return
+        self.toast_requested.emit(tab.refresh_all(), "success")
+
     def _panel_actions(self, panel_id: str) -> list:
         return self._actions_map().get(panel_id, [
             ("💾 Kaydet", lambda: self.save_current_panel()),
@@ -1988,7 +2020,7 @@ class GeneralSettingsScreen(QWidget):
         """Sağ tık menüsü için (kodlu etiket, geri çağrı) listesi — aktif menünün işlemleri."""
         pid = self.active_panel_id or ""
         return [
-            (sm.with_code(label, sm.action_code(pid, i), self.show_codes), cb)
+            (sm.with_code(label, sm.action_code(pid, i), self.show_codes), cb, sm.tooltip(label, sm.action_code(pid, i), self.code_mode))
             for i, (label, cb) in enumerate(self._panel_actions(pid), start=1)
         ]
 
@@ -2003,26 +2035,45 @@ class GeneralSettingsScreen(QWidget):
         for i, (label, callback) in enumerate(self._panel_actions(panel_id), start=1):
             code = sm.action_code(panel_id, i)
             btn = CodedButton(label, code, show_code=self.show_codes)
-            btn.setToolTip(f"[{code}] {label}" if code else label)
+            btn.setToolTip(sm.tooltip(label, code, self.code_mode))
             btn.setStyleSheet(self.btn_style())
             btn.clicked.connect(lambda _=False, cb=callback: cb())
             lyt.addWidget(btn)
             box.action_buttons.append((btn, label, code))
         return box
 
-    def set_codes_visible(self, on: bool) -> None:
-        """Menü / bölüm / işlem kod rozetlerini göster-gizle (tercih kaydedilir)."""
-        self.show_codes = on
-        sm.set_show_codes(self.db, on)
+    def set_code_mode(self, mode: str) -> None:
+        """Kod gösterimi: 'ipucu' (üzerine gelince), 'rozet' (adın altında), 'gizli'. Tercih kaydedilir."""
+        if mode not in dict(sm.CODE_MODES):
+            mode = "ipucu"
+        self.code_mode = mode
+        self.show_codes = mode == "rozet"
+        sm.set_code_mode(self.db, mode)
+        badge = self.show_codes
         for sec, _base, code in getattr(self, "_group_sections", []):
-            sec.set_code(code if on else "")
-        for btn, *_rest in self.menu_item_containers.values():
-            btn.set_code_visible(on)
+            sec.set_code(code if badge else "")
+            sec.header_btn.setToolTip(sm.tooltip(_base, code, mode))
+        for pid, (btn, name, _g) in ((p, (v[0], v[2], v[3])) for p, v in self.menu_item_containers.items()):
+            btn.set_code_visible(badge)
+            btn.setToolTip(sm.tooltip(name, sm.item_code(pid), mode))
         for box in getattr(self, "menu_sub_boxes", {}).values():
-            for btn, _label, _code in box.action_buttons:
-                btn.set_code_visible(on)
+            for btn, label, code in box.action_buttons:
+                btn.set_code_visible(badge)
+                btn.setToolTip(sm.tooltip(label, code, mode))
         if hasattr(self, "right_sidebar"):
-            self.right_sidebar.set_show_codes(on)
+            self.right_sidebar.set_code_mode(mode)
+        if hasattr(self, "cmb_code_mode") and self.cmb_code_mode.currentData() != mode:
+            self.cmb_code_mode.setCurrentIndex(self.cmb_code_mode.findData(mode))
+        self._refresh_breadcrumb()
+
+    def _refresh_breadcrumb(self) -> None:
+        pid = self.active_panel_id
+        if not pid or not hasattr(self, "lbl_breadcrumb"):
+            return
+        name = next((m for _g, _i, ml in self.MENU_STRUCTURE for m, p in ml if p == pid), pid)
+        code = sm.item_code(pid)
+        self.lbl_breadcrumb.setText(
+            f"⚙️ [{sm.SCREEN_CODE}] Genel Ayarlar > {name}" + (f"  [{code}]" if self.code_mode != "gizli" and code else ""))
 
     def show_sidebar_context_menu(self, pos):
         """Sol sidebar üzerinde sağ tıklandığında menü açar."""
@@ -2107,37 +2158,43 @@ class GeneralSettingsScreen(QWidget):
         return f"#{r:02x}{g:02x}{b:02x}"
 
     def btn_style(self, bg="#ffffff", fg="#1e293b") -> str:
-        hover_bg = "#f1f5f9" if bg.lower() in ("#ffffff", "#fff") else self._darken_hex(bg)
-        return f"""
+        """Derinlikli düğme: alt kenar kalın (gölge hissi), üzerine gelince koyulaşır, basınca çöker."""
+        white = bg.lower() in ("#ffffff", "#fff")
+        hover_bg = "#f1f5f9" if white else self._darken_hex(bg)
+        edge = "#94a3b8" if white else self._darken_hex(bg, 0.30)
+        return with_tooltip(f"""
             QPushButton {{
                 background:{bg}; color:{fg};
-                border:1px solid #cbd5e1; border-radius:4px;
+                border:1px solid {edge}; border-bottom:3px solid {edge}; border-radius:6px;
                 padding:5px 8px; font-size:11px; font-weight:600;
                 text-align:left; min-height:24px;
             }}
             QPushButton:hover {{ background:{hover_bg}; }}
-        """
+            QPushButton:pressed {{ border-bottom:1px solid {edge}; padding-top:7px; }}
+        """)
 
     def menu_btn_style(self, active: bool = False) -> str:
+        """Asıl menü düğmesi: kart görünümlü, derinlikli; aktif olan mavi vurgulu."""
         if active:
             return """
                 QPushButton {
-                    background:#eff6ff; color:#1d4ed8;
-                    border:none; border-left:3px solid #2563eb;
-                    padding:5px 8px; font-size:11px; font-weight:700;
-                    text-align:left; min-height:22px;
+                    background:#dbeafe; color:#1d4ed8;
+                    border:1px solid #60a5fa; border-bottom:3px solid #2563eb; border-left:4px solid #2563eb;
+                    border-radius:6px; padding:5px 8px; font-size:11px; font-weight:800;
+                    text-align:left; min-height:24px;
                 }
             """
         return """
             QPushButton {
-                background:transparent; color:#475569;
-                border:none; border-left:3px solid transparent;
-                padding:5px 8px; font-size:11px;
-                text-align:left; min-height:22px;
+                background:#ffffff; color:#334155;
+                border:1px solid #cbd5e1; border-bottom:3px solid #94a3b8; border-left:4px solid #e2e8f0;
+                border-radius:6px; padding:5px 8px; font-size:11px; font-weight:600;
+                text-align:left; min-height:24px;
             }
             QPushButton:hover {
-                background:#f8fafc; color:#1e293b; font-weight:600;
+                background:#eff6ff; color:#1d4ed8; border-color:#93c5fd; border-left:4px solid #60a5fa;
             }
+            QPushButton:pressed { border-bottom:1px solid #94a3b8; padding-top:7px; }
         """
 
     def _current_user_key(self) -> str:
@@ -2162,7 +2219,7 @@ class GeneralSettingsScreen(QWidget):
         def reg(key: str, items: list, widget, text: str) -> None:
             """Bölüme ait aranabilir/kodlu bir öğe kaydeder (kod: sys.rp.<bölüm>.<sıra>)."""
             code = f"{sm.SIDEBAR_SECTIONS[key][0]}.{len(items) + 1:02d}"
-            widget.setToolTip(f"[{code}] {text}")
+            widget.setToolTip(sm.tooltip(text, code, self.code_mode))
             items.append((widget, text, code))
 
         # ── İŞLEMLER: seçili menünün işlemleri (menü değişince içerik değişir) ──
@@ -2189,13 +2246,13 @@ class GeneralSettingsScreen(QWidget):
         self.txt_right_filter = QLineEdit()
         self.txt_right_filter.setPlaceholderText("Aktif tabloda ara...")
         self.txt_right_filter.setClearButtonEnabled(True)
-        self.txt_right_filter.setStyleSheet("border: 1px solid #cbd5e1; border-radius: 4px; padding: 4px; background: white; font-size: 11px;")
+        self.txt_right_filter.setStyleSheet(with_tooltip("border: 1px solid #cbd5e1; border-radius: 4px; padding: 4px; background: white; font-size: 11px;"))
         self.txt_right_filter.textChanged.connect(self.filter_active_table)
         lbl_st = QLabel("Durum:")
         lbl_st.setStyleSheet(lbl_style)
         self.cmb_right_status = QComboBox()
         self.cmb_right_status.addItems(["Tümü", "Aktif", "Pasif"])
-        self.cmb_right_status.setStyleSheet("border: 1px solid #cbd5e1; border-radius: 4px; padding: 3px; background: white; font-size: 11px;")
+        self.cmb_right_status.setStyleSheet(with_tooltip("border: 1px solid #cbd5e1; border-radius: 4px; padding: 3px; background: white; font-size: 11px;"))
         self.cmb_right_status.currentTextChanged.connect(self.filter_active_table_status)
         for w in (lbl_s, self.txt_right_filter, lbl_st, self.cmb_right_status):
             sec_filter.add_widget(w)
@@ -2241,6 +2298,22 @@ class GeneralSettingsScreen(QWidget):
         sb.add_section("kur_rapor", sec_rapor, sm.SIDEBAR_SECTIONS["kur_rapor"][0])
         sb.set_section_visible("doviz", False)
         sb.set_section_visible("kur_rapor", False)
+
+        # ── GİT BAĞLANTISI: profil ekle/düzenle/sil + Google ile giriş (yalnız Sürüm & Git menüsünde) ──
+        # Bu bölüm gömülü Git ekranının (kabukta gizli) sol panelindeydi; kullanıcı ulaşamıyordu.
+        sec_git = section("git_baglanti", "🌐 GİT BAĞLANTISI")
+        git_screen = self.git_tracker_tab.screen
+        panel = git_screen.profile_panel
+        sec_git.add_widget(panel)
+        git_items: list = []
+        for widget, text in ((panel.btn_add, "Bağlantı profili ekle"), (panel.btn_edit, "Profili düzenle"),
+                             (panel.btn_hide, "Profili sil (gizle)"), (panel.btn_activate, "Etkin yap"),
+                             (panel.btn_test, "Bağlantıyı test et"), (panel.btn_login, "Google ile giriş yap")):
+            git_items.append((widget, text, f"{sm.SIDEBAR_SECTIONS['git_baglanti'][0]}.{len(git_items) + 1:02d}"))
+        sb.add_section("git_baglanti", sec_git, sm.SIDEBAR_SECTIONS["git_baglanti"][0], git_items)
+        sb.set_code_mode(self.code_mode)
+        sb.set_section_visible("git_baglanti", False)
+        panel.message.connect(lambda text, ok: self.toast_requested.emit(text, "success" if ok else "error"))
 
         wrap = QWidget()
         wl = QVBoxLayout(wrap)
@@ -2759,8 +2832,10 @@ class GeneralSettingsScreen(QWidget):
             menu.setStyleSheet(ThemeManager().get_context_menu_stylesheet())
         except Exception:  # noqa: BLE001
             pass
-        for label, cb in self._panel_context_actions():
+        menu.setToolTipsVisible(True)
+        for label, cb, tip in self._panel_context_actions():
             act = menu.addAction(label)
+            act.setToolTip(tip)
             act.triggered.connect(lambda _=False, c=cb: c())
         if not menu.isEmpty():
             menu.exec(source.mapToGlobal(pos))
@@ -2775,6 +2850,7 @@ class GeneralSettingsScreen(QWidget):
         if hasattr(self, "right_sidebar"):
             self.right_sidebar.set_section_visible("doviz", panel_id == "doviz_kur")
             self.right_sidebar.set_section_visible("kur_rapor", panel_id == "doviz_kur")
+            self.right_sidebar.set_section_visible("git_baglanti", panel_id == "surum_git")
         if panel_id == "doviz_kur":
             self._maybe_prompt_initial_currencies()
             if getattr(self, "doviz_rapor_widget", None):
@@ -2807,7 +2883,7 @@ class GeneralSettingsScreen(QWidget):
         if hasattr(self, "lbl_breadcrumb"):
             self.lbl_breadcrumb.setText(
                 f"⚙️ [{sm.SCREEN_CODE}] Genel Ayarlar > {menu_name}"
-                + (f"  [{sm.item_code(panel_id)}]" if self.show_codes and sm.item_code(panel_id) else ""),
+                + (f"  [{sm.item_code(panel_id)}]" if self.code_mode != "gizli" and sm.item_code(panel_id) else ""),
             )
 
         self._update_bottom_count()

@@ -14,8 +14,10 @@ import re
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import QLabel, QPushButton, QVBoxLayout, QWidget
 
-_BADGE_QSS = ("background:#eef2ff; color:#4f46e5; border:1px solid #c7d2fe; border-radius:6px; padding:0px 6px;"
-              " font-size:8px; font-weight:700; font-family:'Consolas','Segoe UI';")
+from src.desktop.ui.components.tooltip_style import with_tooltip
+
+_BADGE_QSS = ("background:transparent; color:#94a3b8; border:none; padding:0px;"
+              " font-size:8px; font-weight:600; font-family:'Consolas','Segoe UI';")
 
 
 class CodedButton(QPushButton):
@@ -69,7 +71,7 @@ class CodedButton(QPushButton):
         self.updateGeometry()
 
     def setStyleSheet(self, css: str) -> None:  # noqa: N802
-        super().setStyleSheet(css)
+        super().setStyleSheet(with_tooltip(css))
         color = re.search(r"(?<![-\w])color:\s*(#[0-9a-fA-F]{3,8})", css)
         size = re.search(r"font-size:\s*(\d+px)", css)
         weight = re.search(r"font-weight:\s*(\w+)", css)

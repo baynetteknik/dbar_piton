@@ -14,6 +14,7 @@ from PyQt6.QtWidgets import QComboBox, QDialog, QHBoxLayout, QLabel, QMessageBox
 
 from src.desktop.services import git_profile_store as store
 from src.desktop.services.git_service import AUTH_GCM, AUTH_TOKEN, GitService
+from src.desktop.ui.components.tooltip_style import with_tooltip
 from src.desktop.ui.widgets.git_profile_dialog import GitProfileDialog
 
 _BTN = ("QPushButton{background:#fff; color:#1e293b; border:1px solid #cbd5e1; border-radius:6px; padding:5px 8px;"
@@ -58,7 +59,8 @@ class GitProfilePanelWidget(QWidget):
         lay.addLayout(r1)
         r2 = QHBoxLayout()
         self.btn_activate = QPushButton("✔ Etkin Yap")
-        self.btn_hide = QPushButton("🙈 Gizle")
+        self.btn_hide = QPushButton("🗑 Sil")
+        self.btn_hide.setToolTip("Profili listeden kaldırır (kayıt silinmez, gizlenir)")
         r2.addWidget(self.btn_activate)
         r2.addWidget(self.btn_hide)
         lay.addLayout(r2)
@@ -74,7 +76,7 @@ class GitProfilePanelWidget(QWidget):
         self.lbl_ssh.hide()
         lay.addWidget(self.lbl_ssh)
         for b in (self.btn_add, self.btn_edit, self.btn_activate, self.btn_hide, self.btn_test, self.btn_login):
-            b.setStyleSheet(_BTN)
+            b.setStyleSheet(with_tooltip(_BTN))
 
         self.btn_add.clicked.connect(self.add_profile)
         self.btn_edit.clicked.connect(self.edit_profile)

@@ -40,6 +40,15 @@ from src.desktop.ui.widgets.git_sync_advisor_widget import GitSyncAdvisorWidget
 logger = logging.getLogger(__name__)
 
 
+_AUTH_MARKERS = ("invalid username or token", "authentication failed", "password authentication is not supported",
+                 "could not read username", "terminal prompts disabled", "403")
+
+
+def _is_auth_failure(message: str) -> bool:
+    low = (message or "").lower()
+    return any(m in low for m in _AUTH_MARKERS)
+
+
 class GitCommitDialog(QDialog):
     """Git Commit & Push öncesi commit mesajı ve dal teyit diyalogu."""
 
@@ -963,10 +972,28 @@ class GitTrackerScreen(ThreePanelBaseWidget):
         else:
             self.lbl_stage.setText("❌ Hata: " + message)
             self.lbl_stage.setStyleSheet("font-size: 11px; font-weight: bold; color: #dc2626;")
-            QMessageBox.critical(self, "Git İşlem Hatası", f"İşlem tamamlanamadı:\n{message}")
+            if _is_auth_failure(message):
+                self._offer_login(message)
+            else:
+                QMessageBox.critical(self, "Git İşlem Hatası", f"İşlem tamamlanamadı:\n{message}")
 
         self.profile_panel.reload()
         self.load_data()
+
+    def _offer_login(self, message: str) -> None:
+        """Kimlik doğrulama hatasında kullanıcıyı doğrudan giriş adımına yönlendirir."""
+        p = self.profile_panel.current()
+        can_login = bool(p) and self.profile_panel.btn_login.isEnabled()
+        text = ("GitHub kimliği doğrulanamadı (kayıtlı parola/token geçersiz ya da hiç giriş yapılmamış).\n\n"
+                "GitHub artık Git işlemlerinde parola kabul etmiyor. Google hesabınızla tarayıcıdan giriş yapmalısınız.\n\n")
+        if can_login:
+            ans = QMessageBox.question(self, "Kimlik Doğrulanamadı", text + "Şimdi Google ile giriş yapılsın mı?",
+                                       defaultButton=QMessageBox.StandardButton.Yes)
+            if ans == QMessageBox.StandardButton.Yes:
+                self.profile_panel.btn_login.click()
+        else:
+            QMessageBox.warning(self, "Kimlik Doğrulanamadı", text + "Önce sağ paneldeki 'GİT BAĞLANTISI' bölümünden bir profil "
+                                "ekleyin/etkinleştirin (Kimlik doğrulama: Google ile giriş), sonra 'Google ile Giriş Yap'a basın.")
 
     # ------------------------------------------------------------------ Aidat'tan taşınan işlevler
     def refresh_advice(self):

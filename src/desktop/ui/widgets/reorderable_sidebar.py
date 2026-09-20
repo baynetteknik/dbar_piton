@@ -72,6 +72,7 @@ class ReorderableSidebar(QWidget):
         super().__init__(parent)
         self.store = store
         self._show_codes = show_codes
+        self._mode = "rozet" if show_codes else "ipucu"
         self._entries: dict[str, _Entry] = {}
         self._drag_start: QPoint | None = None
         self._drag_key: str | None = None
@@ -115,7 +116,6 @@ class ReorderableSidebar(QWidget):
         section.header_btn.setProperty("sidebar_key", key)
         section.header_btn.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         section.header_btn.customContextMenuRequested.connect(lambda pos, k=key: self._header_menu(k, pos))
-        section.header_btn.setToolTip("Sıralamak için başlığı sürükleyip bırakın (sağ tık: yukarı/aşağı taşı)")
         self._refresh_title(e)
         self._apply_saved_order()
         self._relayout()
@@ -123,6 +123,8 @@ class ReorderableSidebar(QWidget):
     def set_items(self, key: str, items: list[tuple[QWidget, str, str]]) -> None:
         if key in self._entries:
             self._entries[key].items = list(items)
+            for w, text, code in items:
+                w.setToolTip(sm.tooltip(text, code, self._mode))
             self._apply_filter_to(self._entries[key], self.search.text())
 
     def set_section_visible(self, key: str, visible: bool) -> None:
@@ -142,16 +144,21 @@ class ReorderableSidebar(QWidget):
         for e in self._entries.values():
             e.section.set_expanded(expanded)
 
-    def set_show_codes(self, on: bool) -> None:
-        self._show_codes = on
+    def set_code_mode(self, mode: str) -> None:
+        """ipucu: kod yalnız üzerine gelince; rozet: adın altında; gizli: hiç."""
+        self._mode = mode
+        self._show_codes = mode == "rozet"
         for e in self._entries.values():
             self._refresh_title(e)
-            for w, _t, _c in e.items:
+            for w, text, code in e.items:
                 if hasattr(w, "set_code_visible"):
-                    w.set_code_visible(on)
+                    w.set_code_visible(self._show_codes)
+                w.setToolTip(sm.tooltip(text, code, mode))
 
     def _refresh_title(self, e: _Entry) -> None:
         e.section.set_code(e.code if self._show_codes else "")
+        e.section.header_btn.setToolTip(sm.tooltip(e.base_title, e.code, self._mode,
+                                                   "Sıralamak için başlığı sürükleyip bırakın (sağ tık: yukarı/aşağı taşı)"))
 
     # ------------------------------------------------------------------ sıra
     def order(self) -> list[str]:
