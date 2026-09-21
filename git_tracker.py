@@ -691,11 +691,22 @@ class GitWorker(QThread):
         self.stage_progress.emit("Tamamlandı", 100)
         self.finished.emit(ok, f"'{branch}' dalı uzak depoya gönderildi." if ok else f"Push hatası: {out}")
 
+    def _mark_login(self, ok: bool) -> None:
+        pid = self.params.get("profile_id")
+        if pid:
+            from src.desktop.services import git_profile_store
+
+            git_profile_store.set_login(int(pid), ok)
+
     def _run_test_remote(self):
         self.stage_progress.emit("🔌 Uzak depo bağlantısı test ediliyor...", 50)
         ok, msg = self._service().test_remote()
         self.log_line.emit(("✅ " if ok else "❌ ") + msg)
         self._record_profile(ok, msg)
+        if ok:
+            self._mark_login(True)              # kimlik doğrulanmadan ls-remote başarılı olamaz
+        elif "Kimlik doğrulanamadı" in msg:
+            self._mark_login(False)
         self.stage_progress.emit("Tamamlandı", 100)
         self.finished.emit(ok, msg)
 
@@ -704,6 +715,7 @@ class GitWorker(QThread):
         ok, msg = self._service().login_with_browser()
         self.log_line.emit(("✅ " if ok else "❌ ") + msg)
         self._record_profile(ok, msg)
+        self._mark_login(ok)
         self.stage_progress.emit("Tamamlandı", 100)
         self.finished.emit(ok, msg)
 

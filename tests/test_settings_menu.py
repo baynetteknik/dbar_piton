@@ -344,7 +344,7 @@ def test_git_panel_has_real_actions_and_none_of_them_is_broken(qapp, db_session,
     started = []
     screen.git_tracker_tab.screen._start_worker = lambda a, p=None: started.append(a)
     for lab, cb in screen._panel_actions("surum_git"):
-        if "Fetch" in lab or "Pull" in lab or lab.endswith("Stash") or "Stash Pop" in lab:
+        if "Fetch" in lab or "Pull" in lab or "(Stash)" in lab or "(Stash Pop)" in lab:
             cb()
     assert started == ["fetch", "pull", "stash", "stash_pop"]
     dict(screen._panel_actions("surum_git"))["🔄 Git Durumunu Yenile"]()                    # hata vermez
@@ -414,7 +414,7 @@ def test_git_menu_actions_include_profile_management_and_login_and_they_work(qap
     monkeypatch.setattr(git_tracker, "DB_PATH", str(tmp_path / "gt.db"))
     s = GeneralSettingsScreen(db_session=db_session)
     labels = [lab for lab, _cb in s._panel_actions("surum_git")]
-    for need in ("Google ile Giriş", "Bağlantıyı Test", "Profili Ekle", "Profili Düzenle", "Profili Sil"):
+    for need in ("Google ile Giriş", "Bağlantıyı Test", "Profil Ekle", "Profil Düzenle", "Profil Sil"):
         assert any(need in x for x in labels), need
     panel = s.git_tracker_tab.screen.profile_panel
     ok, _m, pid = store.save_profile({"title": "Ana", "repo_url": "https://github.com/baynetteknik/dbar_piton.git", "auth_type": "gcm"}, make_active=True)
@@ -510,3 +510,126 @@ def test_real_tooltip_window_is_blue_with_white_text_for_a_styled_widget(screen)
     g = tips[0].geometry()
     px = QColor(QApplication.primaryScreen().grabWindow(0, g.x(), g.y(), g.width(), g.height()).toImage().pixel(6, 6))
     assert px.name() == "#2563eb"
+
+
+def test_git_menu_is_split_into_profile_and_git_submenus_with_turkish_labels(qapp, db_session, tmp_path, monkeypatch):
+    import git_tracker
+
+    monkeypatch.setattr(git_tracker, "DB_PATH", str(tmp_path / "gt.db"))
+    s = GeneralSettingsScreen(db_session=db_session)
+    box = s.menu_sub_boxes["surum_git"]
+    assert [sec.title_text for sec, _o in box.groups] == ["👤 PROFİL İŞLEMLERİ", "🌿 GİT İŞLEMLERİ"]
+    prof, git = box.groups[0][0], box.groups[1][0]
+    inside = lambda sec: [b.text() for b, _l, _c in box.action_buttons if sec.isAncestorOf(b)]     # noqa: E731
+    assert inside(prof) == ["➕ Profil Ekle", "✏️ Profil Düzenle", "🗑 Profil Sil", "🔵 Google ile Giriş Yap", "🔌 Bağlantıyı Test Et"]
+    git_labels = inside(git)
+    assert len(git_labels) == 7 and git_labels[0].startswith("🚀 Git'e Gönder")
+    assert "📦 Geçici Sakla (Stash)" in git_labels and "📤 Geri Al (Stash Pop)" in git_labels
+    assert "📊 Git Raporu" in git_labels and not any(x in ("📦 Stash", "📦 Stash Pop", "Pop") for x in git_labels)
+    assert box.groups[0][1] is False and box.groups[1][1] is True                       # profil kapalı, git işlemleri açık
+    assert not prof.is_expanded and git.is_expanded
+    assert [c for _b, _l, c in box.action_buttons][:2] == ["sys.set.652.01", "sys.set.652.02"]      # kodlar bölümler boyunca sürer
+    s.right_sidebar.search.setText("google")                                            # arama sürerken alt menüler açılır
+    assert prof.is_expanded and git.is_expanded
+    s.right_sidebar.search.setText("")
+    assert not prof.is_expanded and git.is_expanded                                     # temizlenince varsayılana döner
+    s.close()
+
+
+def test_git_screen_left_panel_uses_turkish_stash_names(qapp, db_session, tmp_path, monkeypatch):
+    import git_tracker
+    from PyQt6.QtWidgets import QPushButton
+
+    monkeypatch.setattr(git_tracker, "DB_PATH", str(tmp_path / "gt.db"))
+    s = GeneralSettingsScreen(db_session=db_session)
+    texts = [b.text() for b in s.git_tracker_tab.screen.findChildren(QPushButton)]
+    assert "📦 Geçici Sakla (Stash)" in texts and "📤 Geri Al" in texts and "📊 Git Raporu (F9)" in texts
+    assert "📦 Stash" not in texts and "Pop" not in texts
+    s.close()
+
+
+# ---------------------------------------------------------------- SİSTEM: açılır alt menüler
+def _sistem(s):
+    return next(sec for sec in s.menu_sections if "SİSTEM" in sec.title_text)
+
+
+def test_system_group_is_split_into_backup_connections_view_and_general_submenus_with_short_names(screen):
+    inner = {t: sec for sec, t, _c in screen.menu_inner_all}
+    assert list(inner) == ["🗄️ Yedekleme", "🔌 Bağlantılar", "🎨 Görünüm", "🧾 Genel"]
+    of = lambda title: [b.text() for pid, b in screen.menu_buttons.items() if inner[title].isAncestorOf(b)]     # noqa: E731
+    assert of("🗄️ Yedekleme") == ["Merkez", "Portal"]
+    assert of("🔌 Bağlantılar") == ["CMS / ERP", "Portal Yayın", "Online Portal"]
+    assert of("🎨 Görünüm") == ["Profiller", "Ekran Gridleri"]
+    assert of("🧾 Genel") == ["E-Posta", "KDV", "Kuruş Hanesi"]
+    flat = [b.text() for b in screen.menu_buttons.values() if _sistem(screen).isAncestorOf(b) and not any(i.isAncestorOf(b) for i in inner.values())]
+    assert flat == ["Güvenlik", "Sürüm & Git"]                                          # alt menüsüz öğeler grupta düz kalır
+    names = [b.text() for b in screen.menu_buttons.values()]
+    assert not any("Ayarları" in n or "Tanımları" in n and n in ("KDV Tanımları", "Kuruş Hanesi Tanımları") for n in names)
+    assert all(sec.is_expanded is False for sec, _t, _c in screen.menu_inner_all)       # hepsi kapalı gelir
+    assert [c for _s, _t, c in screen.menu_inner_all] == ["sys.set.61", "sys.set.62", "sys.set.63", "sys.set.64"]
+    assert "sys.set.62" in inner["🔌 Bağlantılar"].header_btn.toolTip()                 # kod ipucunda
+
+
+def test_clicking_a_submenu_item_opens_group_and_submenu_and_shows_the_short_breadcrumb(screen):
+    screen.on_menu_clicked("portal_yedek", screen.menu_buttons["portal_yedek"])
+    inner = screen.menu_inner_sections["portal_yedek"]
+    assert inner.is_expanded and _sistem(screen).is_expanded and screen.active_panel_id == "portal_yedek"
+    assert not screen.menu_inner_sections["cms_baglantilari"].is_expanded                # diğer alt menüler kapalı kalır
+    assert "Genel Ayarlar > Yedekleme > Portal" in screen.lbl_breadcrumb.text()          # 'ayarlar' tekrarı yok, bağlam üst menüde
+    assert "[sys.set.612]" in screen.lbl_breadcrumb.text()
+    screen.on_menu_clicked("kdv_oranlari", screen.menu_buttons["kdv_oranlari"])
+    assert "Genel Ayarlar > Genel > KDV" in screen.lbl_breadcrumb.text()
+    screen.on_menu_clicked("guvenlik", screen.menu_buttons["guvenlik"])                   # alt menüsüz: yol yalnızca menü
+    assert screen.lbl_breadcrumb.text().split("Genel Ayarlar > ")[1].startswith("Güvenlik")
+
+
+def test_menu_search_finds_submenu_items_by_name_code_and_submenu_and_hides_empty_submenus(screen):
+    screen.show()
+    vis = lambda: {pid for pid, (w, *_r) in screen.menu_item_containers.items() if w.isVisibleTo(screen)}       # noqa: E731
+    screen.menu_search_input.setText("kdv")
+    assert vis() == {"kdv_oranlari"}
+    assert screen.menu_inner_sections["kdv_oranlari"].isVisibleTo(screen)
+    assert not screen.menu_inner_sections["portal_yedek"].isVisibleTo(screen)             # eşleşmeyen alt menü gizlenir
+    assert screen.menu_inner_sections["kdv_oranlari"].is_expanded and _sistem(screen).is_expanded
+    screen.menu_search_input.setText("642")                                              # menü koduna göre
+    assert vis() == {"kdv_oranlari"}
+    screen.menu_search_input.setText("bağlantılar")                                      # alt menü adına göre: tüm öğeleri
+    assert vis() == {"cms_baglantilari", "portal_yayin", "online_portal"}
+    screen.menu_search_input.setText("sys.set.61")                                       # alt menü koduna göre
+    assert vis() == {"yedek_merkezi", "portal_yedek"}
+    screen.menu_search_input.setText("kurus")                                            # Türkçe harf duyarsız
+    assert vis() == {"sayi_bicimi"}
+    screen.menu_search_input.setText("")
+    assert all(not w.isHidden() for w, *_r in screen.menu_item_containers.values())
+    assert all(not sec.isHidden() and not sec.is_expanded for sec, _t, _c in screen.menu_inner_all)
+
+
+def test_code_mode_reaches_submenu_headers_too(screen):
+    sec = next(s for s, t, _c in screen.menu_inner_all if "Yedekleme" in t)
+    assert sec.code_label.isHidden()
+    screen.set_code_mode("rozet")
+    assert sec.code_label.text() == "sys.set.61" and not sec.code_label.isHidden()
+    screen.set_code_mode("gizli")
+    assert sec.code_label.isHidden() and "sys.set.61" not in sec.header_btn.toolTip()
+
+
+def test_kdv_panel_is_a_standard_editable_grid_that_persists(qapp, db_session):
+    s = GeneralSettingsScreen(db_session=db_session)
+    s.switch_panel("kdv_oranlari")
+    t = s.tbl_kdv
+    assert isinstance(t, AppGrid) and t.editTriggers() != QTableWidget.EditTrigger.NoEditTriggers
+    assert [t.horizontalHeaderItem(i).text() for i in range(4)] == ["KOD", "AÇIKLAMA", "ORAN (%)", "DURUM"]
+    assert [t.item(r, 2).text() for r in range(t.rowCount())] == ["0", "1", "10", "20"]
+    dict(s._panel_actions("kdv_oranlari"))["➕ Yeni KDV Ekle"]()
+    t.item(t.rowCount() - 1, 0).setText("KDV8")
+    t.item(t.rowCount() - 1, 2).setText("8")
+    s.save_current_panel()
+    s.close()
+    s2 = GeneralSettingsScreen(db_session=db_session)
+    codes = [s2.tbl_kdv.item(r, 0).text() for r in range(s2.tbl_kdv.rowCount())]
+    assert codes == ["KDV0", "KDV1", "KDV10", "KDV20", "KDV8"]
+    s2.tbl_kdv.selectRow(4)
+    dict(s2._panel_actions("kdv_oranlari"))["🗑️ Seçiliyi Sil"]()
+    assert s2.tbl_kdv.rowCount() == 4
+    assert "KDV" in " ".join(lab for lab, _cb in s2._panel_actions("kdv_oranlari"))
+    s2.close()

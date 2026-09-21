@@ -36,6 +36,14 @@ PERMISSION_GROUPS: list[tuple[str, str, list[tuple[str, str]]]] = [
         ("view", "Görüntüle"), ("create", "Yeni"), ("edit", "Düzenle"),
         ("delete", "Sil"), ("price", "Fiyat Değiştir"), ("movement", "Stok Hareketi"),
     ]),
+    ("kasa", "Kasa", [
+        ("view", "Görüntüle"), ("create", "Yeni"), ("edit", "Düzenle"),
+        ("delete", "Sil"), ("movement", "Kasa Hareketi"),
+    ]),
+    ("banka", "Banka & POS", [
+        ("view", "Görüntüle"), ("create", "Yeni"), ("edit", "Düzenle"),
+        ("delete", "Sil"), ("movement", "Banka Hareketi"),
+    ]),
     ("rapor", "Raporlar", [
         ("view", "Görüntüle"), ("export", "Dışa Aktar (Excel/PDF)"),
     ]),
@@ -74,6 +82,8 @@ DEFAULT_ROLES: dict[str, tuple[str, list[str], bool]] = {
             "fatura.view", "fatura.create", "fatura.edit", "fatura.einvoice",
             "irsaliye.view",
             "cari.view", "cari.create", "cari.edit", "cari.delete", "cari.balance",
+            "kasa.view", "kasa.create", "kasa.edit", "kasa.delete", "kasa.movement",
+            "banka.view", "banka.create", "banka.edit", "banka.delete", "banka.movement",
             "stok.view", "rapor.view", "rapor.export",
         ],
         False,

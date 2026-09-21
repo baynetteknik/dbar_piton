@@ -30,3 +30,9 @@
 - [ ] **08.02** `BankAccount` ve `BankTransaction` SQLAlchemy modellerinin kodlanması
 - [ ] **08.03** `BankService` (Hesap hareketleri, virman transfer transaction motoru)
 - [ ] **08.04** Banka Listesi (`BNKLIST001`) ve Virman Ekranı (`VRMTRAN001`) UI entegrasyonu
+
+## ✅ BANKA & POS KARTI (uygulanan) — 08.02 kısmen
+- [x] Banka & POS Kartı editörü ve liste ekranı: Banka Hesabı, Kredi Kartı, POS (banka, şube adı/kodu, hesap no, IBAN, üye işyeri/terminal no, komisyon %, valör günü, açılış bakiyesi). Veri `finans_hesap` tablosunda; ayrı `bank_accounts` tablosu yerine ortak tablo kullanıldı.
+- [x] Yetkiler: `kasa.*` ve `banka.*` yetki grupları (Muhasebe rolüne tanımlı)
+- [ ] Banka hareketleri, virman (`VRMTRAN001`), POS komisyon/valör mahsubu ve anlık bakiye
+- [ ] Cari fişindeki Araç=Banka/Kredi Kartı/POS satırlarından otomatik banka hareketi üretimi

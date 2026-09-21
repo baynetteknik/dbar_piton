@@ -533,8 +533,50 @@ class FilterableTableView(QWidget):
             pm = ProfileManager(profile_key=self.profile_key)
             self.apply_view_profile(pm.get_active_profile())
 
+    # ─────────────────────────────────────────────
+    # OTOMATİK YERLEŞİM KAYDI (opt-in)
+    # ─────────────────────────────────────────────
+    def enable_auto_save_layout(self) -> None:
+        """Sütun sırası, görünürlüğü ve genişliği değiştikçe aktif görünüm profiline otomatik kaydedilir.
+
+        Varsayılan davranışta (bu çağrı yokken) değişiklikler yalnızca menüden elle adlandırılıp kaydedilen
+        profillerde saklanır ve "Varsayılan" profile kaydedilemezdi; sonuç olarak ayarlar bir sonraki
+        açılışta kayboluyordu."""
+        self._auto_save = True
+        self._hdr_pressed = False
+        hheader = self.table_view.horizontalHeader()
+        hheader.viewport().installEventFilter(self)
+        hheader.sectionMoved.connect(lambda *_a: self._auto_save_layout())
+        self.column_visibility_changed.connect(lambda *_a: self._auto_save_layout())
+
+    def eventFilter(self, obj, event):  # noqa: N802
+        if getattr(self, "_auto_save", False) and obj is self.table_view.horizontalHeader().viewport():
+            from PyQt6.QtCore import QEvent
+            if event.type() == QEvent.Type.MouseButtonPress:
+                self._hdr_pressed = True
+            elif event.type() == QEvent.Type.MouseButtonRelease and self._hdr_pressed:
+                self._hdr_pressed = False
+                self._auto_save_layout()                # genişlik sürüklemesi bitti
+        return super().eventFilter(obj, event)
+
+    def _auto_save_layout(self) -> None:
+        if not getattr(self, "_auto_save", False) or getattr(self, "_applying_profile", False):
+            return
+        try:
+            active = ProfileManager(profile_key=self.profile_key).get_active_profile_name() or "Varsayılan"
+            self.save_column_profile(active)
+        except Exception as exc:  # noqa: BLE001 — yerleşim kaydı ekranı bozmamalı
+            logger.warning(f"Sütun düzeni otomatik kaydedilemedi: {exc}")
+
     def apply_view_profile(self, profile: ViewProfile):
         """Applies a ViewProfile v2.0.0 instance to the table and style delegate."""
+        self._applying_profile = True          # yükleme sırasında oluşan değişiklikler otomatik kayda yazılmaz
+        try:
+            self._apply_view_profile(profile)
+        finally:
+            self._applying_profile = False
+
+    def _apply_view_profile(self, profile: ViewProfile):
         if not profile or not hasattr(profile, "column_settings"):
             return
         header = self.table_view.horizontalHeader()

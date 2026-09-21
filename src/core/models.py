@@ -938,3 +938,124 @@ class DataTransferLog(Base):
     counts_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     duration_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
     hidden: Mapped[bool] = mapped_column(Boolean, default=False)
+
+
+class FinansHesap(BaseModel):
+    """Şirketin kasa / banka / kredi kartı / POS hesap tanımları.
+
+    Cari fiş satırlarında ödeme aracı olarak seçilir. Kasa-banka hareketlerine bağlantı sonraki aşamadır."""
+    __tablename__ = "finans_hesap"
+
+    tur: Mapped[str] = mapped_column(String(15), index=True, nullable=False)   # kasa|banka|kredi_karti|pos
+    kod: Mapped[str] = mapped_column(String(30), index=True, nullable=False)
+    ad: Mapped[str] = mapped_column(String(120), nullable=False)
+    para_birimi: Mapped[str] = mapped_column(String(10), default="TRY")
+    banka: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    hesap_no: Mapped[str | None] = mapped_column(String(60), nullable=True)   # IBAN / kart no / terminal no
+    komisyon_orani: Mapped[float | None] = mapped_column(Float, nullable=True)  # POS / kredi kartı komisyonu (%)
+    aktif: Mapped[bool] = mapped_column(Boolean, default=True)
+    # Kart ekranı alanları (kasa / banka / kredi kartı / POS)
+    sorumlu: Mapped[str | None] = mapped_column(String(100), nullable=True)        # kasa sorumlusu
+    sube_adi: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    sube_kodu: Mapped[str | None] = mapped_column(String(30), nullable=True)
+    iban: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    uye_isyeri_no: Mapped[str | None] = mapped_column(String(50), nullable=True)   # POS üye işyeri / terminal no
+    valor_gun: Mapped[int | None] = mapped_column(Integer, nullable=True)           # POS / kart hesaba geçiş günü
+    acilis_bakiyesi: Mapped[float | None] = mapped_column(Float, nullable=True, default=0.0)   # kullanılmıyor: açılış, hareket (açılış fişi) olarak girilir
+    aciklama: Mapped[str | None] = mapped_column(Text, nullable=True)
+    doviz_kisitli: Mapped[bool] = mapped_column(Boolean, default=False)         # True: yalnız `para_birimi` ile işlem yapılabilir
+
+
+class CariFis(BaseModel):
+    """Cari hesap fişi: birden fazla cari hareket satırını (`CariHareket.fis_id`) tek belgede toplar.
+
+    Fişte cari, tür ve döviz satır bazındadır; `varsayilan_tur` yalnızca yeni satırın başlangıç türüdür."""
+    __tablename__ = "cari_fis"
+
+    fis_no: Mapped[str] = mapped_column(String(30), index=True, nullable=False)
+    tarih: Mapped[date] = mapped_column(Date, index=True, nullable=False)
+    saat: Mapped[str | None] = mapped_column(String(8), nullable=True)
+    belge_no: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    sube: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    ozel_kod: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    yetki_kodu: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    varsayilan_tur: Mapped[str] = mapped_column(String(20), default="tahsilat")
+    kilitli: Mapped[bool] = mapped_column(Boolean, default=False)
+    aciklama1: Mapped[str | None] = mapped_column(String(300), nullable=True)
+    aciklama2: Mapped[str | None] = mapped_column(String(300), nullable=True)
+    aciklama3: Mapped[str | None] = mapped_column(String(300), nullable=True)
+
+
+class CariHareket(BaseModel):
+    """TOYA'nın kendi cari hareket defteri (tahsilat, ödeme, dekontlar, dövizli hareket).
+
+    Bakiye = borç − alacak (TL karşılığı). `is_deleted` ile yalnızca görünümden kaldırılır."""
+    __tablename__ = "cari_hareket"
+
+    customer_id: Mapped[int] = mapped_column(Integer, ForeignKey("customers.id"), index=True, nullable=False)
+    tarih: Mapped[date] = mapped_column(Date, index=True, nullable=False)
+    tur: Mapped[str] = mapped_column(String(20), index=True, nullable=False)   # tahsilat|odeme|borc_dekontu|alacak_dekontu|doviz
+    yon: Mapped[str] = mapped_column(String(10), nullable=False)               # borc | alacak
+    belge_no: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    aciklama: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    odeme_araci: Mapped[str | None] = mapped_column(String(30), nullable=True)  # nakit|banka|cek|senet|kredi_karti
+    hesap: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    vade: Mapped[date | None] = mapped_column(Date, nullable=True)
+    para_birimi: Mapped[str] = mapped_column(String(10), default="TRY")
+    kur: Mapped[float] = mapped_column(Float, default=1.0)
+    tutar: Mapped[float] = mapped_column(Float, default=0.0)                   # para biriminde
+    tutar_tl: Mapped[float] = mapped_column(Float, default=0.0)
+    kaynak: Mapped[str] = mapped_column(String(20), default="manuel")
+    fis_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("cari_fis.id"), index=True, nullable=True)
+    satir_no: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    fin_hesap_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("finans_hesap.id"), index=True, nullable=True)
+
+    customer: Mapped["Customer"] = relationship("Customer")
+    fis: Mapped["CariFis | None"] = relationship("CariFis")
+
+
+class StokFis(BaseModel):
+    """Stok hareket fişi: birden fazla stok hareketini (`StokHareket.fis_id`) tek belgede toplar.
+
+    Tür ve depo satır bazında da değiştirilebilir; `varsayilan_tur` ve `depo_id` yeni satırın başlangıç değeridir."""
+    __tablename__ = "stok_fis"
+
+    fis_no: Mapped[str] = mapped_column(String(30), index=True, nullable=False)
+    tarih: Mapped[date] = mapped_column(Date, index=True, nullable=False)
+    saat: Mapped[str | None] = mapped_column(String(8), nullable=True)
+    belge_no: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    depo_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("warehouse_definitions.id"), nullable=True)
+    hedef_depo_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("warehouse_definitions.id"), nullable=True)
+    ozel_kod: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    yetki_kodu: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    varsayilan_tur: Mapped[str] = mapped_column(String(20), default="giris")
+    kilitli: Mapped[bool] = mapped_column(Boolean, default=False)
+    aciklama1: Mapped[str | None] = mapped_column(String(300), nullable=True)
+    aciklama2: Mapped[str | None] = mapped_column(String(300), nullable=True)
+    aciklama3: Mapped[str | None] = mapped_column(String(300), nullable=True)
+
+
+class StokHareket(BaseModel):
+    """Depo bazlı stok hareket defteri (giriş / çıkış / transfer / sayım / açılış).
+
+    `toplam_etki`, hareketin `Product.stock` (toplam stok) üzerindeki net etkisidir; fiş değiştirilirken ya da
+    gizlenirken tam olarak geri alınabilsin diye saklanır. Silme yalnızca görünümden gizler (`is_deleted`)."""
+    __tablename__ = "stok_hareket"
+
+    fis_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("stok_fis.id"), index=True, nullable=True)
+    satir_no: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    product_id: Mapped[int] = mapped_column(Integer, ForeignKey("products.id"), index=True, nullable=False)
+    tur: Mapped[str] = mapped_column(String(20), index=True, nullable=False)   # giris|cikis|transfer|sayim|acilis
+    tarih: Mapped[date] = mapped_column(Date, index=True, nullable=False)
+    depo_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("warehouse_definitions.id"), index=True, nullable=True)
+    hedef_depo_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("warehouse_definitions.id"), nullable=True)
+    miktar: Mapped[float] = mapped_column(Float, default=0.0)                  # girilen miktar (sayımda sayılan)
+    birim: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    birim_fiyat: Mapped[float] = mapped_column(Float, default=0.0)
+    tutar: Mapped[float] = mapped_column(Float, default=0.0)
+    aciklama: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    depo_etkisi: Mapped[float] = mapped_column(Float, default=0.0)             # `depo_id` deposundaki net değişim
+    toplam_etki: Mapped[float] = mapped_column(Float, default=0.0)             # Product.stock üzerindeki net değişim
+
+    product: Mapped["Product"] = relationship("Product")
+    fis: Mapped["StokFis | None"] = relationship("StokFis")

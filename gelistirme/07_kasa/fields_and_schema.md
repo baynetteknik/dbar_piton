@@ -30,3 +30,8 @@
 - [ ] **07.02** `Cashbox` ve `CashboxTransaction` SQLAlchemy modellerinin kodlanması
 - [ ] **07.03** `CashboxService` (Kasa bakiyesi ve cari entegrasyonu)
 - [ ] **07.04** Kasa Listesi (`KASALST001`), Tahsilat (`KASATAH001`) ve Tediye (`KASATED001`) UI entegrasyonu
+
+## ✅ KASA KARTI (uygulanan) — 07.02 kısmen
+- [x] Kasa Kartı editörü ve liste ekranı (`FinansHesapEditorDialog`, `FinansHesapListScreen`, KASA & BANKA menüsü). Veri `finans_hesap` tablosunda (tur=kasa): kod, ad, döviz, sorumlu, açılış bakiyesi, açıklama, durum. Ayrı `cashboxes` tablosu yerine ortak `FinansHesap` kullanıldı.
+- [ ] Kasa hareketleri (`KASATAH001` / `KASATED001`) ve anlık bakiye — kasa hareket ekranı ile birlikte
+- [ ] Cari fişindeki Araç=Kasa satırlarından otomatik kasa hareketi üretimi

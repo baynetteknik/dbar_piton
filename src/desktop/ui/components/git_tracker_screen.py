@@ -5,6 +5,7 @@ Açık Teklifler ve Bekleyen Siparişler ekran şablonuyla birebir uyumludur.
 """
 
 import logging
+import time
 from datetime import datetime
 from typing import Any
 
@@ -34,11 +35,22 @@ from src.desktop.ui.components.collapsible_section import CollapsibleSection
 from src.desktop.ui.components.layout_hint_helper import register_layout_hint
 from src.desktop.ui.components.three_panel_base import ThreePanelBaseWidget
 from src.desktop.ui.widgets.git_change_summary_widget import GitChangeSummaryWidget
+from src.desktop.ui.widgets.git_report_dialog import GitReportDialog
 from src.desktop.ui.widgets.git_profile_panel_widget import GitProfilePanelWidget
 from src.desktop.ui.widgets.git_sync_advisor_widget import GitSyncAdvisorWidget
 
 logger = logging.getLogger(__name__)
 
+
+#: işlem adı → Türkçe ad (konsol, ilerleme ve rapor başlıkları)
+ACTION_TR = {
+    "fetch": "Fetch (Uzak Durum Tara)", "pull": "Değişiklikleri Çek (Pull)", "push": "Uzak Depoya Gönder (Push)",
+    "commit_and_push": "Git'e Gönder (Commit & Push)", "stash": "Değişiklikleri Geçici Sakla (Stash)",
+    "stash_pop": "Saklananı Geri Al (Stash Pop)", "rollback": "Sürüme Geri Dön", "login": "Google ile Giriş",
+    "test_remote": "Bağlantı Testi",
+}
+#: bitince ayrıntılı rapor penceresi gösterilen işlemler
+REPORT_ACTIONS = {"fetch", "pull", "push", "commit_and_push", "stash", "stash_pop", "rollback"}
 
 _AUTH_MARKERS = ("invalid username or token", "authentication failed", "password authentication is not supported",
                  "could not read username", "terminal prompts disabled", "403")
@@ -287,18 +299,19 @@ class GitTrackerScreen(ThreePanelBaseWidget):
         # Stash & Pop
         stash_box = QHBoxLayout()
         stash_box.setSpacing(4)
-        btn_stash = QPushButton("📦 Stash")
+        btn_stash = QPushButton("📦 Geçici Sakla (Stash)")
         btn_stash.setStyleSheet(self.toolbar_btn_style())
         btn_stash.clicked.connect(lambda: self._start_worker("stash"))
-        btn_pop = QPushButton("Pop")
-        btn_pop.setFixedWidth(45)
+        btn_pop = QPushButton("📤 Geri Al")
+        btn_pop.setToolTip("Saklananı Geri Al (Stash Pop)")
+        btn_pop.setFixedWidth(80)
         btn_pop.setStyleSheet(self.toolbar_btn_style())
         btn_pop.clicked.connect(lambda: self._start_worker("stash_pop"))
         stash_box.addWidget(btn_stash)
         stash_box.addWidget(btn_pop)
         self.sec_git_actions.add_layout(stash_box)
 
-        self.btn_report = QPushButton("📄 Rapor Üret (.md) (F9)")
+        self.btn_report = QPushButton("📊 Git Raporu (F9)")
         self.btn_report.setShortcut("F9")
         self.btn_report.setStyleSheet(self.toolbar_btn_style())
         self.btn_report.clicked.connect(self.on_report_clicked)
@@ -926,11 +939,15 @@ class GitTrackerScreen(ThreePanelBaseWidget):
             self._start_worker("commit_and_push", {"message": msg, "branch": status_info["branch"]})
 
     def on_report_clicked(self):
+        """Git durum raporu: grafikler + ayrıntılı tablolar (popup). '.md olarak kaydet' düğmesi eski raporu üretir."""
+        snap = self.git_service.snapshot()
+        GitReportDialog(snap, None, self, on_save_md=self._save_md_report, on_refresh=self.git_service.snapshot).exec()
+
+    def _save_md_report(self):
         try:
             git_tracker.generate_report()
-            QMessageBox.information(self, "Rapor Üretildi", "GIT_TRACKER_REPORT.md başarıyla güncellendi.")
-            self.load_data()
-        except Exception as e:
+            QMessageBox.information(self, "Rapor Kaydedildi", "GIT_TRACKER_REPORT.md güncellendi.")
+        except Exception as e:  # noqa: BLE001
             QMessageBox.critical(self, "Hata", f"Rapor üretilirken hata: {e}")
 
     def _start_worker(self, action_name: str, params: dict[str, Any] | None = None):
@@ -941,10 +958,16 @@ class GitTrackerScreen(ThreePanelBaseWidget):
 
         self.console_drawer.show()
         now_t = datetime.now().strftime('%H:%M:%S')
-        self.console_drawer.appendPlainText(f"\n--- [BAŞLATILDI: {action_name.upper()}] {now_t} ---")
+        tr = ACTION_TR.get(action_name, action_name)
+        # rapor için işlem öncesi durum + günlük başlangıcı
+        self._current_action = action_name
+        self._op_t0 = time.time()
+        self._op_before = self.git_service.light_state() if action_name in REPORT_ACTIONS else None
+        self.console_drawer.appendPlainText(f"\n--- [BAŞLATILDI: {tr}] {now_t} ---")
+        self._log_mark = len(self.console_drawer.toPlainText())
 
         self.progress_bar.setValue(10)
-        self.lbl_stage.setText(f"⏳ İşlem Başlatılıyor: {action_name}...")
+        self.lbl_stage.setText(f"⏳ İşlem Başlatılıyor: {tr}...")
         self.lbl_stage.setStyleSheet("font-size: 11px; font-weight: bold; color: #d97706;")
 
         self.worker = git_tracker.GitWorker(action=action_name, params=params, parent=self)
@@ -965,10 +988,14 @@ class GitTrackerScreen(ThreePanelBaseWidget):
 
     def _on_worker_finished(self, success: bool, message: str):
         self.progress_bar.setValue(100)
+        action = getattr(self, "_current_action", "")
         if success:
             self.lbl_stage.setText("✅ " + message)
             self.lbl_stage.setStyleSheet("font-size: 11px; font-weight: bold; color: #16a34a;")
-            QMessageBox.information(self, "Başarılı", message)
+            if action in REPORT_ACTIONS:
+                self._show_operation_report(True, message)
+            else:
+                QMessageBox.information(self, "Başarılı", message)
         else:
             self.lbl_stage.setText("❌ Hata: " + message)
             self.lbl_stage.setStyleSheet("font-size: 11px; font-weight: bold; color: #dc2626;")
@@ -979,6 +1006,22 @@ class GitTrackerScreen(ThreePanelBaseWidget):
 
         self.profile_panel.reload()
         self.load_data()
+
+    def _show_operation_report(self, ok: bool, message: str) -> None:
+        """İşlem bitince ayrıntılı rapor: sonuç, öncesi/sonrası karşılaştırması (Fetch durumu dahil) ve işlem günlüğü."""
+        action = getattr(self, "_current_action", "")
+        self.load_data()                         # güncel durum + tavsiye
+        snap = self.git_service.snapshot()
+        after = {"ok": snap.get("ok", False), "ahead": snap.get("ahead", 0), "behind": snap.get("behind", 0),
+                 "changed": snap.get("summary", {}).get("total", 0),
+                 "head": (snap.get("last_commit") or {}).get("hash", "")[:7]} if snap.get("ok") else {"ok": False}
+        before = getattr(self, "_op_before", None)
+        if before and before.get("head"):
+            before = {**before, "head": before["head"][:7]}
+        log = self.console_drawer.toPlainText()[getattr(self, "_log_mark", 0):].strip()
+        op = {"title": ACTION_TR.get(action, action), "ok": ok, "message": message, "action": action,
+              "seconds": time.time() - getattr(self, "_op_t0", time.time()), "before": before, "after": after, "log": log}
+        GitReportDialog(snap, op, self, on_save_md=self._save_md_report, on_refresh=self.git_service.snapshot).exec()
 
     def _offer_login(self, message: str) -> None:
         """Kimlik doğrulama hatasında kullanıcıyı doğrudan giriş adımına yönlendirir."""
@@ -1001,9 +1044,25 @@ class GitTrackerScreen(ThreePanelBaseWidget):
         try:
             cmp = self.git_service.comparison()          # tek hesap: tavsiye ve özet aynı veriyi kullanır
             self.advisor.set_advice(self.git_service.sync_advice(cmp if cmp.get("ok") else None))
+            self._refresh_login_badge()
             self.change_summary.set_comparison(cmp)
         except Exception:  # noqa: BLE001 - tavsiye kartı ekranı bozmamalı
             logger.exception("Git tavsiyesi hesaplanamadı")
+
+    def _refresh_login_badge(self) -> None:
+        """"Git'e Gönder" düğmesinin solunda etkin profilin giriş durumu: giriş yapıldıysa yeşil, yapılmadıysa uyarı."""
+        from src.desktop.services import git_profile_store
+
+        p = git_profile_store.active_profile()
+        if not p or p["auth_type"] == "ssh":
+            self.advisor.set_login_status("")
+            return
+        who = "Google ile" if p["auth_type"] == "gcm" else "Erişim belirteci ile"
+        if p.get("login_at"):
+            self.advisor.set_login_status(f"✔ {who} giriş yapıldı", "ok", f"{p['title']} — {p['login_at']}")
+        else:
+            self.advisor.set_login_status(f"⚠ Giriş yapılmadı", "warn",
+                                          "GİT BAĞLANTISI → 'Google ile Giriş Yap' (ya da Bağlantıyı Test Et) ile giriş yapın")
 
     def _on_advice_action(self, action: str):
         if action == "backup":

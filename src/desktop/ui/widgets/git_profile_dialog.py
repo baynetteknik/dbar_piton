@@ -25,6 +25,7 @@ from PyQt6.QtWidgets import (
 )
 
 from src.desktop.services import git_profile_store as store
+from src.desktop.ui.components.dialog_style import apply_light_dialog_style
 from src.desktop.services.git_service import AUTH_GCM, AUTH_SSH, AUTH_TOKEN
 
 _HELP = {
@@ -43,6 +44,7 @@ class GitProfileDialog(QDialog):
         self.setWindowTitle("🌐 Git Bağlantı Profili" + (" — Düzenle" if profile else " — Ekle"))
         self.setMinimumWidth(520)
         self.token = ""
+        apply_light_dialog_style(self)
         self._build_ui()
 
     def _build_ui(self) -> None:

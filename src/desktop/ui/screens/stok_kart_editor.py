@@ -318,26 +318,23 @@ class StokKartEditorDialog(QDialog):
             self.recent_activity.set_items([])
             return
         try:
-            rows = self.db.scalars(
-                select(StockMovement).where(
-                    StockMovement.product_id == pid,
-                ).order_by(StockMovement.created_at.desc()).limit(5),
-            ).all()
+            from src.desktop.services.stok_fis_service import urun_hareketleri
+            rows = urun_hareketleri(self.db, pid, limit=5)         # yeni fiş defteri + eski kayıtlar
         except Exception:  # noqa: BLE001
             rows = []
 
         items = []
         for m in rows:
-            mtype = getattr(m, "movement_type", "") or ""
-            giris = mtype in _GIRIS_TURLERI
-            miktar = float(getattr(m, "quantity", 0) or 0)
-            tarih = m.created_at.strftime("%d.%m.%Y") if getattr(m, "created_at", None) else ""
+            etki = float(m["etki"] or 0)
+            giris = etki > 0
+            tarih = m["tarih"].strftime("%d.%m.%Y") if m["tarih"] else ""
+            fis = f" · {m['fis_no']}" if m["fis_no"] else ""
             items.append({
-                "title": _HAREKET_TR.get(mtype, mtype or "Hareket"),
-                "value": f"{'+' if giris else '-'}{miktar:g}  ({tarih})",
-                "icon": "⬆️" if giris else "⬇️",
-                "accent": "#16a34a" if giris else "#dc2626",
-                "badge_bg": "#dcfce7" if giris else "#fee2e2",
+                "title": m["tur"] or "Hareket",
+                "value": f"{'+' if giris else '-' if etki < 0 else ''}{abs(etki):g}  ({tarih}{fis})",
+                "icon": "⬆️" if giris else "⬇️" if etki < 0 else "▫️",
+                "accent": "#16a34a" if giris else "#dc2626" if etki < 0 else "#64748b",
+                "badge_bg": "#dcfce7" if giris else "#fee2e2" if etki < 0 else "#f1f5f9",
             })
         self.recent_activity.set_items(items)
 

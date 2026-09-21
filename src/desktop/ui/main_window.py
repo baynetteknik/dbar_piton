@@ -344,6 +344,10 @@ class MainWindow(QMainWindow):
             self.tr("Ekran & Grid Tanımları"),
             self.tr("Cari Listesi (AppGrid)"),
             self.tr("Müşteriler & Cariler"),
+            self.tr("Cari Hareketleri"),
+            self.tr("Stok Hareketleri"),
+            self.tr("Kasa Kartları"),
+            self.tr("Banka & POS Kartları"),
             self.tr("Teklif Yönetimi"),
             self.tr("Sipariş Yönetimi"),
             self.tr("Faturalar"),
@@ -353,8 +357,9 @@ class MainWindow(QMainWindow):
 
         self.menu_structure = {
             self.tr("GÖSTERGE"): ([self.tr("Ana Panel"), self.tr("Bildirimler")], "📊"),
-            self.tr("CARİ"): ([self.tr("Müşteriler & Cariler"), self.tr("Cari Analiz")], "👥"),
-            self.tr("STOK"): ([self.tr("Ürün Yönetimi"), self.tr("Fiyat Politikaları")], "📦"),
+            self.tr("CARİ"): ([self.tr("Müşteriler & Cariler"), self.tr("Cari Hareketleri"), self.tr("Cari Analiz")], "👥"),
+            self.tr("STOK"): ([self.tr("Ürün Yönetimi"), self.tr("Stok Hareketleri"), self.tr("Fiyat Politikaları")], "📦"),
+            self.tr("KASA & BANKA"): ([self.tr("Kasa Kartları"), self.tr("Banka & POS Kartları")], "💰"),
             self.tr("TEKLİF & SİPARİŞ"): ([self.tr("Teklif Yönetimi"), self.tr("Sipariş Yönetimi")], "📄"),
             self.tr("YEDEKLEME"): ([self.tr("Görevler")], "🔄"),
             self.tr("SİSTEM"): ([self.tr("Genel Ayarlar"), self.tr("İşlem Günlükleri")], "⚙️"),
@@ -904,7 +909,11 @@ class MainWindow(QMainWindow):
             self.tr("Genel Ayarlar"): "⚙️ [sys.set.001] " + self.tr("Genel Ayarlar"),
             self.tr("İşlem Günlükleri"): "📝 [sys.log.001] " + self.tr("İşlem Günlükleri"),
             self.tr("Cari Analiz"): "📊 [rpt.car.001] " + self.tr("Cari Analiz"),
+            self.tr("Cari Hareketleri"): "💱 [isl.car.001] " + self.tr("Cari Hareketleri"),
             self.tr("Fiyat Politikaları"): "💵 [tan.prc.001] " + self.tr("Fiyat Politikaları"),
+            self.tr("Stok Hareketleri"): "📦 [isl.stk.001] " + self.tr("Stok Hareketleri"),
+            self.tr("Kasa Kartları"): "💰 [tan.ksa.001] " + self.tr("Kasa Kartları"),
+            self.tr("Banka & POS Kartları"): "🏦 [tan.bnk.001] " + self.tr("Banka & POS Kartları"),
             self.tr("Pazaryeri Bağlantıları"): "🤝 [int.mkt.001] " + self.tr("Pazaryeri Bağlantıları"),
         }
         # Hızlı Kısayollar ("Yeni Cari Kartı Aç" / "Yeni Teklif Hazırla") gerçek
@@ -970,6 +979,15 @@ class MainWindow(QMainWindow):
                 parent=self,
             )
             new_widget.toast_requested.connect(self.show_toast)
+        elif menu_name in (self.tr("Kasa Kartları"), self.tr("Banka & POS Kartları")):
+            from src.desktop.ui.finans_hesap_list_screen import FinansHesapListScreen
+            new_widget = FinansHesapListScreen(db_session=self.db, grup="kasa" if menu_name == self.tr("Kasa Kartları") else "banka", parent=self)
+        elif menu_name == self.tr("Stok Hareketleri"):
+            from src.desktop.ui.stok_hareket_screen import StokHareketScreen
+            new_widget = StokHareketScreen(db_session=self.db, parent=self)
+        elif menu_name == self.tr("Cari Hareketleri"):
+            from src.desktop.ui.cari_hareket_screen import CariHareketScreen
+            new_widget = CariHareketScreen(db_session=self.db, parent=self)
         elif menu_name in (self.tr("Teklif Yönetimi"), self.tr("Teklifler"), self.tr("Açık Teklifler"), self.tr("Yeni Teklif Hazırla")):
             from src.desktop.ui.quotations import QuotationsWidget
             new_widget = QuotationsWidget(self.db)
@@ -1035,6 +1053,10 @@ class MainWindow(QMainWindow):
             "Pazaryeri Bağlantıları": "🤝",
             "Fiyat Politikaları": "💵",
             "Cari Analiz": "📊",
+            "Cari Hareketleri": "💱",
+            "Stok Hareketleri": "📦",
+            "Kasa Kartları": "💰",
+            "Banka & POS Kartları": "🏦",
         }
         from src.desktop.security.gate import can, module_permission
         shown = 0

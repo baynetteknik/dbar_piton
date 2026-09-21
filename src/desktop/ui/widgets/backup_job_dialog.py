@@ -31,6 +31,7 @@ from PyQt6.QtWidgets import (
 )
 
 from src.desktop.services.backup import disk_watch, secrets
+from src.desktop.ui.components.dialog_style import apply_light_dialog_style
 from src.desktop.services.backup.models import KIND_FILES, KIND_TOYA, BackupJob, validate
 from src.desktop.services.backup.remote_providers import secret_name
 from src.desktop.ui.widgets.backup_target_dialog import TYPES, BackupTargetDialog
@@ -52,6 +53,7 @@ class BackupJobDialog(QDialog):
         self._removed_targets: list[str] = []
         self.setWindowTitle("Yedek İşi" + (" — Yeni" if self.is_new else " — Düzenle"))
         self.setMinimumSize(620, 520)
+        apply_light_dialog_style(self)
         self._build()
         self._load()
 

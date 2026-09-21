@@ -65,6 +65,7 @@ from src.desktop.ui.components.collapsible_section import CollapsibleSection
 from src.desktop.ui.components.filterable_table import FilterableTableView
 from src.desktop.ui.widgets.catalog_picker import CatalogSearchField, make_search_button
 from src.desktop.ui.widgets.masked_decimal_field import MaskedDecimalField
+from src.desktop.ui.widgets.money_edit import MoneyEdit
 from src.desktop.ui.widgets.parametric_field_group import ParametricFieldGroup
 
 logger = logging.getLogger(__name__)
@@ -807,6 +808,7 @@ class DefinitionEditorScreen(QWidget):
                 hdr.setStyleSheet(
                     "background:#1e3a8a;border-top-left-radius:8px;border-top-right-radius:8px;",
                 )
+            hdr.setFixedHeight(hdr.sizeHint().height())     # başlık şeridi içeriğinden büyümez (yan yana bölüm yüksekliği eşitlenirken şişmesin)
             outer.addWidget(hdr)
 
         grid = QGridLayout()
@@ -845,6 +847,7 @@ class DefinitionEditorScreen(QWidget):
         for i in range(cols):
             grid.setColumnStretch(i * 2 + 1, 1)
         outer.addLayout(grid)
+        outer.addStretch(1)                                  # artan yükseklik alanların altında kalır, başlığa/alanlara dağılmaz
         if self._tab_sections and first_widget is not None:
             self._tab_sections[-1].append(self._focus_target(first_widget))
         return box
@@ -942,6 +945,8 @@ class DefinitionEditorScreen(QWidget):
                 sp.setReadOnly(True)
                 sp.setButtonSymbols(QDoubleSpinBox.ButtonSymbols.NoButtons)
             return sp
+        if t == "tutar":                     # ortak para alanı: binlik nokta, kuruş, + - * / hesap makinesi
+            return MoneyEdit(decimals=spec.get("decimals", 2), allow_negative=bool(spec.get("negative")))
         if t == "bool":
             return QCheckBox(spec.get("text", ""))
         if t == "search":
@@ -1201,6 +1206,8 @@ class DefinitionEditorScreen(QWidget):
                 w.setText(val)
             elif isinstance(w, (_ImageField, _SubTableField, _PermTreeField, ParametricFieldGroup)):
                 w.set_value(val)
+            elif isinstance(w, MoneyEdit):
+                w.setValue(val)
             else:  # QLineEdit
                 w.setText("" if val is None else str(val))
             if spec.get("lock_on_edit"):
@@ -1242,6 +1249,8 @@ class DefinitionEditorScreen(QWidget):
                 out[key] = w.text().strip()
             elif isinstance(w, (_ImageField, _SubTableField, _PermTreeField, ParametricFieldGroup)):
                 out[key] = w.value()
+            elif isinstance(w, MoneyEdit):
+                out[key] = w.value()               # ifade yazılıysa hesaplanmış sonuç; metni bozmaz (collect her tuşta çağrılır)
             else:
                 out[key] = w.text().strip()
         if (self._status_field and self._status_field not in self._widgets

@@ -30,6 +30,7 @@ from PyQt6.QtWidgets import (
 
 from src.desktop.services.backup import remote_providers as rp
 from src.desktop.services.backup.providers import ProviderError
+from src.desktop.ui.components.dialog_style import apply_light_dialog_style
 from src.desktop.ui.widgets.backup_runner import TaskThread
 
 TYPES = [("local", "📁 Klasör / Harici disk / NAS"), ("ftp", "🌐 FTP / FTPS"), ("gdrive", "☁ Google Drive"), ("s3", "🪣 S3 (AWS / uyumlu)")]
@@ -48,6 +49,7 @@ class BackupTargetDialog(QDialog):
         self._thread: TaskThread | None = None
         self.setWindowTitle("Yedek Hedefi")
         self.setMinimumWidth(500)
+        apply_light_dialog_style(self)
         self._build()
         self._load()
 

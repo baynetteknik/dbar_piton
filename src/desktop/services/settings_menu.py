@@ -39,11 +39,30 @@ ITEM_CODES: dict[str, str] = {
     "stok_kategoriler": "sys.set.401", "stok_markalar": "sys.set.402", "birim_tanimlari": "sys.set.403",
     "stok_ozel_alanlar": "sys.set.404",
     "cari_gruplari": "sys.set.501", "cari_ozel_alanlar": "sys.set.502",
-    "cms_baglantilari": "sys.set.601", "eposta_smtp": "sys.set.602", "online_portal": "sys.set.603",
-    "portal_yayin": "sys.set.604", "yedek_merkezi": "sys.set.605", "portal_yedek": "sys.set.606",
-    "guvenlik": "sys.set.607", "sayi_bicimi": "sys.set.608", "gorunum_profilleri": "sys.set.609",
-    "ekran_grid": "sys.set.610", "surum_git": "sys.set.611",
+    "yedek_merkezi": "sys.set.611", "portal_yedek": "sys.set.612",
+    "cms_baglantilari": "sys.set.621", "portal_yayin": "sys.set.622", "online_portal": "sys.set.623",
+    "gorunum_profilleri": "sys.set.631", "ekran_grid": "sys.set.632",
+    "eposta_smtp": "sys.set.641", "kdv_oranlari": "sys.set.642", "sayi_bicimi": "sys.set.643",
+    "guvenlik": "sys.set.651", "surum_git": "sys.set.652",
 }
+
+#: grup adı → [(alt menü başlığı, alt menü kodu, [panel_id, ...])]; listelenmeyen menüler grupta düz kalır
+SUBGROUPS: dict[str, list[tuple[str, str, list[str]]]] = {
+    "SİSTEM": [
+        ("🗄️ Yedekleme", "sys.set.61", ["yedek_merkezi", "portal_yedek"]),
+        ("🔌 Bağlantılar", "sys.set.62", ["cms_baglantilari", "portal_yayin", "online_portal"]),
+        ("🎨 Görünüm", "sys.set.63", ["gorunum_profilleri", "ekran_grid"]),
+        ("🧾 Genel", "sys.set.64", ["eposta_smtp", "kdv_oranlari", "sayi_bicimi"]),
+    ],
+}
+
+
+def subgroup_of(group: str, panel_id: str) -> tuple[str, str] | None:
+    """Menünün alt menüsü (başlık, kod) ya da None."""
+    for title, code, pids in SUBGROUPS.get(group, []):
+        if panel_id in pids:
+            return title, code
+    return None
 
 #: sağ panel bölüm anahtarı → (kod, varsayılan başlık)
 SIDEBAR_SECTIONS: dict[str, tuple[str, str]] = {

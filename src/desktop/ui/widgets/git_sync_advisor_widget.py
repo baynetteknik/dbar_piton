@@ -12,6 +12,7 @@ from PyQt6.QtCore import pyqtSignal
 from PyQt6.QtWidgets import QFrame, QHBoxLayout, QLabel, QPushButton, QVBoxLayout
 
 from src.desktop.services.git_service import Advice
+from src.desktop.ui.components.tooltip_style import with_tooltip
 
 _COLORS = {
     "success": ("#f0fdf4", "#86efac", "#166534", "✅"),
@@ -42,12 +43,29 @@ class GitSyncAdvisorWidget(QFrame):
         col.addWidget(self.lbl_advice)
         col.addWidget(self.lbl_meta)
         lay.addLayout(col, 1)
+        # "Git'e Gönder" düğmesinin SOLUNDA giriş durumu (ör. "✔ Google ile giriş yapıldı")
+        self.lbl_login = QLabel()
+        self.lbl_login.setStyleSheet("font-size:11px; font-weight:700; padding:2px 8px;")
+        self.lbl_login.hide()
+        lay.addWidget(self.lbl_login)
         self.btn_action = QPushButton()
         self.btn_action.setStyleSheet("QPushButton{background:#2563eb; color:white; border:none; border-radius:6px;"
                                       " padding:6px 14px; font-weight:700;}QPushButton:hover{background:#1d4ed8;}")
         self.btn_action.clicked.connect(lambda: self.action_requested.emit(self._action))
         lay.addWidget(self.btn_action)
         self.set_advice(None)
+
+    def set_login_status(self, text: str, kind: str = "ok", tip: str = "") -> None:
+        """kind: ok (yeşil) | warn (turuncu). Boş metin etiketi gizler."""
+        if not text:
+            self.lbl_login.hide()
+            return
+        color, bg, border = (("#166534", "#dcfce7", "#86efac") if kind == "ok" else ("#92400e", "#fef3c7", "#fcd34d"))
+        self.lbl_login.setStyleSheet(with_tooltip(f"font-size:11px; font-weight:700; padding:3px 10px; color:{color};"
+                                                  f" background:{bg}; border:1px solid {border}; border-radius:10px;"))
+        self.lbl_login.setText(text)
+        self.lbl_login.setToolTip(tip)
+        self.lbl_login.show()
 
     def set_advice(self, advice: Advice | None) -> None:
         if advice is None:

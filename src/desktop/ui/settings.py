@@ -1596,6 +1596,22 @@ class KurGirDialog(QDialog):
         }
 
 
+class _LazyActionBoxes(dict):
+    """{panel_id: işlem kutusu}; kutu ilk erişimde üretilir. Ekran açılırken ~30 menü × onlarca stilli düğmeyi
+    baştan üretmek her açılışı saniyelerce yavaşlatıyordu; yalnızca girilen menünün kutusu kurulur."""
+
+    def __init__(self, screen, layout) -> None:
+        super().__init__()
+        self._screen, self._layout = screen, layout
+
+    def __missing__(self, panel_id: str):
+        box = self._screen._build_sub_action_box(panel_id)
+        box.hide()
+        self._layout.addWidget(box)
+        self[panel_id] = box
+        return box
+
+
 class GeneralSettingsScreen(QWidget):
     """Genel Ayarlar Ana Ekranı — sys.set.001.
 
@@ -1657,16 +1673,17 @@ class GeneralSettingsScreen(QWidget):
             "SİSTEM",
             "🖥️",
             [
-                ("CMS / ERP Bağlantıları", "cms_baglantilari"),
-                ("E-Posta / SMTP", "eposta_smtp"),
+                ("Merkez", "yedek_merkezi"),
+                ("Portal", "portal_yedek"),
+                ("CMS / ERP", "cms_baglantilari"),
+                ("Portal Yayın", "portal_yayin"),
                 ("Online Portal", "online_portal"),
-                ("Portal Yayın / Güncelleme", "portal_yayin"),
-                ("Yedekleme Merkezi", "yedek_merkezi"),
-                ("Portal Yedekleme", "portal_yedek"),
-                ("Güvenlik & Giriş", "guvenlik"),
-                ("Sayı Biçimi", "sayi_bicimi"),
-                ("Görünüm Profilleri", "gorunum_profilleri"),
-                ("Ekran Grid Tanım.", "ekran_grid"),
+                ("Profiller", "gorunum_profilleri"),
+                ("Ekran Gridleri", "ekran_grid"),
+                ("E-Posta", "eposta_smtp"),
+                ("KDV", "kdv_oranlari"),
+                ("Kuruş Hanesi", "sayi_bicimi"),
+                ("Güvenlik", "guvenlik"),
                 ("Sürüm & Git", "surum_git"),
             ],
         ),
@@ -1833,8 +1850,11 @@ class GeneralSettingsScreen(QWidget):
         self.menu_sections = []
         self.menu_item_containers = {}
 
-        # Menü Grupları (Tümü varsayılan KAPALI gelir). Alt eylemler artık burada değil: sağ panelde ve sağ tık menüsünde.
+        # Menü Grupları (Tümü varsayılan KAPALI gelir). Alt eylemler sol menüde değil: sağ panelde ve sağ tık menüsünde.
+        # Bir grup `SUBGROUPS` ile açılır alt menülere bölünebilir; alt menüde olmayan öğeler grupta düz kalır.
         self._group_sections = []
+        self.menu_inner_sections = {}      # panel_id → alt menü bölümü
+        self.menu_inner_all = []           # (bölüm, başlık, kod)
         for grup_adi, ikon, menuler in self.MENU_STRUCTURE:
             gcode = sm.GROUP_CODES.get(grup_adi, "")
             sec = CollapsibleSection(f"{ikon} {grup_adi}", is_expanded=False)
@@ -1843,7 +1863,22 @@ class GeneralSettingsScreen(QWidget):
             self.menu_sections.append(sec)
             self._group_sections.append((sec, f"{ikon} {grup_adi}", gcode))
 
+            inner_by_title: dict[str, CollapsibleSection] = {}
             for menu_adi, panel_id in menuler:
+                sub = sm.subgroup_of(grup_adi, panel_id)
+                host = sec
+                if sub:
+                    title, scode = sub
+                    if title not in inner_by_title:
+                        inner = CollapsibleSection(title, is_expanded=False, compact=True)
+                        inner.set_code(scode if self.show_codes else "")
+                        inner.header_btn.setToolTip(sm.tooltip(title, scode, self.code_mode))
+                        inner_by_title[title] = inner
+                        self.menu_inner_all.append((inner, title, scode))
+                        self._group_sections.append((inner, title, scode))
+                        sec.add_widget(inner)
+                    host = inner_by_title[title]
+                    self.menu_inner_sections[panel_id] = host
                 code = sm.item_code(panel_id)
                 btn = CodedButton(menu_adi, code, show_code=self.show_codes, left_padding=11)
                 btn.setStyleSheet(self.menu_btn_style())
@@ -1854,7 +1889,7 @@ class GeneralSettingsScreen(QWidget):
                 )
                 self.menu_buttons[panel_id] = btn
                 self.menu_item_containers[panel_id] = (btn, sec, menu_adi, grup_adi)
-                sec.add_widget(btn)
+                host.add_widget(btn)
 
             lyt.addWidget(sec)
 
@@ -1948,6 +1983,11 @@ class GeneralSettingsScreen(QWidget):
                 ("💾 Alanları Kaydet", lambda: self.save_current_panel()),
                 ("🔄 Yenile", lambda: self._load_ozel_alanlar("stok")),
             ],
+            "kdv_oranlari": [
+                ("➕ Yeni KDV Ekle", lambda: self._add_table_row(getattr(self, "tbl_kdv", None), ["", "", "0", "Aktif"])),
+                ("🗑️ Seçiliyi Sil", lambda: self._delete_table_row(getattr(self, "tbl_kdv", None))),
+                ("💾 Kaydet", lambda: self.save_current_panel()),
+            ],
             "cari_gruplari": [
                 ("➕ Yeni Grup Ekle", lambda: self._add_table_row(getattr(self, "tbl_cari_grup", None), ["", "", "0.00", "0", "Aktif"])),
                 ("🗑️ Seçiliyi Sil", lambda: self._delete_table_row(getattr(self, "tbl_cari_grup", None))),
@@ -1967,17 +2007,19 @@ class GeneralSettingsScreen(QWidget):
                 ("📐 Şablonları Yenile", lambda: getattr(self, "screen_defs_tab", None) and self.screen_defs_tab.load_screen_definitions()),
             ],
             "surum_git": [
+                # ── 👤 PROFİL İŞLEMLERİ ──
+                ("➕ Profil Ekle", lambda: self._git_profile_call("add_profile")),
+                ("✏️ Profil Düzenle", lambda: self._git_profile_call("edit_profile")),
+                ("🗑 Profil Sil", lambda: self._git_profile_call("hide_selected")),
                 ("🔵 Google ile Giriş Yap", lambda: self._git_profile_call("btn_login")),
                 ("🔌 Bağlantıyı Test Et", lambda: self._git_profile_call("btn_test")),
-                ("➕ Bağlantı Profili Ekle", lambda: self._git_profile_call("add_profile")),
-                ("✏️ Profili Düzenle", lambda: self._git_profile_call("edit_profile")),
-                ("🗑 Profili Sil (Gizle)", lambda: self._git_profile_call("hide_selected")),
+                # ── 🌿 GİT İŞLEMLERİ ──
                 ("🚀 Git'e Gönder (Push)", lambda: self._git_call("on_commit_push_clicked")),
                 ("🔄 Fetch (Durum Tara)", lambda: self._git_call("_start_worker", "fetch")),
                 ("📥 Değişiklikleri Çek (Pull)", lambda: self._git_call("_start_worker", "pull")),
-                ("📦 Stash", lambda: self._git_call("_start_worker", "stash")),
-                ("📦 Stash Pop", lambda: self._git_call("_start_worker", "stash_pop")),
-                ("📄 Rapor Üret (.md)", lambda: self._git_call("on_report_clicked")),
+                ("📦 Geçici Sakla (Stash)", lambda: self._git_call("_start_worker", "stash")),
+                ("📤 Geri Al (Stash Pop)", lambda: self._git_call("_start_worker", "stash_pop")),
+                ("📊 Git Raporu", lambda: self._git_call("on_report_clicked")),
                 ("🔄 Git Durumunu Yenile", lambda: self._git_refresh()),
             ],
         }
@@ -2009,6 +2051,11 @@ class GeneralSettingsScreen(QWidget):
             return
         self.toast_requested.emit(tab.refresh_all(), "success")
 
+    #: uzun işlem listelerini açılır alt menülere böler: {panel_id: [(başlık, işlem sayısı, açık mı)]}
+    ACTION_GROUPS = {
+        "surum_git": [("👤 PROFİL İŞLEMLERİ", 5, False), ("🌿 GİT İŞLEMLERİ", 7, True)],
+    }
+
     def _panel_actions(self, panel_id: str) -> list:
         return self._actions_map().get(panel_id, [
             ("💾 Kaydet", lambda: self.save_current_panel()),
@@ -2025,22 +2072,40 @@ class GeneralSettingsScreen(QWidget):
         ]
 
     def _build_sub_action_box(self, panel_id: str) -> QFrame:
-        """Bir menünün işlem butonlarını (sağ paneldeki İŞLEMLER bölümünde) oluşturur. Her butonun bir kodu vardır."""
+        """Bir menünün işlem butonlarını (sağ paneldeki İŞLEMLER bölümünde) oluşturur. Her butonun bir kodu vardır.
+        Uzun listeler `ACTION_GROUPS` ile açılır alt menülere bölünür."""
         box = QFrame()
         box.setStyleSheet("QFrame { background: transparent; border: none; }")
         lyt = QVBoxLayout(box)
         lyt.setContentsMargins(0, 0, 0, 0)
         lyt.setSpacing(3)
         box.action_buttons = []   # (buton, etiket, kod)
-        for i, (label, callback) in enumerate(self._panel_actions(panel_id), start=1):
-            code = sm.action_code(panel_id, i)
-            btn = CodedButton(label, code, show_code=self.show_codes)
-            btn.setToolTip(sm.tooltip(label, code, self.code_mode))
-            btn.setStyleSheet(self.btn_style())
-            btn.clicked.connect(lambda _=False, cb=callback: cb())
-            lyt.addWidget(btn)
-            box.action_buttons.append((btn, label, code))
+        box.groups = []           # (bölüm, varsayılan açık mı)
+        actions = self._panel_actions(panel_id)
+        plan = self.ACTION_GROUPS.get(panel_id) or [(None, len(actions), True)]
+        pos = 0
+        for title, count, opened in plan:
+            target = lyt
+            if title:
+                sec = CollapsibleSection(title, is_expanded=opened, compact=True)
+                lyt.addWidget(sec)
+                box.groups.append((sec, opened))
+            for label, callback in actions[pos:pos + count]:
+                pos += 1
+                code = sm.action_code(panel_id, pos)
+                btn = CodedButton(label, code, show_code=self.show_codes)
+                btn.setToolTip(sm.tooltip(label, code, self.code_mode))
+                btn.setStyleSheet(self.btn_style())
+                btn.clicked.connect(lambda _=False, cb=callback: cb())
+                (sec.add_widget(btn) if title else target.addWidget(btn))
+                box.action_buttons.append((btn, label, code))
         return box
+
+    def _expand_action_groups(self, query: str) -> None:
+        """Sağ panel araması sürerken alt menüler açılır (eşleşen işlem gizli kalmasın); temizlenince varsayılana döner."""
+        for box in getattr(self, "menu_sub_boxes", {}).values():
+            for sec, opened in getattr(box, "groups", []):
+                sec.set_expanded(True if query.strip() else opened)
 
     def set_code_mode(self, mode: str) -> None:
         """Kod gösterimi: 'ipucu' (üzerine gelince), 'rozet' (adın altında), 'gizli'. Tercih kaydedilir."""
@@ -2068,12 +2133,8 @@ class GeneralSettingsScreen(QWidget):
 
     def _refresh_breadcrumb(self) -> None:
         pid = self.active_panel_id
-        if not pid or not hasattr(self, "lbl_breadcrumb"):
-            return
-        name = next((m for _g, _i, ml in self.MENU_STRUCTURE for m, p in ml if p == pid), pid)
-        code = sm.item_code(pid)
-        self.lbl_breadcrumb.setText(
-            f"⚙️ [{sm.SCREEN_CODE}] Genel Ayarlar > {name}" + (f"  [{code}]" if self.code_mode != "gizli" and code else ""))
+        if pid and hasattr(self, "lbl_breadcrumb"):
+            self.lbl_breadcrumb.setText(self._breadcrumb_text(pid))
 
     def show_sidebar_context_menu(self, pos):
         """Sol sidebar üzerinde sağ tıklandığında menü açar."""
@@ -2106,28 +2167,46 @@ class GeneralSettingsScreen(QWidget):
     def expand_all_sections(self):
         for sec in self.menu_sections:
             sec.set_expanded(True)
+        for inner, _t, _c in self.menu_inner_all:
+            inner.set_expanded(True)
 
     def collapse_all_sections(self):
         for sec in self.menu_sections:
             sec.set_expanded(False)
+        for inner, _t, _c in self.menu_inner_all:
+            inner.set_expanded(False)
+
+    def _open_menu_path(self, panel_id: str) -> None:
+        """Menünün bağlı olduğu grubu ve (varsa) alt menüyü açar."""
+        if panel_id in self.menu_item_containers:
+            self.menu_item_containers[panel_id][1].set_expanded(True)
+        inner = self.menu_inner_sections.get(panel_id)
+        if inner is not None:
+            inner.set_expanded(True)
 
     def filter_menu_tree(self, query: str):
-        """Menü arama kutusu: menü adı, grup adı VE kodu (menü/grup) ile eşleşenleri gösterir."""
+        """Menü arama kutusu: menü adı, alt menü, grup adı VE kodları ile eşleşenleri gösterir."""
         q = query.strip()
         if not q:
             for item_widget, _sec, _, _ in self.menu_item_containers.values():
                 item_widget.show()
+            for inner, _t, _c in self.menu_inner_all:
+                inner.show()
             self.collapse_all_sections()
-            if self.active_panel_id in self.menu_item_containers:
-                _, sec, _, _ = self.menu_item_containers[self.active_panel_id]
-                sec.set_expanded(True)
+            if self.active_panel_id:
+                self._open_menu_path(self.active_panel_id)
             return
 
         for panel_id, (item_widget, sec, menu_adi, grup_adi) in self.menu_item_containers.items():
-            matches = sm.matches(q, menu_adi, grup_adi, sm.item_code(panel_id), sm.GROUP_CODES.get(grup_adi, ""))
+            sub = sm.subgroup_of(grup_adi, panel_id) or ("", "")
+            matches = sm.matches(q, menu_adi, grup_adi, sm.item_code(panel_id), sm.GROUP_CODES.get(grup_adi, ""), sub[0], sub[1])
             item_widget.setVisible(matches)
             if matches:
-                sec.set_expanded(True)
+                self._open_menu_path(panel_id)
+        for inner, _t, _c in self.menu_inner_all:
+            visible = any(pid for pid, host in self.menu_inner_sections.items()
+                          if host is inner and not self.menu_item_containers[pid][0].isHidden())
+            inner.setVisible(visible)
 
     def on_menu_clicked(self, panel_id: str, btn: QPushButton) -> None:
         """Menü butonuna tıklanınca panel değiştir ve alt eylemleri aç."""
@@ -2137,12 +2216,17 @@ class GeneralSettingsScreen(QWidget):
         btn.setChecked(True)
         btn.setStyleSheet(self.menu_btn_style(active=True))
 
-        # Ait olduğu grubu genişlet
-        if panel_id in self.menu_item_containers:
-            _, sec, _, _ = self.menu_item_containers[panel_id]
-            sec.set_expanded(True)
-
+        self._open_menu_path(panel_id)        # ait olduğu grup + alt menü açılır
         self.switch_panel(panel_id)
+
+    def _breadcrumb_text(self, panel_id: str) -> str:
+        """'Genel Ayarlar > [Alt menü >] Menü' — adlar kısa tutulur, bağlamı üst menüler verir."""
+        name, group = next(((m, g) for g, _i, ml in self.MENU_STRUCTURE for m, p in ml if p == panel_id), (panel_id, ""))
+        sub = sm.subgroup_of(group, panel_id)
+        path = " > ".join(x for x in ((sub[0].split(" ", 1)[-1] if sub else ""), name) if x)
+        code = sm.item_code(panel_id)
+        return (f"⚙️ [{sm.SCREEN_CODE}] Genel Ayarlar > {path}"
+                + (f"  [{code}]" if self.code_mode != "gizli" and code else ""))
 
     @staticmethod
     def _darken_hex(hex_color: str, amount: float = 0.15) -> str:
@@ -2228,13 +2312,7 @@ class GeneralSettingsScreen(QWidget):
         self.actions_stack = QWidget()
         stack_lyt = QVBoxLayout(self.actions_stack)
         stack_lyt.setContentsMargins(0, 0, 0, 0)
-        self.menu_sub_boxes = {}
-        for _grup, _ikon, menuler in self.MENU_STRUCTURE:
-            for _ad, panel_id in menuler:
-                box = self._build_sub_action_box(panel_id)
-                self.menu_sub_boxes[panel_id] = box
-                box.hide()
-                stack_lyt.addWidget(box)
+        self.menu_sub_boxes = _LazyActionBoxes(self, stack_lyt)   # kutular menüye girilince kurulur
         sec_ops.add_widget(self.actions_stack)
         sb.add_section("islemler", sec_ops, sm.SIDEBAR_SECTIONS["islemler"][0])
 
@@ -2313,6 +2391,7 @@ class GeneralSettingsScreen(QWidget):
         sb.add_section("git_baglanti", sec_git, sm.SIDEBAR_SECTIONS["git_baglanti"][0], git_items)
         sb.set_code_mode(self.code_mode)
         sb.set_section_visible("git_baglanti", False)
+        sb.search.textChanged.connect(self._expand_action_groups)
         panel.message.connect(lambda text, ok: self.toast_requested.emit(text, "success" if ok else "error"))
 
         wrap = QWidget()
@@ -2463,6 +2542,8 @@ class GeneralSettingsScreen(QWidget):
             return getattr(self, "tbl_depo", None)
         elif self.active_panel_id == "cari_gruplari":
             return getattr(self, "tbl_cari_grup", None)
+        elif self.active_panel_id == "kdv_oranlari":
+            return getattr(self, "tbl_kdv", None)
         return None
 
     def _add_table_row(self, table: QTableWidget | None, default_vals: list[str]):
@@ -2803,6 +2884,7 @@ class GeneralSettingsScreen(QWidget):
             "yedek_merkezi": self.build_yedek_merkezi_panel,
             "portal_yedek": self.build_portal_yedek_panel,
             "guvenlik": self.build_guvenlik_panel,
+            "kdv_oranlari": self.build_kdv_panel,
             "sayi_bicimi": self.build_sayi_bicimi_panel,
             "gorunum_profilleri": self.build_gorunum_panel,
             "ekran_grid": self.build_ekran_grid_panel,
@@ -2864,27 +2946,15 @@ class GeneralSettingsScreen(QWidget):
                 b.setStyleSheet(self.menu_btn_style(active=is_cur))
 
         # İşlemler bölümünü seçili menünün işlemlerine çevir
-        if hasattr(self, "menu_sub_boxes") and panel_id in self.menu_sub_boxes:
+        if hasattr(self, "menu_sub_boxes"):
+            box = self.menu_sub_boxes[panel_id]           # ilk erişimde kurulur
             for pid, other in self.menu_sub_boxes.items():
                 other.setVisible(pid == panel_id)
-            box = self.menu_sub_boxes[panel_id]
             self.right_sidebar.set_items("islemler", [(b, label, code) for b, label, code in box.action_buttons])
 
         # Başlığı güncelle
-        menu_name = next(
-            (
-                m
-                for _, _, ml in self.MENU_STRUCTURE
-                for m, pid in ml
-                if pid == panel_id
-            ),
-            panel_id,
-        )
         if hasattr(self, "lbl_breadcrumb"):
-            self.lbl_breadcrumb.setText(
-                f"⚙️ [{sm.SCREEN_CODE}] Genel Ayarlar > {menu_name}"
-                + (f"  [{sm.item_code(panel_id)}]" if self.code_mode != "gizli" and sm.item_code(panel_id) else ""),
-            )
+            self.lbl_breadcrumb.setText(self._breadcrumb_text(panel_id))
 
         self._update_bottom_count()
 
@@ -4004,6 +4074,29 @@ class GeneralSettingsScreen(QWidget):
         return w
 
 
+    def build_kdv_panel(self) -> QWidget:
+        """KDV Oranları Paneli: programda genel kullanılacak KDV tanımları (Stok, Teklif, Fatura seçim listeleri için)."""
+        w = QWidget()
+        lyt = QVBoxLayout(w)
+        lyt.setContentsMargins(12, 12, 12, 12)
+        lyt.setSpacing(8)
+        lbl = QLabel("🧾 KDV Oranları")
+        lbl.setStyleSheet("font-size:14px; font-weight:800; color:#1e3a8a;")
+        lyt.addWidget(lbl)
+        info = QLabel("Programda genel olarak kullanılacak KDV oranı tanımları. Oran yüzde olarak girilir (ör. 20).")
+        info.setStyleSheet("color:#64748b; font-size:11px;")
+        lyt.addWidget(info)
+        self.tbl_kdv = self._new_grid("tbl_kdv", ["Kod", "Açıklama", "Oran (%)", "Durum"], stretch=1)
+        default_kdv = [
+            ("KDV0", "KDV %0 (İstisna)", "0", "Aktif"),
+            ("KDV1", "KDV %1", "1", "Aktif"),
+            ("KDV10", "KDV %10", "10", "Aktif"),
+            ("KDV20", "KDV %20", "20", "Aktif"),
+        ]
+        self._load_generic_table(self.tbl_kdv, "kdv_oranlari", default_kdv)
+        lyt.addWidget(self.tbl_kdv, 1)
+        return w
+
     def build_gorunum_panel(self) -> QWidget:
         """Mevcut Görünüm Profilleri Paneli (kabuk içinde: yalnız içerik)."""
         self.view_settings_tab = ViewSettingsWidget(embedded=True)
@@ -4692,6 +4785,7 @@ class GeneralSettingsScreen(QWidget):
             "fiyat_listeleri": lambda: self._save_generic_table(
                 self.tbl_fiyat, "fiyat_listeleri",
             ),
+            "kdv_oranlari": lambda: self._save_generic_table(self.tbl_kdv, "kdv_oranlari"),
             "stok_markalar": lambda: self._save_generic_table(
                 self.tbl_marka, "stok_markalar",
             ),

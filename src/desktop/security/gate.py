@@ -34,9 +34,13 @@ MODULE_PERMISSIONS: dict[str, str] = {
     "Müşteriler": "cari.view",
     "Cari Bakiye": "cari.balance",
     "Cari Analiz": "cari.view",
+    "Cari Hareketleri": "cari.view",
     # Stok
     "Ürün Yönetimi": "stok.view",
     "Stok Kartları": "stok.view",
+    "Stok Hareketleri": "stok.view",
+    "Kasa Kartları": "kasa.view",
+    "Banka & POS Kartları": "banka.view",
     "Fiyat Politikaları": "stok.price",
     "Fiyat Politikalari": "stok.price",
     # Finans (henüz PoC — muhasebe yetkisi gerektirir)

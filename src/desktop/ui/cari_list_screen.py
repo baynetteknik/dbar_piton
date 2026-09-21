@@ -36,6 +36,7 @@ from src.desktop.ui.components.three_panel_base import ThreePanelBaseWidget
 from src.desktop.ui.widgets.action_bar_widget import ActionBarWidget
 from src.desktop.ui.widgets.export_widget import ExportWidget
 from src.desktop.ui.widgets.filter_widget import FilterWidget
+from src.desktop.ui.widgets.hareket_alt_paneli import CARI_KOLONLAR, HareketAltPaneli, cari_saglayici
 from src.desktop.ui.widgets.pagination_widget import PaginationWidget
 
 logger = logging.getLogger(__name__)
@@ -260,6 +261,11 @@ class CariListScreen(ThreePanelBaseWidget):
         """)
 
         center_layout.addWidget(self.filterable_table, 1)
+
+        # Alt panel: seçili carinin hareketleri (bir düğmeyle açılıp kapanır)
+        self.alt_panel = HareketAltPaneli(self.db, CARI_KOLONLAR, cari_saglayici, preset_id="dbgrid_cari_alt_hareket",
+                                          durum_anahtari="cari", baslik="Hareketleri")
+        center_layout.addWidget(self.alt_panel)
 
         # Bağımsız Sayfalama Barı (PaginationWidget)
         self.pagination_widget = PaginationWidget(page_sizes=[25, 50, 100], parent=self)
@@ -584,6 +590,10 @@ class CariListScreen(ThreePanelBaseWidget):
 
     def on_selection_changed(self):
         has_sel = self.get_selected_id() is not None
+        cid = self.get_selected_id()
+        if hasattr(self, "alt_panel"):
+            cari = self.db.get(Customer, cid) if (cid and self.db) else None
+            self.alt_panel.set_kayit(cid, f"{cari.customer_code or ''} — {cari.fullname}" if cari else "")
         self.btn_edit.setEnabled(has_sel)
         self.btn_delete.setEnabled(has_sel)
         self.btn_duplicate.setEnabled(has_sel)

@@ -244,6 +244,70 @@ class GitService:
             "files": changes, "remote": ab, "sensitive": sensitive, "warnings": warnings,
         }
 
+    # ------------------------------------------------------------------ rapor verisi
+    def _log(self, rng: str, limit: int = 30) -> list[dict[str, str]]:
+        r = self.run(["log", rng, f"-n{limit}", "--pretty=format:%H%x1f%an%x1f%cs%x1f%s"])
+        rows = []
+        for line in (r.out.splitlines() if r.ok else []):
+            p = line.split("\x1f")
+            if len(p) == 4:
+                rows.append({"hash": p[0][:7], "author": p[1], "date": p[2], "message": p[3]})
+        return rows
+
+    def outgoing_commits(self, limit: int = 30) -> list[dict[str, str]]:
+        """Yerelde olup uzak depoya gönderilmemiş commit'ler."""
+        b = self.branch()
+        return self._log(f"origin/{b}..HEAD", limit) if self.ahead_behind(b)["tracking"] else []
+
+    def incoming_commits(self, limit: int = 30) -> list[dict[str, str]]:
+        """Uzak depoda olup henüz çekilmemiş commit'ler (son fetch'e göre)."""
+        b = self.branch()
+        return self._log(f"HEAD..origin/{b}", limit) if self.ahead_behind(b)["tracking"] else []
+
+    def commits_per_day(self, days: int = 14) -> list[tuple[str, int]]:
+        """Son `days` gün için (tarih, commit sayısı); commit olmayan günler 0."""
+        from datetime import date, timedelta
+
+        r = self.run(["log", f"--since={days} days ago", "--pretty=format:%cs"])
+        counts: dict[str, int] = {}
+        for line in (r.out.splitlines() if r.ok else []):
+            counts[line.strip()] = counts.get(line.strip(), 0) + 1
+        today = date.today()
+        return [((today - timedelta(days=i)).isoformat(), counts.get((today - timedelta(days=i)).isoformat(), 0))
+                for i in range(days - 1, -1, -1)]
+
+    def fetch_time(self) -> datetime | None:
+        f = self.repo / ".git" / "FETCH_HEAD"
+        try:
+            return datetime.fromtimestamp(f.stat().st_mtime) if f.is_file() else None
+        except OSError:
+            return None
+
+    def light_state(self) -> dict[str, Any]:
+        """Bir işlemin öncesi/sonrası karşılaştırması için hafif durum (ahead/behind/değişen)."""
+        cmp = self.comparison()
+        if not cmp.get("ok"):
+            return {"ok": False, "ahead": 0, "behind": 0, "changed": 0, "head": ""}
+        head = self.run(["rev-parse", "--short", "HEAD"]).text
+        return {"ok": True, "ahead": cmp["remote"]["ahead"], "behind": cmp["remote"]["behind"],
+                "changed": cmp["summary"]["total"], "head": head, "tracking": cmp["remote"]["tracking"]}
+
+    def snapshot(self) -> dict[str, Any]:
+        """Git durum raporu için tüm veri (tek çağrıda; ~10 git süreci)."""
+        cmp = self.comparison()
+        if not cmp.get("ok"):
+            return {"ok": False, "message": cmp.get("message", "Git deposu bulunamadı.")}
+        hist = self.commit_history(1)
+        name, email = self.user()
+        return {
+            "ok": True, "taken": datetime.now(), "branch": cmp["branch"], "remote": self.masked_remote(),
+            "ahead": cmp["remote"]["ahead"], "behind": cmp["remote"]["behind"], "tracking": cmp["remote"]["tracking"],
+            "summary": cmp["summary"], "categories": cmp["categories"], "files": cmp["files"], "sensitive": cmp["sensitive"],
+            "outgoing": self.outgoing_commits(), "incoming": self.incoming_commits(), "per_day": self.commits_per_day(14),
+            "history": self.commit_history(15), "last_commit": hist[0] if hist else None, "fetch_time": self.fetch_time(),
+            "user": f"{name} <{email}>" if name or email else "", "advice": self.sync_advice(cmp),
+        }
+
     # ------------------------------------------------------------------ tavsiye
     def sync_advice(self, cmp: dict[str, Any] | None = None) -> Advice:
         """Aidat'taki getSyncAdvice: tek bakışta ne yapılması gerektiği. Önceden hesaplanmış `comparison()` verilirse

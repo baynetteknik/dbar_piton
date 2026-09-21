@@ -40,6 +40,9 @@ def ensure_table(conn) -> None:
             created_at TEXT
         )"""
     )
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(git_profiles)")}
+    if "login_at" not in cols:              # eski veritabanları için: son başarılı giriş/doğrulama zamanı
+        conn.execute("ALTER TABLE git_profiles ADD COLUMN login_at TEXT")
     conn.commit()
 
 
@@ -162,6 +165,16 @@ def record_result(profile_id: int, ok: bool, message: str) -> None:
     try:
         conn.execute("UPDATE git_profiles SET last_sync_at=?, last_status=?, last_message=? WHERE id=?",
                      (_now(), "ok" if ok else "error", (message or "")[:500], profile_id))
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def set_login(profile_id: int, ok: bool) -> None:
+    """Giriş durumunu kaydeder: başarılı giriş/bağlantı doğrulaması → zaman damgası, kimlik hatası → temizlenir."""
+    conn = _conn()
+    try:
+        conn.execute("UPDATE git_profiles SET login_at = ? WHERE id = ?", (_now() if ok else None, profile_id))
         conn.commit()
     finally:
         conn.close()

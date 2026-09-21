@@ -90,6 +90,7 @@ class ProductService:
             return ProductSaveResult(success=False, error="Stok adı zorunludur.")
         try:
             p = self.db.get(Product, product_id) if product_id else None
+            eski_stok = float(p.stock or 0) if p is not None else 0.0
             if p is None:
                 if self.get_by_sku(sku):
                     return ProductSaveResult(success=False,
@@ -108,6 +109,12 @@ class ProductService:
             # legacy 'price' alanını base_price ile senkron tut
             if payload.get("base_price") is not None:
                 p.price = float(payload["base_price"] or 0)
+            if payload.get("stock") is not None:
+                # kartta toplam stok elle değiştiyse fark hareket defterine yazılır (geçmiş ile toplam tutarlı kalsın)
+                from src.desktop.services.stok_fis_service import kart_duzeltme
+                self.db.flush()
+                kart_duzeltme(self.db, p, eski_stok, float(p.stock or 0),
+                              "Açılış stoğu (kart)" if product_id is None else "Stok kartından düzeltme")
             self.db.commit()
             return ProductSaveResult(success=True, product_id=p.id)
         except Exception as exc:  # noqa: BLE001

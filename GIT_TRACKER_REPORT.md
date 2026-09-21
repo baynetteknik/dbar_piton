@@ -1,5 +1,5 @@
 # 📊 TOYA ERP - Git & Görev Takip Raporu (git_tracker.db)
-**Son Güncelleme Zamanı:** 2026-09-02 00:05:55
+**Son Güncelleme Zamanı:** 2026-09-20 13:40:41
 
 ## 🚀 Yapılan ve Yapılacak İşler (Görev Durumları)
 | ID | Kategori | Görev / Özellik | Açıklama | Durum | İlgili Branch |
@@ -19,26 +19,26 @@
 ## 📦 Git Commit ve Push Geçmişi
 | Commit Hash | Tarih | Dal (Branch) | Commit Mesajı | Gönderim Durumu |
 |---|---|---|---|---|
-| `660b851` | 2026-09-02 00:04:04 +0300 | `feat/dinamik-modul-gorev-yedekleme` | teklif ve teklif fiÅŸ detay ekranÄ±nda ilerleme kaydettik db girdlere geÃ§eceÄŸiz | 🟢 Gönderildi |
-| `9133429` | 2026-08-17 20:32:01 +0300 | `feat/dia-3panel-and-layout-hints` | refactor(ui): remove redundant Firma, Depo, and Tarih dropdowns from navbar | 🟢 Gönderildi |
-| `14d5c25` | 2026-08-17 19:35:43 +0300 | `feat/dia-3panel-and-layout-hints` | feat(architecture): add visible [cmp.grd.001] badge, viewport-synced filter bar, top bar hints, and global architecture codes toggle parameter | 🟢 Gönderildi |
-| `995dfab` | 2026-08-17 19:27:52 +0300 | `feat/dia-3panel-and-layout-hints` | fix(ui): brand as Toya ERP, show [isl.quo.001] in tabs/title, remove footer banner, fix horizontal filter scroll sync | 🟢 Gönderildi |
-| `96a704c` | 2026-08-17 19:18:44 +0300 | `feat/dia-3panel-and-layout-hints` | fix(grid): enable multi-select checkbox, fix id column hiding, sync horizontal scroll with filter row, enable sorting | 🟢 Gönderildi |
-| `48132c6` | 2026-08-17 18:56:24 +0300 | `feat/dia-3panel-and-layout-hints` | feat(standards): integrate [isl.doc.001], [tan.car.001], [isl.quo.001], [isl.ord.001] standard screen and act/cmp action codes | 🟢 Gönderildi |
-| `6795f8a` | 2026-08-16 18:44:53 +0300 | `feat/dia-3panel-and-layout-hints` | feat(invoice-doc): universal transaction document dialog, 3-panel order/quotation refactor, header column manager and multi-discount subtable | 🟢 Gönderildi |
-| `54afb55` | 2026-08-16 00:14:42 +0300 | `feat/dia-3panel-and-layout-hints` | feat(desktop): implement Master 3-Panel template, CollapsibleSection sidebars, ViewProfile integration, and full architecture specs | 🟢 Gönderildi |
-| `8aabf49` | 2026-08-04 00:08:30 +0300 | `feat/teklif-ve-erp-entegrasyonu` | feat(ui): genel ayarlar ekranina 'Surum & Git Takibi' sekmesi (GitTrackerWidget) eklendi | 🟢 Gönderildi |
-| `187a2d9` | 2026-08-04 00:03:11 +0300 | `feat/teklif-ve-erp-entegrasyonu` | feat(tracker): git commit/push ve gorev takibi icin git_tracker.db altyapisi eklendi | 🟢 Gönderildi |
-| `c57e776` | 2026-08-03 23:56:49 +0300 | `feat/teklif-ve-erp-entegrasyonu` | feat(erp-teklif-ui): teklif yonetimi, erp adaptorleri (logo, zirve, akinsoft) ve gorunum profilleri eklendi | 🟢 Gönderildi |
-| `21f1590` | 2026-08-02 19:15:12 +0300 | `feat/teklif-ve-erp-entegrasyonu` | fix(ui): stok detay ve uygulama genelindeki QComboBox drop-down menu stilleri duzeltildi | 🟢 Gönderildi |
-| `3578039` | 2026-07-25 20:00:52 +0300 | `feat/teklif-ve-erp-entegrasyonu` | fix: MÃ¼ÅŸteriler & Cari ekranÄ±nÄ±n Ã¼stÃ¼ndeki GÃ¶rÃ¼nÃ¼m Profili Ã§ubuÄŸu kaldÄ±rÄ±ldÄ± | 🟢 Gönderildi |
-| `a53a078` | 2026-07-25 18:18:56 +0300 | `feat/teklif-ve-erp-entegrasyonu` | feat: Genel Ayarlar GÃ¶rÃ¼nÃ¼m Profilleri sekmesi v2.0.0 ProfileManager ile entegre edildi | 🟢 Gönderildi |
-| `3c5761d` | 2026-07-25 17:57:58 +0300 | `feat/teklif-ve-erp-entegrasyonu` | feat: GÃ¶rÃ¼nÃ¼m Profilleri v2.0.0 altyapÄ±sÄ±, ViewProfileBar ve kural motoru entegre edildi | 🟢 Gönderildi |
-| `8f25956` | 2026-07-21 21:55:58 +0300 | `feat/teklif-ve-erp-entegrasyonu` | fix: QTableView selectionModel ve QStandardItemModel entegrasyonu tamamlandi | 🟢 Gönderildi |
-| `f4f7cf3` | 2026-07-21 21:52:30 +0300 | `feat/teklif-ve-erp-entegrasyonu` | feat: Gorevler ekrani Dinamik Grid Duzeni yapisina gecirildi | 🟢 Gönderildi |
-| `e17770e` | 2026-07-21 21:33:20 +0300 | `feat/teklif-ve-erp-entegrasyonu` | feat: BaseManagedListWidget taban sinifi olusturuldu, modul bazli profile_key kaliciligi eklendi ve Gorunum Profilleri sekmesi genisletildi | 🟢 Gönderildi |
-| `cec045b` | 2026-07-21 21:18:32 +0300 | `feat/teklif-ve-erp-entegrasyonu` | feat: Sag tik menusu genisletildi, 'Menuyu Acik Tut' secenegi eklendi ve sayfalama kayit secici kutusu iyilestirildi | 🟢 Gönderildi |
-| `7475b96` | 2026-07-21 21:12:01 +0300 | `feat/teklif-ve-erp-entegrasyonu` | feat: Aktif profil kutuda otomatik secili getirildi, input alani mevcut profille doldurularak tek tikla guncelleme kolayligi saglandi | 🟢 Gönderildi |
+| `fce72aa` | 2026-09-20 13:40:05 +0300 | `feat/gorsel-tasarimci-ve-widget-katalogu` | DÖVİZ KURLARI VE GİT E BAĞLANTI GÖNDERME AYARLARI TAMAMLANDI YEDEKLEME İŞLEMLERİNE GİRİLDE AMA HENUZ TAMAMLANMDI PORTAL İŞLEMLERİNE BAŞLANDI | 🟢 Gönderildi |
+| `ca4e21f` | 2026-09-20 12:09:23 +0300 | `feat/gorsel-tasarimci-ve-widget-katalogu` | DÖVİZ İŞLEMLERİ PAROLAMI UNUTTUM İÇİN İŞLEMLER AYARLAR BÖLÜMÜNDE YAPILAN GELİŞTİRMELER YEDEKLEME VS AMA HENUZ DENENMEDİ | 🟢 Gönderildi |
+| `ad2a89b` | 2026-09-20 08:40:46 +0300 | `feat/gorsel-tasarimci-ve-widget-katalogu` | 1- GİT için geliştirmeler yapıldı 2- Yedekleme sistemi yapıldı 3- döviz sistemi yapıldı | 🟢 Gönderildi |
+| `ea46715` | 2026-09-08 23:57:08 +0300 | `feat/gorsel-tasarimci-ve-widget-katalogu` | dokuman: DESIGNER_AND_WIDGET_ROADMAP - Asama 3 kapanis ozeti ve acik maddeler | 🟢 Gönderildi |
+| `28d9ebc` | 2026-09-08 23:56:41 +0300 | `feat/gorsel-tasarimci-ve-widget-katalogu` | ozellik: tasarimci Asama 3 Adim 3 - masaustu ekran tasarimcisi modu | 🟢 Gönderildi |
+| `4c086fb` | 2026-09-08 23:42:36 +0300 | `feat/gorsel-tasarimci-ve-widget-katalogu` | ozellik: tasarimci Asama 3 Adim 4 - fatura, sevk irsaliyesi ve 80mm termal fis sablonlari | 🟢 Gönderildi |
+| `fe5ec8b` | 2026-09-08 23:23:57 +0300 | `feat/gorsel-tasarimci-ve-widget-katalogu` | ozellik: tasarimci Asama 3 Adim 2 - belge detay ekraninda canli mini baski onizleme | 🟢 Gönderildi |
+| `98620b2` | 2026-09-08 23:13:35 +0300 | `feat/gorsel-tasarimci-ve-widget-katalogu` | ozellik: tasarimci Asama 3 Adim 1 - gomulebilir tasarimci ve onizleme widget'lari | 🟢 Gönderildi |
+| `f089d62` | 2026-09-08 22:55:37 +0300 | `feat/gorsel-tasarimci-ve-widget-katalogu` | ozellik: tasarimci A5 sablon destegi ve sablon bazli kagit boyutu cozumleme | 🟢 Gönderildi |
+| `5e0bc29` | 2026-09-08 22:55:03 +0300 | `feat/gorsel-tasarimci-ve-widget-katalogu` | ozellik: DocumentDetailScreen - bant tabanli evrak detay ekrani | 🟢 Gönderildi |
+| `b0b37fe` | 2026-09-08 22:54:31 +0300 | `feat/gorsel-tasarimci-ve-widget-katalogu` | ozellik: cari kart ve stok kart editor ekranlari | 🟢 Gönderildi |
+| `052a9e4` | 2026-09-08 22:54:11 +0300 | `feat/gorsel-tasarimci-ve-widget-katalogu` | ozellik: sirket tanimlama, kullanici/rol/yetki yonetimi ve tek kabuk Genel Ayarlar | 🟢 Gönderildi |
+| `c36cdaf` | 2026-09-08 22:53:15 +0300 | `feat/gorsel-tasarimci-ve-widget-katalogu` | duzen: gelistirme dokumanlarini yeniden duzenle ve harici artefaktlari yoksay | 🟢 Gönderildi |
+| `af0c586` | 2026-09-05 00:08:13 +0300 | `feat/gorsel-tasarimci-ve-widget-katalogu` | dokuman: Gorsel tasarimci ve widget entegrasyonu ana yol haritasi (DESIGNER_AND_WIDGET_ROADMAP.md) hazirlandi | 🟢 Gönderildi |
+| `2793b4b` | 2026-09-05 00:01:10 +0300 | `feat/gorsel-tasarimci-ve-widget-katalogu` | ozellik: Asama 2 tamamlandi - Bant tabanli gorsel form ve rapor tasarimcisi, cetveller, veri agaci ve ozellik denetcisi eklendi | 🟢 Gönderildi |
+| `aa3b973` | 2026-09-04 23:52:32 +0300 | `feat/gorsel-tasarimci-ve-widget-katalogu` | duzeltme: Baski onizlemedeki buyuk font sorunu giderildi, tumunu sigdir (sayfaya sigdir) ve kucuk zoom oranlari eklendi | 🟢 Gönderildi |
+| `b29a8fd` | 2026-09-02 23:51:25 +0300 | `feat/gorsel-tasarimci-ve-widget-katalogu` | ozellik: Teklif Formu icin izole baski onizleme, vektorel PDF motoru ve A4 kurumsal sablon tamamlandi | 🟢 Gönderildi |
+| `71ad38c` | 2026-09-02 23:28:34 +0300 | `feat/gorsel-tasarimci-ve-widget-katalogu` | dokuman: Gorsel form ve rapor tasarimcisi sartnamesi genisletildi, widget katalogu tamamlandi ve ticari markalar temizlendi | 🟢 Gönderildi |
+| `65a0aab` | 2026-09-02 19:16:23 +0300 | `feat/dinamik-modul-gorev-yedekleme` | dia isimleri temizlenmesi | 🟢 Gönderildi |
+| `660b851` | 2026-09-02 00:04:04 +0300 | `feat/dinamik-modul-gorev-yedekleme` | teklif ve teklif fiş detay ekranında ilerleme kaydettik db girdlere geçeceğiz | 🟢 Gönderildi |
 
 ---
 *Bu rapor `git_tracker.db` SQLite veritabanı verilerinden otomatik üretilmiştir.*
