@@ -130,7 +130,7 @@ class ProfileManager:
         """Creates the default system ViewProfile."""
         if self.profile_key in ("backup_tasks", "restore_tasks", "backup", "restore"):
             core_cols = ["id", "name", "source", "target_type", "schedule", "status"]
-        elif self.profile_key in ("quotations", "orders"):
+        elif self.profile_key in ("quotations", "orders", "waybills", "invoices"):
             core_cols = ["id", "quotation_number", "title", "customer_name", "grand_total", "currency", "status", "issue_date"]
         elif self.profile_key == "sites":
             core_cols = ["id", "code", "name", "url", "status"]

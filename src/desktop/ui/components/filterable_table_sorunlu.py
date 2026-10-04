@@ -20,13 +20,11 @@ import os
 from typing import Any
 
 from PyQt6.QtCore import (
-    QAbstractTableModel,
-    QModelIndex,
     QSortFilterProxyModel,
     Qt,
     pyqtSignal,
 )
-from PyQt6.QtGui import QAction, QColor, QFont, QStandardItem, QStandardItemModel
+from PyQt6.QtGui import QAction, QStandardItem, QStandardItemModel
 from PyQt6.QtWidgets import (
     QAbstractItemView,
     QApplication,
@@ -706,7 +704,10 @@ class FilterableTableView(QWidget):
         """Mevcut görünümü profil olarak döndür."""
         try:
             from src.desktop.models.profile_models import (
-                ColumnSettings, IndividualColumn, ProfileData, ViewProfile,
+                ColumnSettings,
+                IndividualColumn,
+                ProfileData,
+                ViewProfile,
             )
             indiv = {}
             for c in range(self.model.columnCount()):
@@ -725,7 +726,7 @@ class FilterableTableView(QWidget):
 
     def open_column_manager_dialog(self):
         """Sütun yönetim dialogunu aç."""
-        from PyQt6.QtWidgets import QCheckBox, QDialog, QScrollArea
+        from PyQt6.QtWidgets import QCheckBox, QScrollArea
 
         dlg = QDialog(self)
         dlg.setWindowTitle("⚙️ Sütun Görünümü Yönet")

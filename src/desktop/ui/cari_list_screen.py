@@ -12,10 +12,8 @@ import logging
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QAction, QStandardItem, QStandardItemModel
 from PyQt6.QtWidgets import (
-    QComboBox,
     QHBoxLayout,
     QHeaderView,
-    QLabel,
     QMenu,
     QMessageBox,
     QPushButton,
@@ -26,6 +24,7 @@ from sqlalchemy import select
 
 from src.core.models import Customer
 from src.desktop.managers.profile_manager import ProfileManager
+from src.desktop.ui.components.button_style import btn_style
 from src.desktop.ui.components.collapsible_section import CollapsibleSection
 from src.desktop.ui.components.filterable_table import (
     FilterableTableView,
@@ -33,10 +32,16 @@ from src.desktop.ui.components.filterable_table import (
 )
 from src.desktop.ui.components.layout_hint_helper import register_layout_hint
 from src.desktop.ui.components.three_panel_base import ThreePanelBaseWidget
+from src.desktop.ui.widgets.gorunum_profilleri_bolumu import GorunumProfilleriBolumu
 from src.desktop.ui.widgets.action_bar_widget import ActionBarWidget
 from src.desktop.ui.widgets.export_widget import ExportWidget
 from src.desktop.ui.widgets.filter_widget import FilterWidget
-from src.desktop.ui.widgets.hareket_alt_paneli import CARI_KOLONLAR, HareketAltPaneli, cari_saglayici
+from src.desktop.ui.widgets.gorev_kisayol_bolumu import GorevKisayolBolumu
+from src.desktop.ui.widgets.hareket_alt_paneli import (
+    CARI_KOLONLAR,
+    HareketAltPaneli,
+    cari_saglayici,
+)
 from src.desktop.ui.widgets.pagination_widget import PaginationWidget
 
 logger = logging.getLogger(__name__)
@@ -47,6 +52,8 @@ class CariListScreen(ThreePanelBaseWidget):
 
     ToyaUI 3 panelli master şablon ve atomik widget'ları kullanır.
     """
+
+    BUS_KONULARI = ("cari", "cari_kart")
 
     toast_requested = pyqtSignal(str, str)
 
@@ -86,21 +93,7 @@ class CariListScreen(ThreePanelBaseWidget):
         }
 
     def toolbar_btn_style(self, bg_color="#ffffff", text_color="#1e293b"):
-        return f"""
-            QPushButton {{
-                background-color: {bg_color};
-                color: {text_color};
-                border: 1px solid #cbd5e1;
-                border-radius: 6px;
-                padding: 6px 10px;
-                font-size: 11px;
-                font-weight: 600;
-                text-align: left;
-                font-family: 'Segoe UI';
-            }}
-            QPushButton:hover {{ background-color: #f1f5f9; }}
-            QPushButton:disabled {{ color: #94a3b8; background-color: #f8fafc; }}
-        """
+        return btn_style(bg_color, text_color)
 
     # ─────────────────────────────────────────────
     # ANA UI KURULUMU
@@ -121,12 +114,15 @@ class CariListScreen(ThreePanelBaseWidget):
                 color: #0f172a;
                 font-size: 12px;
             }
+            QComboBox {
+                combobox-popup: 0;
+            }
             QComboBox QAbstractItemView {
                 border: 1px solid #94a3b8;
                 background-color: #ffffff;
                 color: #0f172a;
                 outline: none;
-                padding: 2px 0px;
+                padding: 0px;
             }
             QComboBox QAbstractItemView::item {
                 min-height: 26px;
@@ -171,31 +167,6 @@ class CariListScreen(ThreePanelBaseWidget):
         self.btn_excel = self.action_bar.btn_excel
         self.btn_refresh = self.action_bar.btn_refresh
 
-        # GRUP 2: GÖRÜNÜM PROFİLLERİ (Sol Panele Ek Akordiyon Olarak Eklenir)
-        self.sec_profiles = CollapsibleSection("GÖRÜNÜM PROFİLLERİ", is_expanded=True)
-
-        lbl_prof = QLabel("Aktif Profil:")
-        lbl_prof.setStyleSheet("font-weight: bold; color: #475569; font-size: 11px;")
-        self.combo_profiles = QComboBox()
-        self.combo_profiles.setStyleSheet(combo_style)
-        self.combo_profiles.currentTextChanged.connect(self._on_profile_changed)
-
-        prof_btn_lyt = QHBoxLayout()
-        prof_btn_lyt.setSpacing(4)
-        btn_save_prof = QPushButton("💾 Kaydet")
-        btn_save_prof.setStyleSheet(self.toolbar_btn_style())
-        btn_save_prof.clicked.connect(self.save_current_profile)
-        btn_cols = QPushButton("⚙️ Sütunlar")
-        btn_cols.setStyleSheet(self.toolbar_btn_style())
-        btn_cols.clicked.connect(self.open_column_manager)
-        prof_btn_lyt.addWidget(btn_save_prof)
-        prof_btn_lyt.addWidget(btn_cols)
-
-        self.sec_profiles.add_widget(lbl_prof)
-        self.sec_profiles.add_widget(self.combo_profiles)
-        self.sec_profiles.add_layout(prof_btn_lyt)
-        self.action_bar.add_custom_section(self.sec_profiles)
-
         # GRUP 3: CARİ HESAP — ekstre / hareketler
         self.sec_hesap = CollapsibleSection("CARİ HESAP", is_expanded=True)
         self.btn_ekstre = QPushButton("📜 Ekstre / Hareketler")
@@ -203,6 +174,10 @@ class CariListScreen(ThreePanelBaseWidget):
         self.btn_ekstre.clicked.connect(self.on_ekstre_clicked)
         self.sec_hesap.add_widget(self.btn_ekstre)
         self.action_bar.add_custom_section(self.sec_hesap)
+
+        # GRUP 4: GÖREVLER — seçili cariye bağlı görev ekle / görevlerini gör
+        self.gorev_bolumu = GorevKisayolBolumu(self.db, "cari", self)
+        self.action_bar.add_custom_section(self.gorev_bolumu)
 
         main_layout.addWidget(self.action_bar)
 
@@ -233,33 +208,9 @@ class CariListScreen(ThreePanelBaseWidget):
         self.table_view.selectionModel().selectionChanged.connect(self.on_selection_changed)
         self.table_view.doubleClicked.connect(self.on_edit_clicked)
 
-        self.table_view.setStyleSheet("""
-            QTableView {
-                border: 1px solid #cbd5e1;
-                background-color: white;
-                gridline-color: #f1f5f9;
-                border-radius: 6px;
-                font-family: 'Segoe UI';
-                font-size: 12px;
-                color: #334155;
-            }
-            QTableView::item { padding: 6px; }
-            QTableView::item:selected {
-                background-color: #eff6ff;
-                color: #1d4ed8;
-                font-weight: 600;
-            }
-            QHeaderView::section {
-                background-color: #f8fafc;
-                color: #475569;
-                padding: 8px;
-                border: none;
-                border-right: 1px solid #cbd5e1;
-                border-bottom: 2px solid #cbd5e1;
-                font-weight: bold;
-            }
-        """)
 
+        self.sec_profiles = GorunumProfilleriBolumu(self.filterable_table)
+        self.action_bar.add_custom_section(self.sec_profiles)
         center_layout.addWidget(self.filterable_table, 1)
 
         # Alt panel: seçili carinin hareketleri (bir düğmeyle açılıp kapanır)
@@ -326,8 +277,7 @@ class CariListScreen(ThreePanelBaseWidget):
         self.filter_widget.add_custom_section(self.export_widget)
         main_layout.addWidget(self.filter_widget)
 
-        # Profilleri yükle, panelleri kapat, tabloyu doldur
-        self._load_profiles()
+        # Panelleri kapat, tabloyu doldur
 
         # F5 kısayolu — en sona, layout bittikten sonra
         from PyQt6.QtGui import QKeySequence, QShortcut
@@ -337,39 +287,6 @@ class CariListScreen(ThreePanelBaseWidget):
         self.left_panel.close_panel()
         self.right_panel.close_panel()
         self.refresh_table()
-
-    # ─────────────────────────────────────────────
-    # PROFİL YÖNETİMİ
-    # ─────────────────────────────────────────────
-    def _load_profiles(self):
-        if not hasattr(self, "combo_profiles"):
-            return
-        self.combo_profiles.blockSignals(True)
-        self.combo_profiles.clear()
-        profiles = self.profile_manager.load_profiles()
-        for name in profiles.keys():
-            self.combo_profiles.addItem(name)
-        active = self.profile_manager.get_active_profile_name()
-        idx = self.combo_profiles.findText(active)
-        if idx >= 0:
-            self.combo_profiles.setCurrentIndex(idx)
-        self.combo_profiles.blockSignals(False)
-
-    def _on_profile_changed(self, profile_name):
-        if not profile_name:
-            return
-        p = self.profile_manager.get_profile(profile_name)
-        if p and hasattr(self, "filterable_table"):
-            self.filterable_table.apply_view_profile(p)
-
-    def save_current_profile(self):
-        active_name = self.combo_profiles.currentText() or "Varsayılan"
-        current_p = self.filterable_table.get_current_view_as_profile(active_name)
-        self.profile_manager.save_profile(active_name, current_p)
-        QMessageBox.information(self, "Profil Kaydedildi", f"'{active_name}' görünüm profili kaydedildi.")
-
-    def open_column_manager(self):
-        self.filterable_table.open_column_manager_dialog()
 
     def close_tab(self):
         parent_tab = self.parentWidget()
@@ -594,6 +511,9 @@ class CariListScreen(ThreePanelBaseWidget):
         if hasattr(self, "alt_panel"):
             cari = self.db.get(Customer, cid) if (cid and self.db) else None
             self.alt_panel.set_kayit(cid, f"{cari.customer_code or ''} — {cari.fullname}" if cari else "")
+        if hasattr(self, "gorev_bolumu"):
+            c = self.get_selected_customer() if has_sel else None
+            self.gorev_bolumu.kayit_sec(cid if c is not None else None, f"{c.customer_code or ''} — {c.fullname}".strip(" —") if c is not None else "")
         self.btn_edit.setEnabled(has_sel)
         self.btn_delete.setEnabled(has_sel)
         self.btn_duplicate.setEnabled(has_sel)
@@ -762,6 +682,10 @@ class CariListScreen(ThreePanelBaseWidget):
             menu.addSeparator()
             menu.addAction(act_dup)
             menu.addAction(act_pas)
+            menu.addSeparator()
+            act_gorev = QAction("✅ Görev Ekle", self)
+            act_gorev.triggered.connect(self.gorev_bolumu.gorev_ekle)
+            menu.addAction(act_gorev)
 
         self.filterable_table.add_column_actions_to_menu(menu)
 

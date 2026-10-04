@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import datetime as dt
+import json
 import threading
 import urllib.parse
 
@@ -299,3 +300,121 @@ def test_build_provider_merges_public_config_with_secrets_and_rejects_unknown(tm
     assert rp.build_provider({"type": "local", "path": str(tmp_path)}, {}).test()[0]
     with pytest.raises(ProviderError):
         rp.build_provider({"type": "dropbox"}, {})
+
+
+# ---------------------------------------------------------------- Google Drive: klasör gezgini, klasör kimliği, servis hesabı
+@responses.activate
+def test_drive_list_folders_root_shared_and_pagination_and_full_access_error():
+    _token_ok()
+    responses.add(responses.GET, f"{rp.GDRIVE_API}/files", status=200, json={"files": [{"id": "A", "name": "Belgeler"}], "nextPageToken": "P2"})
+    responses.add(responses.GET, f"{rp.GDRIVE_API}/files", status=200, json={"files": [{"id": "B", "name": "Yedekler"}]})
+    out = _drive().list_folders()
+    assert out == [{"id": "A", "name": "Belgeler"}, {"id": "B", "name": "Yedekler"}]
+    q = urllib.parse.parse_qs(urllib.parse.urlparse(responses.calls[1].request.url).query)
+    assert "'root' in parents" in q["q"][0] and "google-apps.folder" in q["q"][0] and q["supportsAllDrives"] == ["true"]
+    assert urllib.parse.parse_qs(urllib.parse.urlparse(responses.calls[2].request.url).query)["pageToken"] == ["P2"]
+    responses.reset()
+    _token_ok()
+    responses.add(responses.GET, f"{rp.GDRIVE_API}/files", status=200, json={"files": []})
+    _drive().list_folders(rp.SHARED)
+    assert "sharedWithMe = true" in urllib.parse.parse_qs(urllib.parse.urlparse(responses.calls[1].request.url).query)["q"][0]
+    responses.reset()
+    _token_ok()
+    responses.add(responses.GET, f"{rp.GDRIVE_API}/files", status=403, body="insufficient scope")
+    with pytest.raises(ProviderError, match="tam Drive erişimi"):
+        _drive().list_folders("X")
+
+
+@responses.activate
+def test_drive_create_folder_validates_name_and_returns_id():
+    _token_ok()
+    responses.add(responses.POST, f"{rp.GDRIVE_API}/files", status=200, json={"id": "N1", "name": "TOYA"})
+    assert _drive().create_folder("TOYA", "PARENT1") == {"id": "N1", "name": "TOYA"}
+    import json as _j
+    body = _j.loads(responses.calls[1].request.body)
+    assert body == {"name": "TOYA", "mimeType": "application/vnd.google-apps.folder", "parents": ["PARENT1"]}
+    for kotu in ("", "  ", "a/b", "a" + chr(92) + "b"):
+        with pytest.raises(ProviderError):
+            _drive().create_folder(kotu)
+
+
+@responses.activate
+def test_drive_folder_path_walks_parents_and_test_reports_it_and_missing_folder():
+    _token_ok()
+    responses.add(responses.GET, f"{rp.GDRIVE_API}/files/C", json={"id": "C", "name": "TOYA", "parents": ["B"]})
+    responses.add(responses.GET, f"{rp.GDRIVE_API}/files/B", json={"id": "B", "name": "Yedekler", "parents": ["R"]})
+    responses.add(responses.GET, f"{rp.GDRIVE_API}/files/R", json={"id": "R", "name": "My Drive"})
+    d = rp.GoogleDriveProvider("cid", "cs", "rt", folder_id="C")
+    assert d.folder_path("C") == "Drive'ım / Yedekler / TOYA"
+    responses.reset()
+    _token_ok()
+    responses.add(responses.GET, f"{rp.GDRIVE_API}/files/C", json={"id": "C", "name": "TOYA", "parents": ["R"]})
+    responses.add(responses.GET, f"{rp.GDRIVE_API}/files/C", json={"id": "C", "name": "TOYA", "parents": ["R"]})
+    responses.add(responses.GET, f"{rp.GDRIVE_API}/files/R", json={"id": "R", "name": "My Drive"})
+    ok, msg = rp.GoogleDriveProvider("cid", "cs", "rt", folder_id="C").test()
+    assert ok and "Drive'ım / TOYA" in msg
+    responses.reset()
+    _token_ok()
+    responses.add(responses.GET, f"{rp.GDRIVE_API}/files/C", status=404)
+    ok, msg = rp.GoogleDriveProvider("cid", "cs", "rt", folder_id="C").test()
+    assert not ok and "bulunamadı" in msg
+
+
+@responses.activate
+def test_drive_upload_uses_selected_folder_id_without_name_lookup(tmp_path):
+    f = tmp_path / "a.zip"
+    f.write_bytes(b"1234")
+    _token_ok()
+    responses.add(responses.GET, f"{rp.GDRIVE_API}/files", json={"files": []}, status=200)              # yalnız dosya adı sorgusu
+    responses.add(responses.POST, rp.GDRIVE_UPLOAD, status=200, headers={"Location": "https://upload.example/s"})
+    responses.add(responses.PUT, "https://upload.example/s", status=200, json={"id": "F"})
+    rp.GoogleDriveProvider("cid", "cs", "rt", "Eski Ad", folder_id="SECILI").upload(f, "a.zip")
+    posts = [c.request for c in responses.calls if c.request.method == "POST" and c.request.url.startswith(rp.GDRIVE_UPLOAD)]
+    assert b"SECILI" in posts[0].body
+    assert not [c for c in responses.calls if c.request.method == "POST" and c.request.url == f"{rp.GDRIVE_API}/files"]   # klasör oluşturulmadı
+
+
+@responses.activate
+def test_drive_service_account_signs_jwt_and_uses_full_scope():
+    from cryptography.hazmat.primitives import serialization
+    from cryptography.hazmat.primitives.asymmetric import rsa
+    key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    pem = key.private_bytes(serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8, serialization.NoEncryption()).decode()
+    sa = json.dumps({"client_email": "yedek@proje.iam.gserviceaccount.com", "private_key": pem})
+    responses.add(responses.POST, rp.GDRIVE_TOKEN, json={"access_token": "SA-AT"}, status=200)
+    responses.add(responses.GET, f"{rp.GDRIVE_API}/files", json={"files": []}, status=200)
+    p = rp.GoogleDriveProvider("", "", "", sa_json=sa, folder_id="F1")
+    assert p.list() == []
+    body = urllib.parse.parse_qs(responses.calls[0].request.body)
+    assert body["grant_type"] == ["urn:ietf:params:oauth:grant-type:jwt-bearer"]
+    head, payload, sig = body["assertion"][0].split(".")
+    import base64
+    pad = lambda x: x + "=" * (-len(x) % 4)  # noqa: E731
+    claims = json.loads(base64.urlsafe_b64decode(pad(payload)))
+    assert claims["iss"] == "yedek@proje.iam.gserviceaccount.com" and claims["scope"] == rp.GDRIVE_SCOPE_FULL and claims["aud"] == rp.GDRIVE_TOKEN
+    from cryptography.hazmat.primitives import hashes
+    from cryptography.hazmat.primitives.asymmetric import padding
+    key.public_key().verify(base64.urlsafe_b64decode(pad(sig)), f"{head}.{payload}".encode(), padding.PKCS1v15(), hashes.SHA256())   # geçerli imza
+    assert responses.calls[1].request.headers["Authorization"] == "Bearer SA-AT"
+    with pytest.raises(ProviderError, match="geçersiz"):
+        rp.GoogleDriveProvider("", "", "", sa_json="{bozuk}")._auth()
+
+
+@responses.activate
+def test_drive_interactive_authorization_full_access_requests_drive_scope():
+    responses.add_passthru("http://127.0.0.1")
+    responses.add(responses.POST, rp.GDRIVE_TOKEN, json={"refresh_token": "RT2", "access_token": "x"}, status=200)
+    seen = {}
+
+    def fake_browser(url: str) -> None:
+        q = urllib.parse.parse_qs(urllib.parse.urlparse(url).query)
+        seen.update({k: v[0] for k, v in q.items()})
+        threading.Thread(target=lambda: requests.get(f"{q['redirect_uri'][0]}/?code=K&state={q['state'][0]}"), daemon=True).start()
+
+    rp.authorize_google_interactive("cid", "cs", timeout=10, open_browser=fake_browser, full_access=True)
+    assert seen["scope"] == rp.GDRIVE_SCOPE_FULL
+
+
+def test_build_provider_passes_folder_id_and_service_account_secret():
+    g = rp.build_provider({"type": "gdrive", "client_id": "c", "folder": "", "folder_id": "FID"}, {"sa_json": "{}", "refresh_token": ""})
+    assert isinstance(g, rp.GoogleDriveProvider) and g.folder_id == "FID" and g.sa_json == "{}" and g.folder_name == "TOYA Yedek"

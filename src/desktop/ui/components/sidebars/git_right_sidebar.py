@@ -4,12 +4,17 @@ Repository durumu, uzak sunucu (origin) bağlantısı, bekleyen commit/değişik
 ve seçili commit/görev detay kartını sunar.
 """
 
-from typing import Any, Dict, Optional
+from typing import Any, Dict
+
 from PyQt6.QtCore import Qt
-from PyQt6.QtGui import QClipboard, QFont, QColor
 from PyQt6.QtWidgets import (
-    QApplication, QFrame, QGridLayout, QLabel, QPushButton,
-    QScrollArea, QVBoxLayout, QWidget, QHBoxLayout
+    QApplication,
+    QFrame,
+    QGridLayout,
+    QHBoxLayout,
+    QLabel,
+    QPushButton,
+    QVBoxLayout,
 )
 
 from src.desktop.managers.theme_manager import ThemeManager

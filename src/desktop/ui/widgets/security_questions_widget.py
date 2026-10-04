@@ -25,6 +25,29 @@ from PyQt6.QtWidgets import (
 from src.desktop.services.auth_service import SECURITY_QUESTION_PRESETS
 
 
+_COMBO_STYLE = """
+    QComboBox {
+        combobox-popup: 0;
+        border: 1px solid #cbd5e1;
+        border-radius: 4px;
+        padding: 4px 6px;
+        background-color: white;
+        color: #0f172a;
+        font-size: 11px;
+    }
+    QComboBox QAbstractItemView {
+        outline: 0;
+        padding: 0px;
+        border: 1px solid #cbd5e1;
+        background-color: #ffffff;
+        color: #0f172a;
+    }
+    QComboBox QAbstractItemView::item {
+        padding: 3px 6px;
+        min-height: 20px;
+    }
+"""
+
 class SecurityQuestionsWidget(QWidget):
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
@@ -48,6 +71,7 @@ class SecurityQuestionsWidget(QWidget):
         form.setSpacing(6)
 
         self.cmb_q1 = QComboBox()
+        self.cmb_q1.setStyleSheet(_COMBO_STYLE)
         self.cmb_q1.setEditable(True)
         self.cmb_q1.addItems(SECURITY_QUESTION_PRESETS)
         self.txt_a1 = QLineEdit()
@@ -55,6 +79,7 @@ class SecurityQuestionsWidget(QWidget):
         self.txt_a1.setPlaceholderText("1. sorunun cevabı")
 
         self.cmb_q2 = QComboBox()
+        self.cmb_q2.setStyleSheet(_COMBO_STYLE)
         self.cmb_q2.setEditable(True)
         self.cmb_q2.addItems(SECURITY_QUESTION_PRESETS)
         if self.cmb_q2.count() > 1:

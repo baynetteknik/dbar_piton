@@ -24,6 +24,9 @@ MODULE_PERMISSIONS: dict[str, str] = {
     "Sipariş Yönetimi": "siparis.view",
     "Siparişler": "siparis.view",
     "Bekleyen Sipariş": "siparis.view",
+    # İrsaliye
+    "İrsaliyeler": "irsaliye.view",
+    "İrsaliye Yönetimi": "irsaliye.view",
     # Fatura
     "Faturalar": "fatura.view",
     "Hızlı Fatura": "fatura.create",
@@ -39,8 +42,12 @@ MODULE_PERMISSIONS: dict[str, str] = {
     "Ürün Yönetimi": "stok.view",
     "Stok Kartları": "stok.view",
     "Stok Hareketleri": "stok.view",
+    "Hizmet Tanımları": "stok.view",
+    "Masraf Tanımları": "stok.view",
     "Kasa Kartları": "kasa.view",
     "Banka & POS Kartları": "banka.view",
+    "Kasa Hareketleri": "kasa.view",
+    "Banka Hareketleri": "banka.view",
     "Fiyat Politikaları": "stok.price",
     "Fiyat Politikalari": "stok.price",
     # Finans (henüz PoC — muhasebe yetkisi gerektirir)

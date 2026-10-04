@@ -87,8 +87,20 @@ class BaseManagedListWidget(QWidget):
                 color: #334155;
                 font-weight: 600;
                 font-size: 11px;
+                combobox-popup: 0;
             }
             QComboBox::drop-down { border: none; }
+            QComboBox QAbstractItemView {
+                border: 1px solid #cbd5e1;
+                background-color: #ffffff;
+                color: #0f172a;
+                outline: 0;
+                padding: 0px;
+            }
+            QComboBox QAbstractItemView::item {
+                padding: 3px 6px;
+                min-height: 20px;
+            }
         """)
         self.combo_page_size.currentTextChanged.connect(self.on_page_size_combo_changed)
 

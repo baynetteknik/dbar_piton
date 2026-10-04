@@ -39,6 +39,7 @@ from src.core.security.keyring_store import get_api_key
 from src.core.sync.pull_engine import PullEngine
 from src.core.sync.push_engine import PushEngine
 from src.desktop.core.workers import SyncWorker
+from src.desktop.ui.components.button_style import btn_style
 from src.desktop.ui.components.edge_panel import EdgeTriggeredPanel
 from src.desktop.ui.components.filterable_table import FilterableTableView
 from src.desktop.ui.components.layout_hint_helper import register_layout_hint
@@ -61,6 +62,7 @@ def apply_combo_style(cmb: QComboBox, min_width: int = 150):
             color: #0f172a;
             font-size: 12px;
             font-weight: 600;
+            combobox-popup: 0;
         }
         QComboBox:hover {
             border-color: #2563eb;
@@ -88,7 +90,7 @@ def apply_combo_style(cmb: QComboBox, min_width: int = 150):
             selection-background-color: #2563eb;
             selection-color: #ffffff;
             outline: none;
-            padding: 2px 0px;
+            padding: 0px;
             font-size: 12px;
             font-weight: 500;
         }
@@ -136,6 +138,8 @@ class ProductDetailDialog(QDialog):
         self.setMinimumHeight(680)
         self.init_ui()
         self.showMaximized()
+        from src.desktop.ui.components.window_fit_helper import zorla_ilk_yerlesim
+        zorla_ilk_yerlesim(self)
 
         if self.product_id or self.remote_id:
             self.load_product_data()
@@ -656,19 +660,7 @@ class ResourcesWidget(ThreePanelBaseWidget):
         }
 
     def toolbar_btn_style(self, bg_color="#ffffff", text_color="#1e293b"):
-        return f"""
-            QPushButton {{
-                background-color: {bg_color};
-                color: {text_color};
-                border: 1px solid #cbd5e1;
-                border-radius: 6px;
-                padding: 6px 12px;
-                font-size: 11px;
-                font-weight: 600;
-                text-align: left;
-            }}
-            QPushButton:hover {{ background-color: #f1f5f9; }}
-        """
+        return btn_style(bg_color, text_color)
 
     def dia_btn_style(self, bg_color="#3b82f6", hover_color="#2563eb", text_color="#ffffff"):
         return f"""

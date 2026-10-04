@@ -7,7 +7,9 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from src.core import belge_turleri
 from src.core.models import Customer, Product, Quotation, QuotationItem
+from src.desktop.services import numara_servisi
 
 logger = logging.getLogger(__name__)
 
@@ -25,15 +27,21 @@ class QuotationService:
             return None
 
         try:
-            # Auto-generate quotation number if not provided
+            belge_turu, yon = belge_turleri.cozumle(data.get("quotation_type", "Quotation"))
+            belge_turu = data.get("belge_turu") or belge_turu
             if not data.get("quotation_number"):
-                prefix = "TEK-" if data.get("quotation_type", "Quotation") == "Quotation" else "SIP-"
-                data["quotation_number"] = f"{prefix}{datetime.utcnow().strftime('%Y%m%d%H%M%S%f')}"
-
+                data["quotation_number"] = numara_servisi.belge_numarasi(
+                    self.db,
+                    belge_turu,
+                    data.get("yon") or yon,
+                    company_id=data.get("company_id"),
+                )
             quotation = Quotation(
                 quotation_number=data["quotation_number"],
                 title=data.get("title", "Yeni Teklif"),
-                quotation_type=data.get("quotation_type", "Quotation"),
+                quotation_type=belge_turleri.quotation_type_of(belge_turu),
+                belge_turu=belge_turu,
+                yon=data.get("yon") or yon,
                 customer_id=data.get("customer_id"),
                 customer_name_free=data.get("customer_name_free"),
                 tax_office_free=data.get("tax_office_free"),
@@ -118,6 +126,8 @@ class QuotationService:
             "quotation_number": f"TEK-{datetime.utcnow().strftime('%Y%m%d%H%M%S%f')}",
             "title": f"{original.title} (Kopya)",
             "quotation_type": original.quotation_type,
+            "belge_turu": original.belge_turu,
+            "yon": original.yon,
             "customer_id": original.customer_id,
             "customer_name_free": original.customer_name_free,
             "tax_office_free": original.tax_office_free,
@@ -151,6 +161,8 @@ class QuotationService:
         if not q or not self.db:
             return False
         q.quotation_type = "Order"
+        q.belge_turu = "siparis"
+        q.yon = q.yon or "satis"
         q.status = "converted"
         self.db.commit()
         return True

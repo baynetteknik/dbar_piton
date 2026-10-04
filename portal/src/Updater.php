@@ -37,7 +37,7 @@ final class Updater
     /** İzinli üst dizinler. */
     private const ALLOWED_DIRS = ['src', 'public', 'migrations', 'bin'];
     /** İzinli kök dosyalar. */
-    private const ALLOWED_ROOT_FILES = ['.htaccess', 'VERSION', 'config.sample.php'];
+    private const ALLOWED_ROOT_FILES = ['.htaccess', 'VERSION', 'config.sample.php', 'index.php'];
 
     private PDO $pdo;
     private string $root;
@@ -51,6 +51,12 @@ final class Updater
         $this->root = rtrim(str_replace('\\', '/', $root), '/');
         $this->secret = $secret;
         $this->clock = $clock ?? static fn(): int => time();
+    }
+
+    /** Bu kurucuya kayıtlı köken dizin (`update_inbox/` gibi alt yolların çözümlenmesi için) — bkz. bootstrap.php::portal_route '/update/apply'. */
+    public function root(): string
+    {
+        return $this->root;
     }
 
     public function currentVersion(): string

@@ -11,12 +11,29 @@ import logging
 from PyQt6.QtCore import QDate, Qt
 from PyQt6.QtGui import QAction, QBrush, QColor, QStandardItem
 from PyQt6.QtWidgets import (
-    QCheckBox, QComboBox, QDateEdit, QFileDialog, QFrame, QLabel, QLineEdit, QMenu, QMessageBox, QPushButton, QVBoxLayout,
+    QCheckBox,
+    QComboBox,
+    QDateEdit,
+    QFileDialog,
+    QFrame,
+    QLabel,
+    QLineEdit,
+    QMenu,
+    QMessageBox,
+    QPushButton,
+    QVBoxLayout,
 )
 from sqlalchemy import select
 
 from src.core.models import StokHareket, WarehouseDefinition
-from src.desktop.services.stok_fis_service import FIS_TIPLERI, TURLER, StokFiltre, StokFisError, StokFisService
+from src.desktop.services.stok_fis_service import (
+    FIS_TIPLERI,
+    TURLER,
+    StokFiltre,
+    StokFisError,
+    StokFisService,
+)
+from src.desktop.ui.components.button_style import btn_style
 from src.desktop.ui.components.collapsible_section import CollapsibleSection
 from src.desktop.ui.components.grid_delegates import apply_calendar_style
 from src.desktop.ui.components.three_panel_base import ThreePanelBaseWidget
@@ -27,18 +44,15 @@ from src.desktop.ui.widgets.stok_fis_dialog import StokFisDialog
 logger = logging.getLogger(__name__)
 
 _GIRIS, _CIKIS = QColor("#16a34a"), QColor("#dc2626")
-_BTN = """
-    QPushButton { background-color: %s; color: %s; border: 1px solid #cbd5e1; border-radius: 6px; padding: 6px 10px;
-                  font-size: 11px; font-weight: 600; text-align: left; font-family: 'Segoe UI'; }
-    QPushButton:hover { background-color: #f1f5f9; }
-    QPushButton:disabled { color: #94a3b8; background-color: #f8fafc; border-color: #e2e8f0; }
-"""
 _INPUT = ("QComboBox, QLineEdit, QDateEdit { border: 1px solid #cbd5e1; border-radius: 6px; padding: 5px 8px;"
           " background-color: white; color: #0f172a; font-size: 11px; }")
 _IKON = {"giris": "📥", "cikis": "📤", "transfer": "🔁", "sayim": "🧮", "acilis": "🚪"}
 
 
 class StokHareketScreen(ThreePanelBaseWidget):
+    PROFIL_BOLUMU = True
+
+    BUS_KONULARI = ("stok",)
     def __init__(self, db_session=None, parent=None, embedded: bool = False) -> None:
         self._kayitlar: list[StokHareket] = []
         self._depo_kod: dict[int, str] = {}
@@ -80,12 +94,12 @@ class StokHareketScreen(ThreePanelBaseWidget):
             b = QPushButton(f"{_IKON[tur]} {etiket}" + (f" ({kisayol[tur]})" if tur in kisayol else ""))
             if tur in kisayol:
                 b.setShortcut(kisayol[tur])
-            b.setStyleSheet(_BTN % ("#2563eb" if tur == "giris" else "#ffffff", "#ffffff" if tur == "giris" else "#1e293b"))
+            b.setStyleSheet(btn_style("#2563eb" if tur == "giris" else "#ffffff", "#ffffff" if tur == "giris" else "#1e293b"))
             b.clicked.connect(lambda _=False, t=tur: self.on_new_clicked(t))
             sec.add_widget(b)
             self.btn_tur[tur] = b
         self.btn_edit = QPushButton("✏️ Fişi Aç")
-        self.btn_edit.setStyleSheet(_BTN % ("#ffffff", "#1e293b"))
+        self.btn_edit.setStyleSheet(btn_style("#ffffff", "#1e293b"))
         self.btn_edit.clicked.connect(self.on_edit_clicked)
         sec.add_widget(self.btn_edit)
         layout.addWidget(sec)
@@ -117,7 +131,7 @@ class StokHareketScreen(ThreePanelBaseWidget):
         for w in (self.search_box, self.cmb_tur, self.cmb_depo, self.chk_tarih, self.dt_bas, self.dt_bit):
             sec_f.add_widget(w)
         btn_temizle = QPushButton("🧹 Filtreleri Temizle")
-        btn_temizle.setStyleSheet(_BTN % ("#ffffff", "#1e293b"))
+        btn_temizle.setStyleSheet(btn_style("#ffffff", "#1e293b"))
         btn_temizle.clicked.connect(self.clear_filters)
         sec_f.add_widget(btn_temizle)
         layout.addWidget(sec_f)
@@ -142,7 +156,7 @@ class StokHareketScreen(ThreePanelBaseWidget):
         self.btn_excel.clicked.connect(self.on_excel_clicked)
         self.btn_hide.clicked.connect(self.on_hide_clicked)
         for b in (self.btn_excel, self.btn_hide):
-            b.setStyleSheet(_BTN % ("#ffffff", "#1e293b"))
+            b.setStyleSheet(btn_style("#ffffff", "#1e293b"))
             sec_i.add_widget(b)
         layout.addWidget(sec_i)
         layout.addStretch()
@@ -212,7 +226,7 @@ class StokHareketScreen(ThreePanelBaseWidget):
         m.removeRows(0, m.rowCount())
         for h in self._kayitlar:
             p = h.product
-            cells = ["☐", h.tarih.strftime("%d.%m.%Y"), h.fis.fis_no if h.fis else "", TURLER.get(h.tur, (h.tur,))[0], p.sku, p.name or "",
+            cells = ["", h.tarih.strftime("%d.%m.%Y"), h.fis.fis_no if h.fis else "", TURLER.get(h.tur, (h.tur,))[0], p.sku, p.name or "",
                      self._depo_kod.get(h.depo_id, ""), self._depo_kod.get(h.hedef_depo_id, "") if h.hedef_depo_id else "",
                      bicimle(h.miktar, 3), h.birim or "", bicimle(h.birim_fiyat, 2) if h.birim_fiyat else "",
                      bicimle(h.tutar, 2) if h.tutar else "", h.aciklama or ""]

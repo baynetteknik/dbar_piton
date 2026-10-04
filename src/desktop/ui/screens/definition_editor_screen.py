@@ -32,13 +32,24 @@ import base64
 import json
 import logging
 
-from PyQt6.QtCore import QPoint, Qt, pyqtSignal
-from PyQt6.QtGui import QAction, QFontMetrics, QKeySequence, QPixmap, QShortcut, QStandardItem, QStandardItemModel
+from PyQt6.QtCore import QDate, QPoint, Qt, pyqtSignal
+from PyQt6.QtGui import (
+    QAction,
+    QFontMetrics,
+    QKeySequence,
+    QPixmap,
+    QShortcut,
+    QStandardItem,
+    QStandardItemModel,
+)
 from PyQt6.QtWidgets import (
+    QApplication,
     QCheckBox,
     QComboBox,
+    QDateEdit,
     QDialog,
     QDialogButtonBox,
+    QDoubleSpinBox,
     QFileDialog,
     QFormLayout,
     QFrame,
@@ -50,7 +61,6 @@ from PyQt6.QtWidgets import (
     QPlainTextEdit,
     QPushButton,
     QScrollArea,
-    QDoubleSpinBox,
     QSpinBox,
     QTabWidget,
     QToolTip,
@@ -69,6 +79,9 @@ from src.desktop.ui.widgets.money_edit import MoneyEdit
 from src.desktop.ui.widgets.parametric_field_group import ParametricFieldGroup
 
 logger = logging.getLogger(__name__)
+
+#: 1366x768 ve altı çözünürlüklerde sol/sağ panelleri varsayılan kapalı başlatmak için eşik genişlik.
+_DAR_EKRAN_GENISLIK_ESIGI = 1366
 
 # Açılır listelerde (QComboBox) Windows'un klasik stili öğe başına ikon/onay
 # işareti için soldan boşluk ayırır; "combobox-popup:0" açılır listeyi kendi
@@ -313,9 +326,12 @@ class _SubTableField(QWidget):
 
     COL_SELECT = 0
 
-    def __init__(self, columns: list[dict], parent=None, profile_key: str = "card_subtable"):
+    def __init__(self, columns: list[dict], parent=None, profile_key: str = "card_subtable",
+                 delete_confirm: str | None = None):
         super().__init__(parent)
-        self._cols = columns  # [{"key","label"}]
+        self._cols = columns  # [{"key","label","type"?:"date"|"combo","options"?:[...]}]
+        #: Satır silmeden önce gösterilecek onay metni — verilmezse (mevcut davranış) onaysız silinir.
+        self._delete_confirm = delete_confirm
         headers_dict: dict[int, tuple[str, str]] = {self.COL_SELECT: ("☑", "select")}
         for i, col in enumerate(columns, start=1):
             headers_dict[i] = (col["label"], col["key"])
@@ -334,6 +350,20 @@ class _SubTableField(QWidget):
         self.grid.table_view.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.grid.table_view.customContextMenuRequested.connect(self._show_context_menu)
         self.grid.setMinimumHeight(120)
+        self._delegates: list = []  # referansları canlı tut (Qt zayıf referansla tutuyor, GC'ye kurban gitmesin)
+        for i, col in enumerate(columns, start=1):
+            tur = col.get("type")
+            if tur == "date":
+                from src.desktop.ui.components.grid_delegates import DateDelegate
+                delegate = DateDelegate(self.grid.table_view)
+            elif tur == "combo":
+                from src.desktop.ui.components.grid_delegates import ComboDelegate
+                secenekler = list(col.get("options", []))
+                delegate = ComboDelegate(lambda _o=secenekler: _o, self.grid.table_view)
+            else:
+                continue
+            self._delegates.append(delegate)
+            self.grid.table_view.setItemDelegateForColumn(i, delegate)
         lyt.addWidget(self.grid, 1)
 
         bar = QHBoxLayout()
@@ -373,6 +403,12 @@ class _SubTableField(QWidget):
         if not rows:
             sel = self.grid.table_view.selectionModel().selectedRows()
             rows = sorted({i.row() for i in sel}, reverse=True)
+        if not rows:
+            return
+        if self._delete_confirm:
+            from PyQt6.QtWidgets import QMessageBox
+            if QMessageBox.question(self, "Satırları Sil", self._delete_confirm) != QMessageBox.StandardButton.Yes:
+                return
         for r in rows:
             self.model.removeRow(r)
 
@@ -394,9 +430,9 @@ class _SubTableField(QWidget):
 
 
 class _PermTreeField(QWidget):
-    """
-    Yetki ağacı. groups = [(mod_code, mod_name, [(act_code, act_name), ...])]
+    """Yetki ağacı. groups = [(mod_code, mod_name, [(act_code, act_name), ...])]
     value() -> ["mod.act", ...]  ("*" -> hepsi seçili).
+    Gelişmiş anlık arama, hazır yetki şablonları (presetler) ve modül bazlı toplu seçim içerir.
     """
 
     def __init__(self, groups: list, parent=None):
@@ -404,42 +440,123 @@ class _PermTreeField(QWidget):
         self._groups = groups
         lyt = QVBoxLayout(self)
         lyt.setContentsMargins(0, 0, 0, 0)
-        lyt.setSpacing(4)
-        bar = QHBoxLayout()
-        b_all = QPushButton("Tümünü Seç")
-        b_all.clicked.connect(lambda: self._set_all(True))
-        b_none = QPushButton("Tümünü Kaldır")
-        b_none.clicked.connect(lambda: self._set_all(False))
-        bar.addWidget(b_all)
-        bar.addWidget(b_none)
-        bar.addStretch()
-        lyt.addLayout(bar)
+        lyt.setSpacing(6)
 
+        # 1. Hızlı Arama & Preset Barı
+        top_bar = QHBoxLayout()
+        self.txt_search = QLineEdit()
+        self.txt_search.setPlaceholderText("🔍 Yetki veya Modül Ara (örn: Fatura, Sil, Banka, Rapor)...")
+        self.txt_search.setStyleSheet(
+            "padding: 4px 8px; border: 1px solid #cbd5e1; border-radius: 4px; font-size: 11px;",
+        )
+        self.txt_search.textChanged.connect(self._on_search)
+        top_bar.addWidget(self.txt_search, 1)
+
+        b_all = QPushButton("✔ Tümünü Seç")
+        b_all.setStyleSheet("font-size: 10px; padding: 3px 6px; font-weight: 600;")
+        b_all.clicked.connect(lambda: self._set_all(True))
+        b_none = QPushButton("✖ Tümünü Kaldır")
+        b_none.setStyleSheet("font-size: 10px; padding: 3px 6px;")
+        b_none.clicked.connect(lambda: self._set_all(False))
+        b_view_only = QPushButton("👁️ Yalnızca Görüntüleme")
+        b_view_only.setStyleSheet("font-size: 10px; padding: 3px 6px;")
+        b_view_only.clicked.connect(self._set_view_only)
+
+        top_bar.addWidget(b_all)
+        top_bar.addWidget(b_none)
+        top_bar.addWidget(b_view_only)
+        lyt.addLayout(top_bar)
+
+        # 2. Hazır Yetki Paketleri (Presetler)
+        preset_bar = QHBoxLayout()
+        preset_bar.addWidget(QLabel("⚡ Hazır Paketler:"))
+        presets = [
+            ("💼 Satış", ["teklif.*", "siparis.*", "cari.view", "cari.create", "cari.edit", "cari.balance", "stok.view", "doviz.view", "portal.publish", "rapor.view"]),
+            ("📊 Muhasebe", ["fatura.*", "irsaliye.*", "cari.*", "kasa.*", "banka.*", "cek_senet.*", "stok.view", "doviz.*", "numara.view", "rapor.*"]),
+            ("📦 Depo", ["irsaliye.*", "stok.view", "stok.movement", "siparis.view", "gorev.*"]),
+        ]
+        for p_name, p_codes in presets:
+            b_p = QPushButton(p_name)
+            b_p.setStyleSheet("background-color: #f1f5f9; border: 1px solid #cbd5e1; border-radius: 4px; padding: 2px 8px; font-size: 10px;")
+            b_p.clicked.connect(lambda _c, codes=p_codes: self._apply_preset(codes))
+            preset_bar.addWidget(b_p)
+        preset_bar.addStretch()
+        lyt.addLayout(preset_bar)
+
+        # 3. Ağaç Yapısı
         self.tree = QTreeWidget()
         self.tree.setHeaderHidden(True)
-        self.tree.setMinimumHeight(320)
+        self.tree.setMinimumHeight(340)
         self._leaf_items: dict[str, QTreeWidgetItem] = {}
+        self._top_items: dict[str, QTreeWidgetItem] = {}
+
         for mod_code, mod_name, actions in groups:
-            top = QTreeWidgetItem(self.tree, [mod_name])
+            top = QTreeWidgetItem(self.tree, [f"📂 {mod_name}"])
             top.setExpanded(True)
-            top.setFlags(top.flags() | Qt.ItemFlag.ItemIsAutoTristate
-                         | Qt.ItemFlag.ItemIsUserCheckable)
+            top.setFlags(
+                top.flags()
+                | Qt.ItemFlag.ItemIsAutoTristate
+                | Qt.ItemFlag.ItemIsUserCheckable,
+            )
             top.setCheckState(0, Qt.CheckState.Unchecked)
+            self._top_items[mod_code] = top
+
             for act_code, act_name in actions:
                 leaf = QTreeWidgetItem(top, [act_name])
                 leaf.setFlags(leaf.flags() | Qt.ItemFlag.ItemIsUserCheckable)
                 leaf.setCheckState(0, Qt.CheckState.Unchecked)
                 self._leaf_items[f"{mod_code}.{act_code}"] = leaf
+
         lyt.addWidget(self.tree)
+
+    def _on_search(self, query: str) -> None:
+        q = query.strip().lower()
+        for mod_code, mod_name, actions in self._groups:
+            top = self._top_items.get(mod_code)
+            if not top:
+                continue
+            mod_match = q in mod_name.lower()
+            visible_leaves = 0
+            for act_code, act_name in actions:
+                leaf = self._leaf_items.get(f"{mod_code}.{act_code}")
+                if leaf:
+                    leaf_match = mod_match or q in act_name.lower() or q in f"{mod_code}.{act_code}".lower()
+                    leaf.setHidden(not leaf_match if q else False)
+                    if leaf_match:
+                        visible_leaves += 1
+            top.setHidden(visible_leaves == 0 if q else False)
+            if q and visible_leaves > 0:
+                top.setExpanded(True)
 
     def _set_all(self, on: bool):
         st = Qt.CheckState.Checked if on else Qt.CheckState.Unchecked
         for leaf in self._leaf_items.values():
             leaf.setCheckState(0, st)
 
+    def _set_view_only(self):
+        self._set_all(False)
+        for code, leaf in self._leaf_items.items():
+            if code.endswith(".view"):
+                leaf.setCheckState(0, Qt.CheckState.Checked)
+
+    def _apply_preset(self, patterns: list[str]):
+        self._set_all(False)
+        for code, leaf in self._leaf_items.items():
+            mod, _, act = code.partition(".")
+            for pat in patterns:
+                if pat.endswith(".*") and pat.startswith(mod):
+                    leaf.setCheckState(0, Qt.CheckState.Checked)
+                    break
+                elif pat == code:
+                    leaf.setCheckState(0, Qt.CheckState.Checked)
+                    break
+
     def value(self) -> list[str]:
-        codes = [c for c, it in self._leaf_items.items()
-                 if it.checkState(0) == Qt.CheckState.Checked]
+        codes = [
+            c
+            for c, it in self._leaf_items.items()
+            if it.checkState(0) == Qt.CheckState.Checked
+        ]
         if len(codes) == len(self._leaf_items):
             return ["*"]
         return codes
@@ -449,7 +566,9 @@ class _PermTreeField(QWidget):
         wildcard = "*" in codes
         for c, leaf in self._leaf_items.items():
             on = wildcard or c in codes
-            leaf.setCheckState(0, Qt.CheckState.Checked if on else Qt.CheckState.Unchecked)
+            leaf.setCheckState(
+                0, Qt.CheckState.Checked if on else Qt.CheckState.Unchecked,
+            )
 
 
 class DefinitionEditorScreen(QWidget):
@@ -476,6 +595,7 @@ class DefinitionEditorScreen(QWidget):
         nav_sidebar: bool = True,
         show_section_nav: bool = True,
         enable_save_and_new: bool = False,
+        right_panel: bool = True,
         right_panel_width: int = 240,
         left_panel_width: int = 190,
         parent=None,
@@ -508,6 +628,7 @@ class DefinitionEditorScreen(QWidget):
         self._nav_sidebar = nav_sidebar
         self._show_section_nav = show_section_nav
         self._enable_save_and_new = enable_save_and_new
+        self._right_panel = right_panel
         self._build_ui()
         self._wire_live_refresh()
         QShortcut(QKeySequence("F2"), self, activated=self._on_save)
@@ -580,7 +701,7 @@ class DefinitionEditorScreen(QWidget):
         outer.setSpacing(6)
 
         if self._nav_sidebar:
-            outer.addWidget(self._build_left_panel())
+            outer.addWidget(self._wrap_collapsible(self._build_left_panel(), side="left"))
 
         content = QWidget()
         root = QVBoxLayout(content)
@@ -602,8 +723,51 @@ class DefinitionEditorScreen(QWidget):
         root.addWidget(self._build_footer())
         outer.addWidget(content, 1)
 
-        outer.addWidget(self._build_right_panel())
+        if self._right_panel:
+            outer.addWidget(self._wrap_collapsible(self._build_right_panel(), side="right"))
         self._fix_enter_key_default_button()
+
+    @staticmethod
+    def _dar_ekran_mi() -> bool:
+        screen = QApplication.primaryScreen()
+        return screen is not None and screen.availableGeometry().width() <= _DAR_EKRAN_GENISLIK_ESIGI
+
+    def _wrap_collapsible(self, panel: QFrame, *, side: str) -> QWidget:
+        """Sol/sağ sabit genişlikli paneli bir aç/kapa koluyla sarar — 1366x768 gibi dar ekranlarda
+        panel varsayılan kapalı başlar, kullanıcı istediğinde tekrar açabilir."""
+        wrapper = QWidget()
+        lyt = QHBoxLayout(wrapper)
+        lyt.setContentsMargins(0, 0, 0, 0)
+        lyt.setSpacing(2)
+        kapat_ok, ac_ok = ("‹", "›") if side == "left" else ("›", "‹")
+        btn = QPushButton(kapat_ok)
+        btn.setFixedWidth(14)
+        btn.setToolTip("Paneli daralt / genişlet")
+        btn.setStyleSheet(
+            "QPushButton{background:#e2e8f0;color:#475569;border:none;border-radius:3px;"
+            "font-weight:700;font-size:10px;}QPushButton:hover{background:#cbd5e1;}",
+        )
+
+        def _toggle() -> None:
+            # `isVisible()` pencere henüz `.show()` edilmemişse (ör. testlerde) her zaman False
+            # döner; kendi gizli bayrağını yansıtan `isHidden()` bu kapsamda güvenilir olan.
+            gizli = panel.isHidden()
+            panel.setVisible(gizli)
+            btn.setText(kapat_ok if gizli else ac_ok)
+
+        btn.clicked.connect(_toggle)
+        if side == "left":
+            lyt.addWidget(panel)
+            lyt.addWidget(btn)
+            self._left_panel_toggle, self._left_panel_frame = btn, panel
+        else:
+            lyt.addWidget(btn)
+            lyt.addWidget(panel)
+            self._right_panel_toggle, self._right_panel_frame = btn, panel
+        if self._dar_ekran_mi():
+            panel.setVisible(False)
+            btn.setText(ac_ok)
+        return wrapper
 
     def _fix_enter_key_default_button(self) -> None:
         """Yalnızca klavye kullanan kullanıcılar için: Qt'de bir QPushButton
@@ -733,6 +897,8 @@ class DefinitionEditorScreen(QWidget):
             self._field_specs[spec["key"]] = spec
             widget = self._make_field(spec)
             self._widgets[spec["key"]] = widget
+            if spec.get("tooltip"):
+                widget.setToolTip(spec["tooltip"])
             if first_widget is None:
                 first_widget = widget
             lbl = spec["label"] + (" *" if spec.get("required") else "")
@@ -822,6 +988,8 @@ class DefinitionEditorScreen(QWidget):
             self._field_specs[spec["key"]] = spec
             widget = self._make_field(spec)
             self._widgets[spec["key"]] = widget
+            if spec.get("tooltip"):
+                widget.setToolTip(spec["tooltip"])
             if first_widget is None:
                 first_widget = widget
             if spec["type"] in ("param_group",):
@@ -917,6 +1085,12 @@ class DefinitionEditorScreen(QWidget):
             cb = QComboBox()
             cb.setEditable(bool(spec.get("editable")))
             cb.setStyleSheet(_COMBO_QSS)
+            # Uzun seçenek metinleri (ör. "KOD — Uzun Hesap/Plan Adı") varsayılan `AdjustToContentsOnFirstShow`
+            # politikasıyla kapalı kutunun kendisini de genişletip formu/pencereyi sağa taşırıyordu; genişliği
+            # sabit bir karakter sayısına bağlayıp gerçek genişliği grid sütun stretch'ine bırakıyoruz —
+            # kapalı kutuda metin gerekirse elide edilir, açılır listede tam metin görünür.
+            cb.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
+            cb.setMinimumContentsLength(spec.get("combo_min_chars", 14))
             provider = spec.get("options_provider")
             options = list(spec.get("options", []))
             if callable(provider):
@@ -926,6 +1100,12 @@ class DefinitionEditorScreen(QWidget):
                     logger.exception("options_provider hatası (%s)", spec.get("key"))
             cb.addItems([str(o) for o in options])
             return cb
+        if t == "date":
+            from src.desktop.ui.components.grid_delegates import apply_calendar_style
+            de = QDateEdit(QDate.currentDate())
+            de.setDisplayFormat(spec.get("date_format", "dd.MM.yyyy"))
+            apply_calendar_style(de)                  # takvim açılır pencereli AMA elle yazmaya da açık
+            return de
         if t == "multiline":
             pt = QPlainTextEdit()
             pt.setFixedHeight(spec.get("height", 70))
@@ -985,6 +1165,7 @@ class DefinitionEditorScreen(QWidget):
             return _SubTableField(
                 spec.get("columns", []),
                 profile_key=f"card_subtable_{spec['key']}",
+                delete_confirm=spec.get("delete_confirm"),
             )
         if t == "permtree":
             return _PermTreeField(spec.get("groups", []))
@@ -1194,6 +1375,10 @@ class DefinitionEditorScreen(QWidget):
                     w.setValue(0)
             elif isinstance(w, QCheckBox):
                 w.setChecked(bool(val))
+            elif isinstance(w, QDateEdit):
+                fmt = spec.get("date_format", "dd.MM.yyyy")
+                d = QDate.fromString((val or "").strip(), fmt) if val else QDate()
+                w.setDate(d if d.isValid() else QDate.currentDate())
             elif isinstance(w, (_MoneyField, _IntCatalogField)):
                 w.setValue(val)
                 ck = spec.get("currency_key")
@@ -1234,6 +1419,9 @@ class DefinitionEditorScreen(QWidget):
                 out[key] = w.value()
             elif isinstance(w, QCheckBox):
                 out[key] = w.isChecked()
+            elif isinstance(w, QDateEdit):
+                spec = self._field_specs.get(key, {})
+                out[key] = w.date().toString(spec.get("date_format", "dd.MM.yyyy"))
             elif isinstance(w, _MoneyField):
                 out[key] = w.value()
                 spec = self._field_specs.get(key, {})
@@ -1259,6 +1447,8 @@ class DefinitionEditorScreen(QWidget):
         return out
 
     def _refresh_summary(self):
+        if not self._right_panel:
+            return
         d = self.collect()
         if self._summary_widget is not None and hasattr(self._summary_widget, "update_from"):
             try:

@@ -6,7 +6,13 @@ import logging
 
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QAction, QStandardItem
-from PyQt6.QtWidgets import QInputDialog, QLabel, QLineEdit, QMenu, QMessageBox, QPushButton
+from PyQt6.QtWidgets import (
+    QLabel,
+    QLineEdit,
+    QMenu,
+    QMessageBox,
+    QPushButton,
+)
 
 from src.desktop.services.auth_service import AuthService
 from src.desktop.services.user_service import UserService

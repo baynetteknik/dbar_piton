@@ -1,8 +1,19 @@
 import datetime
 import logging
+import os
+from pathlib import Path
 
 from PyQt6.QtCore import QSettings, Qt, QTimer, pyqtSignal
-from PyQt6.QtGui import QAction, QColor, QCursor, QFont, QKeySequence, QShortcut
+from PyQt6.QtGui import (
+    QAction,
+    QColor,
+    QCursor,
+    QFont,
+    QIcon,
+    QKeySequence,
+    QPixmap,
+    QShortcut,
+)
 from PyQt6.QtWidgets import (
     QComboBox,
     QDialog,
@@ -15,6 +26,7 @@ from PyQt6.QtWidgets import (
     QMainWindow,
     QMenu,
     QPushButton,
+    QScrollArea,
     QSplitter,
     QTabBar,
     QTabWidget,
@@ -23,6 +35,7 @@ from PyQt6.QtWidgets import (
 )
 
 from src.core.models import Site
+from src.desktop.services.dev_tracker_store import gelistirme_acik
 from src.desktop.ui.backup import BackupWidget
 from src.desktop.ui.cari_list_screen import CariListScreen
 from src.desktop.ui.components.text_selection_helper import init_global_text_selection
@@ -34,6 +47,9 @@ from src.desktop.ui.widgets.menu_grid_widget import MenuGridWidget
 from src.desktop.ui.widgets.quick_tiles_bar_widget import QuickTilesBarWidget
 
 logger = logging.getLogger(__name__)
+
+#: Uygulama logosu (dizayn/logo3d.jpg'den kırpıldı) — pencere ikonu ve üst bar rozeti.
+LOGO_PATH = str(Path(__file__).resolve().parent / "assets" / "logo" / "toya_logo.png")
 
 
 class QtLogHandler(logging.Handler):
@@ -126,15 +142,27 @@ class MenuPopup(QFrame):
         layout.addWidget(cat_lbl)
 
         implemented = getattr(self.parent_widget, "IMPLEMENTED_MODULES", None)
+        muaf = getattr(self.parent_widget, "MODUL_FIRMA_MUAF", frozenset())
+        firma_var = getattr(self.parent_widget, "_aktif_firma_var_mi", lambda: True)()
         for item in items:
-            is_ready = implemented is None or item in implemented
-            btn = QPushButton(item if is_ready else f"{item} (Yakında)")
+            is_built = implemented is None or item in implemented
+            # Firma gerektiren ama tanımlı/aktif firma olmayan modüller (2026-09-30): buton TIKLANABİLİR
+            # kalır (tıklanınca open_module_in_tab firma tanımlamaya yönlendirir) ama pasif GÖRÜNÜR.
+            firma_gerekli = is_built and item not in muaf and not firma_var
+            etiket = item
+            if not is_built:
+                etiket = f"{item} (Yakında)"
+            elif firma_gerekli:
+                etiket = f"🔒 {item}"
+            btn = QPushButton(etiket)
             btn.setCursor(
-                Qt.CursorShape.PointingHandCursor if is_ready
+                Qt.CursorShape.PointingHandCursor if is_built
                 else Qt.CursorShape.ForbiddenCursor,
             )
-            btn.setEnabled(is_ready)
-            btn.setStyleSheet("""
+            btn.setEnabled(is_built)
+            if firma_gerekli:
+                btn.setToolTip("Bu modülü kullanmak için önce bir firma tanımlamanız/seçmeniz gerekiyor.")
+            btn.setStyleSheet(("""
                 QPushButton {
                     text-align: left;
                     padding: 8px 14px;
@@ -156,8 +184,8 @@ class MenuPopup(QFrame):
                 QPushButton:disabled {
                     color: #93a5c9;
                 }
-            """)
-            if is_ready:
+            """) + ("QPushButton{color:#93a5c9;}" if firma_gerekli else ""))
+            if is_built:
                 btn.clicked.connect(lambda checked, i=item: self.item_clicked(i))
             layout.addWidget(btn)
 
@@ -338,8 +366,12 @@ class MainWindow(QMainWindow):
         self.IMPLEMENTED_MODULES = frozenset({
             self.tr("Ana Panel"),
             self.tr("Görevler"),
+            self.tr("Takvim"),
+            self.tr("Geliştirme"),
             self.tr("Ürün Yönetimi"),
             self.tr("Stok Yönetimi"),
+            self.tr("Hizmet Tanımları"),
+            self.tr("Masraf Tanımları"),
             self.tr("Genel Ayarlar"),
             self.tr("Ekran & Grid Tanımları"),
             self.tr("Cari Listesi (AppGrid)"),
@@ -348,8 +380,11 @@ class MainWindow(QMainWindow):
             self.tr("Stok Hareketleri"),
             self.tr("Kasa Kartları"),
             self.tr("Banka & POS Kartları"),
+            self.tr("Kasa Hareketleri"),
+            self.tr("Banka Hareketleri"),
             self.tr("Teklif Yönetimi"),
             self.tr("Sipariş Yönetimi"),
+            self.tr("İrsaliyeler"),
             self.tr("Faturalar"),
             self.tr("Yeni Cari Kartı"),
             self.tr("Yeni Teklif Hazırla"),
@@ -358,16 +393,32 @@ class MainWindow(QMainWindow):
         self.menu_structure = {
             self.tr("GÖSTERGE"): ([self.tr("Ana Panel"), self.tr("Bildirimler")], "📊"),
             self.tr("CARİ"): ([self.tr("Müşteriler & Cariler"), self.tr("Cari Hareketleri"), self.tr("Cari Analiz")], "👥"),
-            self.tr("STOK"): ([self.tr("Ürün Yönetimi"), self.tr("Stok Hareketleri"), self.tr("Fiyat Politikaları")], "📦"),
-            self.tr("KASA & BANKA"): ([self.tr("Kasa Kartları"), self.tr("Banka & POS Kartları")], "💰"),
+            self.tr("STOK"): ([self.tr("Ürün Yönetimi"), self.tr("Hizmet Tanımları"), self.tr("Masraf Tanımları"), self.tr("Stok Hareketleri"), self.tr("Fiyat Politikaları")], "📦"),
+            self.tr("KASA & BANKA"): ([self.tr("Kasa Kartları"), self.tr("Banka & POS Kartları"), self.tr("Kasa Hareketleri"), self.tr("Banka Hareketleri")], "💰"),
             self.tr("TEKLİF & SİPARİŞ"): ([self.tr("Teklif Yönetimi"), self.tr("Sipariş Yönetimi")], "📄"),
-            self.tr("YEDEKLEME"): ([self.tr("Görevler")], "🔄"),
+            self.tr("İRSALİYE & FATURA"): ([self.tr("İrsaliyeler"), self.tr("Faturalar")], "🧾"),
+            self.tr("GÖREVLER"): ([self.tr("Görevler"), self.tr("Takvim")] + ([self.tr("Geliştirme")] if gelistirme_acik() else []), "✅"),
             self.tr("SİSTEM"): ([self.tr("Genel Ayarlar"), self.tr("İşlem Günlükleri")], "⚙️"),
         }
 
         self.init_ui()
         self._schedule_currency_autofetch()
         self._schedule_portal_pull()
+        self._schedule_gorev_reminders()
+        self._ilk_gosterim_yapildi = False
+
+    def showEvent(self, event) -> None:  # noqa: N802
+        super().showEvent(event)
+        if not self._ilk_gosterim_yapildi:
+            self._ilk_gosterim_yapildi = True
+            QTimer.singleShot(0, self._ilk_yerlesimi_zorla)
+
+    def _ilk_yerlesimi_zorla(self) -> None:
+        """İlk gösterimden bir olay döngüsü turu sonra çağrılır: pencere gerçek (maksimize) boyutuna henüz
+        oturmadan iç içe QSplitter/QTabWidget ağacı yerleşirse gösterge paneli dar kalabiliyordu (kullanıcı
+        pencereyi elle büyütüp küçültene kadar). Bölücüyü kendi güncel boyutuna göre yeniden dağıtmak bunu düzeltir."""
+        if hasattr(self, "dash_splitter"):
+            self.dash_splitter.setSizes(self.dash_splitter.sizes())
 
     def _schedule_backups(self) -> None:
         """Zamanlanmış yedek işlerini (dakikada bir) ve takılan harici diskleri (5 sn) izler; işler arka plan
@@ -383,36 +434,196 @@ class MainWindow(QMainWindow):
                 lambda name, status, msg: self.show_toast(
                     f"Yedek — {name}: {msg}", "success" if status in ("ok", "nochange") else ("warning" if status == "warning" else "error")))
             self.backup_runner.start()
+            self._setup_backup_popup()
         except Exception as exc:  # noqa: BLE001 - yedek zamanlayıcısı açılışı engellememeli
             logger.warning("Yedek zamanlayıcısı başlatılamadı: %s", exc)
 
+    def _setup_backup_popup(self) -> None:
+        """Yedek sürerken köşede aşama/ilerleme penceresi; kullanıcı işlem yaparsa uyarı. Ayrıca bu oturumun 'bağlıyım' işaretini
+        30 sn'de bir yazar (yedek, başka kullanıcı bağlıyken başlamaz)."""
+        from PyQt6.QtCore import QTimer
+        from PyQt6.QtWidgets import QApplication
+
+        from src.desktop.services.backup import presence
+        from src.desktop.ui.widgets.backup_status_popup import (
+            ActivityFilter,
+            BackupStatusPopup,
+        )
+
+        r = self.backup_runner
+        self.backup_popup = BackupStatusPopup(self)
+        r.job_started.connect(self.backup_popup.on_started)
+        r.line.connect(self.backup_popup.on_line)
+        r.progress.connect(self.backup_popup.on_progress)
+        r.job_finished.connect(self.backup_popup.on_finished)
+        r.job_waiting.connect(self.backup_popup.on_waiting)
+        self._activity_filter = ActivityFilter(self.backup_popup)
+        QApplication.instance().installEventFilter(self._activity_filter)
+
+        def beat() -> None:
+            u = self.current_user
+            try:
+                presence.beat(self.db, (u.username if u is not None else (self.user_config or {}).get("username", "")) or "")
+            except Exception:  # noqa: BLE001 - varlık işareti yazılamazsa uygulama etkilenmesin
+                logger.debug("Oturum işareti yazılamadı", exc_info=True)
+
+        self._presence_timer = QTimer(self)
+        self._presence_timer.timeout.connect(beat)
+        self._presence_timer.start(30_000)
+        beat()
+
+    def _gorev_paneli_sarmala(self, icerik: QWidget) -> QWidget:
+        """Ana panelin orta sütunu (Görevler & Bildirimler) için açılır/kapanır sarmalayıcı.
+        Kullanıcı isteği: bu sütun Favoriler ile Menü Gridi'nin tam ortasında durup dikkat
+        dağıtıyordu; artık ince bir ok tuşuyla kapatılabiliyor, kapanınca boşalan genişlik Menü
+        Gridi'ne geçiyor. Son durum `QSettings`'te kalıcı — bir sonraki açılışta hatırlanır."""
+        self._gorev_panel_icerik = icerik
+        self._gorev_panel_son_genislik = 340
+        wrapper = QWidget()
+        lyt = QHBoxLayout(wrapper)
+        lyt.setContentsMargins(0, 0, 0, 0)
+        lyt.setSpacing(2)
+        self._gorev_panel_toggle_btn = btn = QPushButton()
+        btn.setFixedWidth(16)
+        btn.setToolTip("Görevler & Bildirimler panelini aç/kapat")
+        btn.setStyleSheet(
+            "QPushButton{background:#e2e8f0;color:#475569;border:none;border-radius:4px;"
+            "font-weight:700;font-size:11px;}QPushButton:hover{background:#cbd5e1;}",
+        )
+        btn.clicked.connect(lambda: self._gorev_paneli_ac_kapa(not icerik.isVisible()))
+        lyt.addWidget(icerik, 1)
+        lyt.addWidget(btn)
+        acik = self.dash_settings.value("dashboard/gorevler_acik", True, type=bool)
+        icerik.setVisible(acik)
+        btn.setText("‹" if acik else "›")
+        return wrapper
+
+    def _gorev_paneli_ac_kapa(self, acik: bool) -> None:
+        """`_gorev_paneli_sarmala`'nın aç/kapa mantığı — splitter genişliğini de Menü Gridi
+        lehine/aleyhine ayarlar, hem anlık tıklamadan hem başlangıç tercihinden çağrılır."""
+        self._gorev_panel_icerik.setVisible(acik)
+        self._gorev_panel_toggle_btn.setText("‹" if acik else "›")
+        self.dash_settings.setValue("dashboard/gorevler_acik", acik)
+        sizes = self.dash_splitter.sizes()
+        if len(sizes) != 3:
+            return
+        if acik:
+            hedef = max(self._gorev_panel_son_genislik, 260)
+            fark = hedef - sizes[1]
+            self.dash_splitter.setSizes([sizes[0], hedef, max(sizes[2] - fark, 200)])
+        else:
+            if sizes[1] > 24:
+                self._gorev_panel_son_genislik = sizes[1]
+            self.dash_splitter.setSizes([sizes[0], 20, sizes[2] + sizes[1] - 20])
+        self.dash_settings.setValue("dashboard/splitter_sizes", self.dash_splitter.sizes())
+
+    def _bildirim_rozeti_guncelle(self) -> None:
+        """Zil düğmesindeki okunmamış bildirim sayısını günceller."""
+        try:
+            from src.desktop.services.bildirim_service import BildirimService
+            n = BildirimService(self.db).okunmamis_sayisi()
+        except Exception:  # noqa: BLE001 - üst çubuk bildirim hatasıyla bozulmasın
+            return
+        self.btn_bildirim.setText(f"🔔 {n}" if n else "🔔")
+        self.btn_bildirim.setStyleSheet(
+            "QPushButton{background-color:%s; border:none; border-radius:18px; font-size:13px; font-weight:700; color:white; padding:0 10px;}"
+            "QPushButton:hover{background-color:#2563eb;}" % ("#f59e0b" if n else "#1a2744"))
+
+    def _bildirimleri_ac(self) -> None:
+        from PyQt6.QtWidgets import QDialog, QVBoxLayout
+
+        from src.desktop.ui.widgets.bildirimler_widget import BildirimlerWidget
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Bildirimler")
+        dlg.resize(520, 560)
+        lay = QVBoxLayout(dlg)
+        w = BildirimlerWidget(self.db, dlg, limit=100)
+        w.degisti.connect(self._bildirim_rozeti_guncelle)
+        w.kontrol_istendi.connect(lambda: self.portal_kontrol_et(elle=True))
+        w.ac_istendi.connect(lambda tur, no: (dlg.accept(), self._bildirimden_ac(tur, no)))
+        self.portal_kontrol_et()
+        lay.addWidget(w)
+        dlg.exec()
+        self._bildirim_rozeti_guncelle()
+
+    def _bildirimden_ac(self, tur: str, no: str) -> None:
+        """Bildirimdeki belgeyi (teklif) açar."""
+        if tur != "teklif" or not no:
+            return
+        from sqlalchemy import select
+
+        from src.core.models import Quotation
+        from src.desktop.ui.screens.document_detail_screen import DocumentDetailScreen
+        q = self.db.scalar(select(Quotation).where(Quotation.quotation_number == no))
+        if q is None:
+            self.show_toast(f"{no} numaralı teklif bulunamadı.", "warning")
+            return
+        dlg = DocumentDetailScreen.open_as_dialog(parent=self, db_session=self.db, doc_id=q.id, initial_type_idx=0, company_id=q.company_id)
+        dlg.exec()
+
+    def _portal_kararlarini_bildir(self, applied: list[dict]) -> None:
+        """Portaldan çekilen müşteri kararlarını ekranda bildirir (en fazla 3 ayrı uyarı, kalanı özet)."""
+        from src.desktop.services.bildirim_service import TURLER
+        haberler = [a for a in applied if a.get("baslik")]
+        for a in haberler[:3]:
+            simge, tip = TURLER.get(a.get("tur", ""), ("🔔", "info"))
+            self.show_toast(f"{simge} {a['baslik']} — {a['quotation_number']}", tip)
+        if len(haberler) > 3:
+            self.show_toast(f"🔔 {len(haberler) - 3} bildirim daha var (zil düğmesine bakın).", "info")
+        self._bildirim_rozeti_guncelle()
+
     def _schedule_portal_pull(self) -> None:
-        """Online teklif portalındaki müşteri kararlarını (kabul/ret/karşı teklif)
-        açılışta ve her 10 dakikada bir çeker. Portal tanımlı değilse hiçbir şey yapmaz.
-        Ana iş parçacığında çalıştığı için kısa zaman aşımı (5 sn) kullanılır; pytest
-        altında atlanır (bkz. `_schedule_currency_autofetch`)."""
+        """Online teklif portalındaki müşteri kararlarını (kabul/ret/karşı teklif/süre dolumu) açılıştan 5 sn sonra ve her dakika
+        arka planda çeker. Portal tanımlı değilse hiçbir şey yapmaz; pytest altında atlanır (bkz. `_schedule_currency_autofetch`)."""
         import os
 
         from PyQt6.QtCore import QTimer
 
         if os.environ.get("PYTEST_CURRENT_TEST"):
             return
-
-        def _run():
-            try:
-                from src.desktop.services import portal_sync_service
-                if not portal_sync_service.is_configured(self.db):
-                    return
-                r = portal_sync_service.pull_decisions(self.db, timeout=5)
-                if r.success and r.applied:
-                    self.show_toast(f"Portal: {r.message}", "success")
-            except Exception as exc:  # noqa: BLE001 - arka plan görevi hiçbir zaman engellememeli
-                logger.warning("Portal kararları alınamadı: %s", exc)
-
         self._portal_timer = QTimer(self)
-        self._portal_timer.timeout.connect(_run)
-        self._portal_timer.start(10 * 60 * 1000)
-        QTimer.singleShot(5000, _run)
+        self._portal_timer.timeout.connect(self.portal_kontrol_et)
+        self._portal_timer.start(60 * 1000)
+        QTimer.singleShot(5000, self.portal_kontrol_et)
+
+    def portal_kontrol_et(self, elle: bool = False) -> None:
+        """Portalı şimdi kontrol eder (ağ arka planda). `elle=True` ise sonuç (yeni karar yok / hata) da bildirilir."""
+        from src.desktop.services import portal_sync_service
+        from src.desktop.ui.widgets.portal_pull_worker import PortalPullWorker
+
+        w = getattr(self, "_portal_worker", None)
+        if w is not None and w.isRunning():
+            return
+        try:
+            req = portal_sync_service.decisions_request(self.db)
+        except Exception as exc:  # noqa: BLE001 - arka plan görevi hiçbir zaman engellememeli
+            logger.warning("Portal ayarları okunamadı: %s", exc)
+            return
+        if req is None:
+            if elle:
+                self.show_toast("Portal adresi / API anahtarı tanımlı değil (Ayarlar › Sistem › Online Portal).", "warning")
+            return
+        self._portal_worker = PortalPullWorker(req, 8 if elle else 5, self)
+        self._portal_worker.bitti.connect(lambda body, err, c=req[2]: self._portal_cekildi(c, body, err, elle))
+        self._portal_worker.start()
+
+    def _portal_cekildi(self, cursor: int, body, err: str, elle: bool) -> None:
+        from src.desktop.services import portal_sync_service
+        if body is None:
+            logger.warning("Portal kararları alınamadı: %s", err)
+            if elle:
+                self.show_toast(err, "warning")
+            return
+        try:
+            r = portal_sync_service.apply_decisions(self.db, cursor, body)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Portal kararları uygulanamadı: %s", exc)
+            self.db.rollback()
+            return
+        if r.applied:
+            self._portal_kararlarini_bildir(r.applied)
+        elif elle:
+            self.show_toast("Portal kontrol edildi: yeni karar yok.", "info")
 
     def _schedule_currency_autofetch(self) -> None:
         """Program açıldığında, ayarlarda seçilen döviz kuru kaynağından
@@ -453,6 +664,32 @@ class MainWindow(QMainWindow):
         except Exception:  # noqa: BLE001
             return None
 
+    def _kullanici_adi(self) -> str:
+        u = self.current_user
+        return (u.username if u is not None else (self.user_config or {}).get("username", "")) or ""
+
+    def _schedule_gorev_reminders(self) -> None:
+        """Zamanı gelen görev/randevu hatırlatmalarını dakikada bir kontrol edip bildirim (toast) gösterir. pytest altında atlanır."""
+        import os
+
+        if os.environ.get("PYTEST_CURRENT_TEST"):
+            return
+        from PyQt6.QtCore import QTimer
+
+        from src.desktop.services.gorev_service import GorevService
+
+        def kontrol() -> None:
+            try:
+                for g in GorevService(self.db).hatirlatmalar(kullanici=self._kullanici_adi()):
+                    self.show_toast(f"🔔 {g.baslik}" + (f" — {g.bitis:%d.%m %H:%M}" if g.bitis else ""), "info")
+            except Exception:  # noqa: BLE001 - hatırlatma hatası uygulamayı etkilemesin
+                logger.debug("Görev hatırlatması kontrol edilemedi", exc_info=True)
+
+        self._gorev_timer = QTimer(self)
+        self._gorev_timer.timeout.connect(kontrol)
+        self._gorev_timer.start(60_000)
+        QTimer.singleShot(5000, kontrol)
+
     def _current_user_label(self) -> str:
         u = self.current_user
         if u is not None:
@@ -466,8 +703,10 @@ class MainWindow(QMainWindow):
 
     def init_ui(self):
         self.setWindowTitle(self.tr("Toya ERP"))
-        self.resize(1480, 880)
+        self.resize(1366, 768)  # 1366x768 ekranlarda normal/restore boyutu bile taşmasın
         self.setStyleSheet("background-color: #f0f4f8;")
+        if Path(LOGO_PATH).is_file():
+            self.setWindowIcon(QIcon(LOGO_PATH))
 
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
@@ -487,7 +726,16 @@ class MainWindow(QMainWindow):
         header_layout.setContentsMargins(20, 0, 20, 0)
         header_layout.setSpacing(18)
 
-        self.logo = QLabel(self.tr("🏢 Toya ERP"))
+        self.logo_icon = QLabel()
+        if Path(LOGO_PATH).is_file():
+            pix = QPixmap(LOGO_PATH).scaled(38, 38, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
+            self.logo_icon.setPixmap(pix)
+            self.logo_icon.setFixedSize(42, 42)
+            self.logo_icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            self.logo_icon.setStyleSheet("background-color:#ffffff; border-radius:8px;")
+            header_layout.addWidget(self.logo_icon)
+
+        self.logo = QLabel(self.tr("TOYA ERP"))
         self.logo.setObjectName("pan.nav.logo")
         self.logo.setToolTip("[pan.nav.logo] Toya ERP Kurumsal Yönetim Platformu")
         self.logo.setStyleSheet("font-size: 20px; font-weight: 800; color: #ffffff; font-family: 'Segoe UI';")
@@ -600,6 +848,14 @@ class MainWindow(QMainWindow):
         btn_theme_settings.clicked.connect(self._open_theme_settings_dialog)
         header_layout.addWidget(btn_theme_settings)
 
+        self.btn_bildirim = QPushButton("🔔")
+        self.btn_bildirim.setObjectName("cmp.top.bildirim")
+        self.btn_bildirim.setToolTip("Bildirimler (online portal müşteri kararları)")
+        self.btn_bildirim.setMinimumSize(36, 36)
+        self.btn_bildirim.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_bildirim.clicked.connect(self._bildirimleri_ac)
+        header_layout.addWidget(self.btn_bildirim)
+
         help_btn = QPushButton("❓")
         help_btn.setObjectName("cmp.top.help")
         help_btn.setToolTip("[cmp.top.help] Kullanıcı Kılavuzu & Yardım Dokümantasyonu")
@@ -630,6 +886,8 @@ class MainWindow(QMainWindow):
         dash_main_vlyt.setContentsMargins(16, 16, 16, 16)
         dash_main_vlyt.setSpacing(12)
 
+        self.dash_settings = QSettings("ToyaERP", "DashboardSettings")
+
         # QSplitter ile serbestçe boyutlandırılabilen Flexbox Gövde (Resim 1 & 2)
         self.dash_splitter = QSplitter(Qt.Orientation.Horizontal)
         self.dash_splitter.setStyleSheet("""
@@ -650,6 +908,28 @@ class MainWindow(QMainWindow):
         self.fav_widget.quick_action_triggered.connect(self.alt_menu_tiklandi)
         self.dash_splitter.addWidget(self.fav_widget)
 
+        # 1b. Orta: Bugünün görevleri (gecikmiş + bugün; çift tıkla aç, tamamla)
+        from src.desktop.ui.widgets.bugun_gorevleri_widget import BugunGorevleriWidget
+        self.bugun_gorevleri = BugunGorevleriWidget(self.db, self._kullanici_adi(), parent=self, otomatik_yenile=not os.environ.get("PYTEST_CURRENT_TEST"))
+        self.bugun_gorevleri.tumu_istendi.connect(lambda: self.alt_menu_tiklandi(self.tr("Görevler")))
+        from src.desktop.ui.widgets.bildirimler_widget import BildirimlerWidget
+        self.bildirimler_karti = BildirimlerWidget(self.db, parent=self, limit=15, otomatik_yenile=not os.environ.get("PYTEST_CURRENT_TEST"))
+        self.bildirimler_karti.ac_istendi.connect(self._bildirimden_ac)
+        self.bildirimler_karti.degisti.connect(self._bildirim_rozeti_guncelle)
+        self.bildirimler_karti.kontrol_istendi.connect(lambda: self.portal_kontrol_et(elle=True))
+        orta = QWidget()
+        orta_l = QVBoxLayout(orta)
+        orta_l.setContentsMargins(0, 0, 0, 0)
+        orta_l.setSpacing(8)
+        orta_l.addWidget(self.bugun_gorevleri, 3)
+        orta_l.addWidget(self.bildirimler_karti, 2)
+        self.dash_splitter.addWidget(self._gorev_paneli_sarmala(orta))
+        self._bildirim_rozeti_guncelle()
+        if not os.environ.get("PYTEST_CURRENT_TEST"):
+            from src.desktop.services import veri_bus
+            veri_bus.kur()
+            veri_bus.veri_bus().degisti.connect(lambda k: QTimer.singleShot(150, self._bildirim_rozeti_guncelle) if k == "bildirim" else None)
+
         # 2. Sağ: Ana Menüler Modül Gridi Widget'ı
         self.menu_grid_widget = MenuGridWidget(parent=self)
         self.menu_grid_widget.set_implemented(self.IMPLEMENTED_MODULES)
@@ -663,15 +943,15 @@ class MainWindow(QMainWindow):
         self.dash_splitter.addWidget(self.menu_grid_widget)
 
         # Splitter Genişlik Oranlarını QSettings'ten Yükle / Kaydet
-        self.dash_settings = QSettings("ToyaERP", "DashboardSettings")
         saved_sizes = self.dash_settings.value("dashboard/splitter_sizes", None)
         if saved_sizes:
             try:
-                self.dash_splitter.setSizes([int(s) for s in saved_sizes])
+                boyutlar = [int(s) for s in saved_sizes]
+                self.dash_splitter.setSizes(boyutlar if len(boyutlar) == self.dash_splitter.count() else [380, 340, 800])
             except Exception:
-                self.dash_splitter.setSizes([380, 800])
+                self.dash_splitter.setSizes([380, 340, 800])
         else:
-            self.dash_splitter.setSizes([380, 800])
+            self.dash_splitter.setSizes([380, 340, 800])
 
         self.dash_splitter.splitterMoved.connect(
             lambda: self.dash_settings.setValue("dashboard/splitter_sizes", self.dash_splitter.sizes()),
@@ -751,17 +1031,31 @@ class MainWindow(QMainWindow):
         footer_layout.setContentsMargins(16, 0, 16, 0)
         footer_layout.setSpacing(10)
 
-        # Footer Menü Butonları (Büyük, Tek İkonlu ve Belirgin)
+        # Footer Menü Butonları (Büyük, Tek İkonlu ve Belirgin) — 8 buton tek satırda ~1955px
+        # tutuyor (1366x768'de taşıyordu); yatay kaydırmalı bir şeride sarıldı: geniş ekranda
+        # kaydırma çubuğu hiç görünmez, dar ekranda pencere minimum genişliği butonlara göre
+        # şişmek yerine şerit kaydırılabilir olur.
+        btn_strip = QWidget()
+        btn_row = QHBoxLayout(btn_strip)
+        btn_row.setContentsMargins(0, 0, 0, 0)
+        btn_row.setSpacing(10)
         self.menu_buttons = []
         for category_name, (sub_items, emoji) in self.menu_structure.items():
             btn = FooterMenuButton(emoji, category_name, sub_items, self)
-            footer_layout.addWidget(btn)
+            btn_row.addWidget(btn)
             self.menu_buttons.append(btn)
+        btn_row.addStretch()
+
+        btn_scroll = QScrollArea()
+        btn_scroll.setWidgetResizable(True)
+        btn_scroll.setWidget(btn_strip)
+        btn_scroll.setFrameShape(QFrame.Shape.NoFrame)
+        btn_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        btn_scroll.setStyleSheet("background: transparent; QScrollArea{background:transparent;}")
+        footer_layout.addWidget(btn_scroll, 1)
 
         # Geriye dönük uyumluluk referansı
         self.menu_bar = self.footer_bar
-
-        footer_layout.addStretch()
 
         # Sistem Durum Rozeti
         status_badge = QLabel("🟢 " + self.tr("Sistem Aktif"))
@@ -809,6 +1103,11 @@ class MainWindow(QMainWindow):
                 return
         if runner is not None:
             runner.stop()
+            try:
+                from src.desktop.services.backup import presence
+                presence.leave(self.db)
+            except Exception:  # noqa: BLE001
+                pass
         if hasattr(self, "time_timer") and self.time_timer.isActive():
             self.time_timer.stop()
         if hasattr(self, "qt_log_handler"):
@@ -885,6 +1184,39 @@ class MainWindow(QMainWindow):
     def alt_menu_tiklandi(self, menu_name):
         self.open_module_in_tab(menu_name)
 
+    #: Aktif firma tanımlanmadan da açılabilecek modüller (2026-09-30) — kurulum/başlangıç akışı için
+    #: gerekli olanlar (Firma Bilgileri'ne ulaşmak için Genel Ayarlar açılabilmeli) + kişisel/sistem
+    #: araçları (şirket verisiyle ilgisi olmayan Görevler, Geliştirme vb.). Diğer TÜM modüller (Cari,
+    #: Stok, Kasa/Banka, Teklif/Sipariş, İrsaliye/Fatura...) aktif firma gerektirir.
+    MODUL_FIRMA_MUAF = frozenset({
+        "Ana Panel", "Bildirimler", "Genel Ayarlar", "Görevler", "Takvim", "Geliştirme", "İşlem Günlükleri",
+    })
+
+    def _aktif_firma_var_mi(self) -> bool:
+        if not self.db:
+            return True
+        from src.desktop.services.company_service import CompanyService
+        return CompanyService(self.db).aktif_firma() is not None
+
+    def _firma_tanimlamaya_yonlendir(self) -> None:
+        """Aktif firma yokken bir modül açılmaya çalışılınca çağrılır. Hiç firma yoksa yeni kayıt formunu
+        açar ve kaydedilince otomatik aktif yapar. Firma(lar) var ama hiçbiri aktif değilse (nadir durum:
+        kullanıcı birden fazla firma tanımlamış ama birini seçmemiş) ilkini aktif yapar — ayrı bir "firma
+        seç" ekranı bu aşamada kapsam dışı bırakıldı, bkz. gelistirme/13_sirket_tanimlari/tasarim.md."""
+        from src.desktop.services.company_service import CompanyService
+        svc = CompanyService(self.db)
+        firmalar = svc.list_companies()
+        if firmalar:
+            svc.aktif_firma_sec(firmalar[0].id)
+            self.show_toast(f"'{firmalar[0].short_name}' aktif firma olarak seçildi.", "info")
+        else:
+            from src.desktop.ui.dialogs.firma_sihirbazi_dialog import FirmaSihirbaziDialog
+            dlg = FirmaSihirbaziDialog(db_session=self.db, parent=self)
+            dlg.exec()
+            self.load_companies()
+        if hasattr(self, "menu_grid_widget"):
+            self.menu_grid_widget.set_implemented(self.IMPLEMENTED_MODULES)
+
     def open_module_in_tab(self, menu_name):
         # --- Yetki kontrolü ---
         from src.desktop.security.gate import can, module_permission
@@ -893,11 +1225,18 @@ class MainWindow(QMainWindow):
             self.show_toast(f"'{menu_name}' için yetkiniz yok.", "error")
             return
 
+        # --- Firma tanımlı mı kontrolü (2026-09-30) ---
+        if menu_name not in self.MODUL_FIRMA_MUAF and not self._aktif_firma_var_mi():
+            self.show_toast("Önce bir firma tanımlamanız/seçmeniz gerekiyor.", "warning")
+            self._firma_tanimlamaya_yonlendir()
+            return
+
         SCREEN_CODES = {
             self.tr("Teklif Yönetimi"): "📄 [isl.quo.001] " + self.tr("Teklif Yönetimi"),
             self.tr("Teklifler"): "📄 [isl.quo.001] " + self.tr("Teklif Yönetimi"),
             self.tr("Sipariş Yönetimi"): "🛒 [isl.ord.001] " + self.tr("Sipariş Yönetimi"),
             self.tr("Siparişler"): "🛒 [isl.ord.001] " + self.tr("Sipariş Yönetimi"),
+            self.tr("İrsaliyeler"): "🚚 [isl.wbl.001] " + self.tr("İrsaliye Yönetimi"),
             self.tr("Faturalar"): "🧾 [isl.inv.001] " + self.tr("Fatura Yönetimi"),
             self.tr("Hızlı Fatura"): "🧾 [isl.inv.001] " + self.tr("Fatura Yönetimi"),
             self.tr("Bugün Ciro"): "🧾 [isl.inv.001] " + self.tr("Fatura Yönetimi"),
@@ -905,7 +1244,11 @@ class MainWindow(QMainWindow):
             self.tr("Cari Listesi (AppGrid)"): "📐 [app.grd.001] " + self.tr("Cari Listesi (AppGrid)"),
             self.tr("Ekran & Grid Tanımları"): "📐 [sys.grd.001] " + self.tr("Ekran & Grid Tanımları"),
             self.tr("Ürün Yönetimi"): "🏷️ [tan.stk.001] " + self.tr("Ürün & Stok Yönetimi"),
-            self.tr("Görevler"): "💾 [isl.tsk.001] " + self.tr("Görevler & İş Emirleri"),
+            self.tr("Hizmet Tanımları"): "🧰 [tan.hzm.001] " + self.tr("Hizmet Tanımları"),
+            self.tr("Masraf Tanımları"): "💸 [tan.msr.001] " + self.tr("Masraf Tanımları"),
+            self.tr("Görevler"): "✅ [isl.tsk.001] " + self.tr("Görevler"),
+            self.tr("Takvim"): "📅 [isl.tak.001] " + self.tr("Takvim"),
+            self.tr("Geliştirme"): "🛠️ [dev.trk.001] " + self.tr("Geliştirme"),
             self.tr("Genel Ayarlar"): "⚙️ [sys.set.001] " + self.tr("Genel Ayarlar"),
             self.tr("İşlem Günlükleri"): "📝 [sys.log.001] " + self.tr("İşlem Günlükleri"),
             self.tr("Cari Analiz"): "📊 [rpt.car.001] " + self.tr("Cari Analiz"),
@@ -914,6 +1257,8 @@ class MainWindow(QMainWindow):
             self.tr("Stok Hareketleri"): "📦 [isl.stk.001] " + self.tr("Stok Hareketleri"),
             self.tr("Kasa Kartları"): "💰 [tan.ksa.001] " + self.tr("Kasa Kartları"),
             self.tr("Banka & POS Kartları"): "🏦 [tan.bnk.001] " + self.tr("Banka & POS Kartları"),
+            self.tr("Kasa Hareketleri"): "💰 [isl.ksa.001] " + self.tr("Kasa Hareketleri"),
+            self.tr("Banka Hareketleri"): "🏦 [isl.bnk.001] " + self.tr("Banka Hareketleri"),
             self.tr("Pazaryeri Bağlantıları"): "🤝 [int.mkt.001] " + self.tr("Pazaryeri Bağlantıları"),
         }
         # Hızlı Kısayollar ("Yeni Cari Kartı Aç" / "Yeni Teklif Hazırla") gerçek
@@ -944,7 +1289,15 @@ class MainWindow(QMainWindow):
         new_widget = None
         company_id = self.company_combo.currentData()
 
-        if menu_name in (self.tr("Görevler"), self.tr("Aktif Görevler"), self.tr("Yedekleme")):
+        if menu_name in (self.tr("Görevler"), self.tr("Takvim")):
+            from src.desktop.ui.gorevler_screen import GorevlerScreen
+            new_widget = GorevlerScreen(db_session=self.db, parent=self, kullanici=self._kullanici_adi())
+            if menu_name == self.tr("Takvim"):
+                new_widget.set_gorunum("takvim")
+        elif menu_name == self.tr("Geliştirme") and gelistirme_acik():
+            from src.desktop.ui.dev_tracker_screen import DevTrackerScreen
+            new_widget = DevTrackerScreen(parent=self, kullanici=self._kullanici_adi())
+        elif menu_name in (self.tr("Aktif Görevler"), self.tr("Yedekleme")):
             new_widget = BackupWidget(self.db)
         elif menu_name in (
             "Stok", "Stok Kartları", "Stok Yönetimi", "Ürün Yönetimi", "Stok Uyarısı",
@@ -954,11 +1307,30 @@ class MainWindow(QMainWindow):
             new_widget = StokListScreen(
                 db_session=self.db,
                 company_id=company_id,
+                kart_modu="stok",
+                parent=self,
+            )
+            new_widget.toast_requested.connect(self.show_toast)
+        elif menu_name in ("Hizmet Tanımları", self.tr("Hizmet Tanımları")):
+            new_widget = StokListScreen(
+                db_session=self.db,
+                company_id=company_id,
+                kart_modu="hizmet",
+                parent=self,
+            )
+            new_widget.toast_requested.connect(self.show_toast)
+        elif menu_name in ("Masraf Tanımları", self.tr("Masraf Tanımları")):
+            new_widget = StokListScreen(
+                db_session=self.db,
+                company_id=company_id,
+                kart_modu="masraf",
                 parent=self,
             )
             new_widget.toast_requested.connect(self.show_toast)
         elif menu_name in (self.tr("Genel Ayarlar"), self.tr("Sistem Ayarları")):
             new_widget = SettingsWidget(self.db)
+            if hasattr(new_widget, "companies_updated"):
+                new_widget.companies_updated.connect(self._refresh_header_from_settings)
             # Ayarlarda firma/kullanıcı değişince üst bar tazelensin
             new_widget.destroyed.connect(self._refresh_header_from_settings)
         elif menu_name == self.tr("Ekran & Grid Tanımları"):
@@ -982,6 +1354,9 @@ class MainWindow(QMainWindow):
         elif menu_name in (self.tr("Kasa Kartları"), self.tr("Banka & POS Kartları")):
             from src.desktop.ui.finans_hesap_list_screen import FinansHesapListScreen
             new_widget = FinansHesapListScreen(db_session=self.db, grup="kasa" if menu_name == self.tr("Kasa Kartları") else "banka", parent=self)
+        elif menu_name in (self.tr("Kasa Hareketleri"), self.tr("Banka Hareketleri")):
+            from src.desktop.ui.finans_hareket_screen import FinansHareketScreen
+            new_widget = FinansHareketScreen(db_session=self.db, grup="kasa" if menu_name == self.tr("Kasa Hareketleri") else "banka", parent=self)
         elif menu_name == self.tr("Stok Hareketleri"):
             from src.desktop.ui.stok_hareket_screen import StokHareketScreen
             new_widget = StokHareketScreen(db_session=self.db, parent=self)
@@ -994,6 +1369,9 @@ class MainWindow(QMainWindow):
         elif menu_name in (self.tr("Sipariş Yönetimi"), self.tr("Siparişler"), self.tr("Bekleyen Sipariş")):
             from src.desktop.ui.quotations import OrdersWidget
             new_widget = OrdersWidget(self.db)
+        elif menu_name in (self.tr("İrsaliyeler"), self.tr("İrsaliye Yönetimi")):
+            from src.desktop.ui.quotations import WaybillWidget
+            new_widget = WaybillWidget(self.db)
         elif menu_name in (self.tr("Faturalar"), self.tr("Hızlı Fatura"), self.tr("Bugün Ciro")):
             from src.desktop.ui.quotations import InvoicesWidget
             new_widget = InvoicesWidget(self.db)
@@ -1015,11 +1393,13 @@ class MainWindow(QMainWindow):
 
     def tab_changed(self, index):
         if index <= 0:
-            self.logo.setText(self.tr("🏢 Toya ERP"))
+            if hasattr(self, "bugun_gorevleri"):
+                self.bugun_gorevleri.yenile()
+            self.logo.setText(self.tr("TOYA ERP"))
             self.setWindowTitle(self.tr("Toya ERP"))
         else:
             tab_text = self.tab_widget.tabText(index)
-            self.logo.setText(f"🏢 Toya ERP | {tab_text}")
+            self.logo.setText(f"TOYA ERP | {tab_text}")
             self.setWindowTitle(f"Toya ERP | {tab_text}")
 
     # Favori Yönetimi
@@ -1047,7 +1427,9 @@ class MainWindow(QMainWindow):
             "Sipariş Yönetimi": "🛒",
             "Müşteriler & Cariler": "👥",
             "Ürün Yönetimi": "📦",
-            "Görevler": "💾",
+            "Görevler": "✅",
+            "Takvim": "📅",
+            "Geliştirme": "🛠️",
             "Genel Ayarlar": "⚙️",
             "İşlem Günlükleri": "📝",
             "Pazaryeri Bağlantıları": "🤝",

@@ -5,13 +5,20 @@ barındıran bağımsız sol/orta panel bileşeni.
 """
 
 from typing import List, Optional
-from PyQt6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QLabel, 
-    QListWidget, QListWidgetItem, QPushButton, 
-    QFrame, QGraphicsDropShadowEffect
-)
+
 from PyQt6.QtCore import Qt, pyqtSignal
-from PyQt6.QtGui import QColor, QFont
+from PyQt6.QtGui import QColor
+from PyQt6.QtWidgets import (
+    QFrame,
+    QGraphicsDropShadowEffect,
+    QHBoxLayout,
+    QLabel,
+    QListWidget,
+    QListWidgetItem,
+    QPushButton,
+    QVBoxLayout,
+    QWidget,
+)
 
 
 class FavoriteActionsWidget(QWidget):

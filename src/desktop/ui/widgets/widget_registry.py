@@ -3,28 +3,38 @@ TOYA ERP - Merkezi Atomik Widget Kayıt Defteri (Widget Registry)
 Tüm sistemde kayıtlı atomik widget'ların kimliklerini ve fabrika oluşturucularını tutar.
 """
 
-from typing import Dict, Any, Type, Optional
-from PyQt6.QtWidgets import QWidget
+from typing import Any, Dict, Optional
 
-from src.desktop.ui.widgets.crud_actions_widget import CrudActionsWidget
-from src.desktop.ui.widgets.export_actions_widget import ExportActionsWidget
-from src.desktop.ui.widgets.view_profile_widget import ViewProfileWidget
-from src.desktop.ui.widgets.favorite_actions_widget import FavoriteActionsWidget
-from src.desktop.ui.widgets.menu_grid_widget import MenuGridWidget
-from src.desktop.ui.widgets.quick_tiles_bar_widget import QuickTilesBarWidget
+from PyQt6.QtWidgets import QWidget
 
 # Görsel Tasarımcı & Baskı Önizleme (gömülebilir)
 from src.desktop.designer.ui.designer_widget import ReportDesignerWidget
 from src.desktop.designer.ui.preview_widget import ReportPreviewWidget
+from src.desktop.ui.widgets.crud_actions_widget import CrudActionsWidget
+from src.desktop.ui.widgets.document_form.alt_iskonto_masraflar_widget import (
+    AltIskontoMasraflarWidget,
+)
+from src.desktop.ui.widgets.document_form.belge_notlari_widget import BelgeNotlariWidget
+from src.desktop.ui.widgets.document_form.belge_vade_widget import (
+    BelgeVadeDetaylariWidget,
+)
 
 # Evrak Formu Modüler Widget'ları
-from src.desktop.ui.widgets.document_form.cari_kunyesi_widget import CariHesapKunyesiWidget
-from src.desktop.ui.widgets.document_form.belge_vade_widget import BelgeVadeDetaylariWidget
-from src.desktop.ui.widgets.document_form.hareket_ayarlari_widget import HareketAyarlariWidget
-from src.desktop.ui.widgets.document_form.hareket_kalemleri_widget import HareketKalemleriDbGridWidget
-from src.desktop.ui.widgets.document_form.alt_iskonto_masraflar_widget import AltIskontoMasraflarWidget
-from src.desktop.ui.widgets.document_form.belge_notlari_widget import BelgeNotlariWidget
+from src.desktop.ui.widgets.document_form.cari_kunyesi_widget import (
+    CariHesapKunyesiWidget,
+)
 from src.desktop.ui.widgets.document_form.finans_widget import FinansWidget
+from src.desktop.ui.widgets.document_form.hareket_ayarlari_widget import (
+    HareketAyarlariWidget,
+)
+from src.desktop.ui.widgets.document_form.hareket_kalemleri_widget import (
+    HareketKalemleriDbGridWidget,
+)
+from src.desktop.ui.widgets.export_actions_widget import ExportActionsWidget
+from src.desktop.ui.widgets.favorite_actions_widget import FavoriteActionsWidget
+from src.desktop.ui.widgets.menu_grid_widget import MenuGridWidget
+from src.desktop.ui.widgets.quick_tiles_bar_widget import QuickTilesBarWidget
+from src.desktop.ui.widgets.view_profile_widget import ViewProfileWidget
 
 WIDGET_REGISTRY: Dict[str, Dict[str, Any]] = {
     # 1. Sidebar & Navigasyon Widget'ları

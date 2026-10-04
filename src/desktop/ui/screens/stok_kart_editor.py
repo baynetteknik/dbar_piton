@@ -31,7 +31,7 @@ from PyQt6.QtWidgets import (
 )
 from sqlalchemy import select
 
-from src.core.models import StockMovement, WarehouseDefinition
+from src.core.models import WarehouseDefinition
 from src.desktop.services.product_service import ProductService
 from src.desktop.ui.screens.definition_editor_screen import DefinitionEditorScreen
 from src.desktop.ui.widgets.card_summary_panel import CardSummaryPanel
@@ -49,12 +49,15 @@ UNITS = ["Adet", "Kg", "Lt", "Mt", "M2", "M3", "Paket", "Kutu", "Koli", "Saat", 
 PRODUCT_TYPES = ["Ticari Mal", "Hizmet", "Masraf", "Hammadde", "Yarı Mamul", "Mamul", "Set/BOM"]
 CURRENCIES = ["TRY", "USD", "EUR", "GBP"]
 VAT_RATES = ["0", "1", "10", "18", "20"]
+#: KDVK Md. 9 + KDV Genel Uygulama Tebliği'nde sık geçen tevkifat oranları (kesir gösterimi); serbest metin de girilebilir.
+VAT_WITHHOLDING_RATES = ["9/10", "7/10", "5/10", "3/10", "2/10", "1/2"]
 _NO_WH = "— Yok —"
 
 
 def _build_tabs(
     warehouse_names: list[str], *, db_session=None, ozel_kod_search=None,
-    section_refs: dict | None = None,
+    section_refs: dict | None = None, kod_etiketi: str = "Stok Kodu",
+    ad_etiketi: str = "Stok Adı", masraf_bolumu: bool = False,
 ) -> list[dict]:
     refs = section_refs if section_refs is not None else {}
     section_kategorizasyon = {
@@ -99,25 +102,24 @@ def _build_tabs(
     }
     refs["kategorizasyon"] = section_kategorizasyon
     refs["fiyat"] = section_fiyat
-    return [
-        {
-            "title": "Genel Bilgiler",
-            "bands": [
+    genel_bands = [
                 {"sections": [
                     {"title": "1. Ürün Kimliği", "columns": 2, "stretch": 7, "fields": [
                         {"key": "product_type", "label": "Ürün Tipi", "type": "combo",
                          "options": PRODUCT_TYPES},
                         {"key": "has_bom", "label": "Reçeteli (BOM)", "type": "bool",
                          "text": "Ürün ağacı var"},
-                        {"key": "sku", "label": "Stok Kodu", "type": "text", "span": 2,
+                        {"key": "sku", "label": kod_etiketi, "type": "text", "span": 2,
                          "required": True, "lock_on_edit": True},
-                        {"key": "name", "label": "Stok Adı", "type": "multiline", "span": 2,
+                        {"key": "name", "label": ad_etiketi, "type": "multiline", "span": 2,
                          "required": True, "height": 44},
                     ]},
                     section_kategorizasyon,
                 ]},
                 {"sections": [
                     {"title": "3. Stok Takibi", "columns": 4, "fields": [
+                        {"key": "tracks_stock", "label": "Stok Takibi", "type": "bool",
+                         "text": "Stok takibi yapılır (Hizmet/Masraf kartlarında kapatın)"},
                         {"key": "unit", "label": "Birim", "type": "catalog_search",
                          "catalog_key": "urun.birim", "db_session": db_session,
                          "defaults": UNITS, "catalog_title": "Birimler"},
@@ -148,10 +150,40 @@ def _build_tabs(
                          "min": 0, "max": 100, "catalog_key": "urun.kdv_tanimlari",
                          "db_session": db_session, "defaults": VAT_RATES,
                          "catalog_title": "KDV Tanımları"},
+                        {"key": "vat_withholding_rate", "label": "KDV Tevkifatı", "type": "catalog_search",
+                         "catalog_key": "urun.kdv_tevkifat", "db_session": db_session,
+                         "defaults": VAT_WITHHOLDING_RATES, "catalog_title": "KDV Tevkifat Oranları"},
                     ]},
                     section_fiyat,
                 ]},
-            ],
+                {"sections": [
+                    {"title": "7. Muhasebe & Hizmet", "columns": 2, "fields": [
+                        {"key": "sales_account_code", "label": "Satış Hesap Kodu", "type": "text",
+                         "placeholder": "ör. 600"},
+                        {"key": "purchase_account_code", "label": "Alış/Gider Hesap Kodu", "type": "text",
+                         "placeholder": "ör. 770"},
+                        {"key": "nondeductible_expense", "label": "KKEG", "type": "bool",
+                         "text": "Kanunen Kabul Edilmeyen Gider"},
+                        {"key": "invoice_description_template", "label": "Fatura Açıklama Şablonu", "type": "text",
+                         "span": 2, "placeholder": "ör. {ay} dönemi danışmanlık hizmet bedeli"},
+                    ]},
+                ]},
+    ]
+    if masraf_bolumu:
+        genel_bands.append({"sections": [
+            {"title": "8. Masraf Tekrarı", "columns": 3, "fields": [
+                {"key": "is_recurring_expense", "label": "Düzenli Ödenen", "type": "bool",
+                 "text": "Bu, her ay ödenen düzenli bir masraf (ör. kira, abonelik)"},
+                {"key": "recurring_due_day", "label": "Ödeme Günü (Ayın Kaçı)", "type": "int",
+                 "min": 1, "max": 31},
+                {"key": "recurring_reminder_days_before", "label": "Kaç Gün Önce Hatırlatılsın",
+                 "type": "int", "min": 0, "max": 30},
+            ]},
+        ]})
+    return [
+        {
+            "title": "Genel Bilgiler",
+            "bands": genel_bands,
         },
         {
             "title": "Gelişmiş Fiyat Tanımlama",
@@ -233,20 +265,33 @@ STOK_TABS: list[dict] = [
 ]
 
 
+#: Ekran modu -> (pencere başlığı, kod etiketi, ad etiketi, masraf tekrarı bölümü, yeni kayıt ürün tipi)
+_KART_MODU_AYARLARI = {
+    "stok": ("Stok Kartı Detayı", "Stok Kodu", "Stok Adı", False, None),
+    "hizmet": ("Hizmet Kartı Detayı", "Ürün Kodu", "Ürün Adı", False, "Hizmet"),
+    "masraf": ("Masraf Kartı Detayı", "Ürün Kodu", "Ürün Adı", True, "Masraf"),
+}
+
+
 class StokKartEditorDialog(QDialog):
     def __init__(self, db_session=None, product_id: int | None = None,
-                 company_id: int | None = None, parent=None):
+                 company_id: int | None = None, kart_modu: str = "stok", parent=None):
         super().__init__(parent)
         self.db = db_session
         self.product_id = product_id
+        self.kart_modu = kart_modu if kart_modu in _KART_MODU_AYARLARI else "stok"
         self.service = ProductService(db_session, company_id=company_id)
         self.saved_product_id: int | None = None
         self._current_stock: float = 0
 
+        self.has_saved: bool = False
+
         self._warehouses = self._load_warehouses()
         self._wh_name_by_id = {v: k for k, v in self._warehouses.items()}
 
-        self.setWindowTitle("Stok Kartı Detayı")
+        pencere_baslik, kod_etiketi, ad_etiketi, masraf_bolumu, self._varsayilan_urun_tipi = \
+            _KART_MODU_AYARLARI[self.kart_modu]
+        self.setWindowTitle(pencere_baslik)
         lyt = QVBoxLayout(self)
         lyt.setContentsMargins(0, 0, 0, 0)
 
@@ -258,10 +303,11 @@ class StokKartEditorDialog(QDialog):
 
         self._section_refs: dict = {}
         self.editor = DefinitionEditorScreen(
-            title="Stok Kartı",
+            title=pencere_baslik.replace(" Detayı", ""),
             tabs=_build_tabs(list(self._warehouses.keys()), db_session=self.db,
                               ozel_kod_search=self._ozel_kod_search,
-                              section_refs=self._section_refs),
+                              section_refs=self._section_refs, kod_etiketi=kod_etiketi,
+                              ad_etiketi=ad_etiketi, masraf_bolumu=masraf_bolumu),
             code_field="sku",
             title_field="name",
             header_extra_field="product_type",
@@ -288,7 +334,7 @@ class StokKartEditorDialog(QDialog):
             parent=self,
         )
         lyt.addWidget(self.editor)
-        self.editor.closed.connect(self.reject)
+        self.editor.closed.connect(self._on_close_requested)
         self.editor.saved.connect(self._on_save)
         self.editor.saved_and_new.connect(self._on_save_and_new)
 
@@ -305,10 +351,16 @@ class StokKartEditorDialog(QDialog):
                 self.summary.set_image_value(p.image_path)
                 self.chk_ecommerce.setChecked(bool(p.is_ecommerce))
         else:
-            self.editor.set_data(ProductService.blank_product(), is_edit=False)
+            bos = ProductService.blank_product()
+            if self._varsayilan_urun_tipi:
+                bos["product_type"] = self._varsayilan_urun_tipi
+                bos["tracks_stock"] = False
+            self.editor.set_data(bos, is_edit=False)
 
         self._load_recent_activity()
         self.showMaximized()
+        from src.desktop.ui.components.window_fit_helper import zorla_ilk_yerlesim
+        zorla_ilk_yerlesim(self)
 
     # ------------------------------------------------------------------
     def _load_recent_activity(self) -> None:
@@ -420,6 +472,18 @@ class StokKartEditorDialog(QDialog):
         StokHareketDialog(db_session=self.db, product_id=pid, parent=self).exec()
 
     # ------------------------------------------------------------------
+    def _on_close_requested(self):
+        if self.has_saved:
+            self.accept()
+        else:
+            self.reject()
+
+    def closeEvent(self, event):  # noqa: N802
+        if self.has_saved:
+            self.setResult(QDialog.DialogCode.Accepted)
+        super().closeEvent(event)
+
+    # ------------------------------------------------------------------
     def _save_payload(self, payload: dict):
         """Payload'ı servise kaydeder; başarılıysa `ProductSaveResult`,
         değilse hata mesajı gösterip `None` döndürür."""
@@ -437,6 +501,7 @@ class StokKartEditorDialog(QDialog):
             QMessageBox.critical(self, "Kayıt Hatası", res.error or "Stok kaydedilemedi.")
             return None
         self.saved_product_id = res.product_id
+        self.has_saved = True
         return res
 
     def _on_save(self, payload: dict):

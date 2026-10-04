@@ -72,6 +72,12 @@ class BelgeVadeWidget(QFrame):
         "font-size:10px; padding:1px 4px; border:1px solid #cbd5e1; "
         "border-radius:3px; background:#ffffff; color:#0f172a;"
     )
+    COMBO_STYLE = (
+        "QComboBox { font-size:10px; padding:1px 4px; border:1px solid #cbd5e1; "
+        "border-radius:3px; background:#ffffff; color:#0f172a; combobox-popup: 0; }"
+        " QComboBox QAbstractItemView { outline: 0; border: 1px solid #cbd5e1; background: #ffffff; padding: 0px; }"
+        " QComboBox QAbstractItemView::item { padding: 3px 6px; min-height: 18px; }"
+    )
 
     def __init__(
         self,
@@ -238,7 +244,7 @@ class BelgeVadeWidget(QFrame):
             QSizePolicy.Policy.Fixed,
         )
         self.cmb_vade_formul.setFixedWidth(78)
-        self.cmb_vade_formul.setStyleSheet(self.FIELD_STYLE)
+        self.cmb_vade_formul.setStyleSheet(self.COMBO_STYLE)
         self.cmb_vade_formul.currentTextChanged.connect(
             self._on_formul_changed,
         )
@@ -265,7 +271,7 @@ class BelgeVadeWidget(QFrame):
             QSizePolicy.Policy.Expanding,
             QSizePolicy.Policy.Fixed,
         )
-        self.cmb_odeme_plani.setStyleSheet(self.FIELD_STYLE)
+        self.cmb_odeme_plani.setStyleSheet(self.COMBO_STYLE)
         self.cmb_odeme_plani.currentIndexChanged.connect(
             self._on_odeme_plani_changed,
         )
@@ -307,6 +313,7 @@ class BelgeVadeWidget(QFrame):
                 if rows:
                     return [
                         {
+                            "id":       r.id,
                             "kod":      r.code or "",
                             "aciklama": r.description or "",
                             "gun":      int(r.days or 0),
@@ -405,6 +412,7 @@ class BelgeVadeWidget(QFrame):
             "vade_gun":      self.date_belge.date().daysTo(self.date_vade.date()),
             "odeme_plani":   self.cmb_odeme_plani.currentText(),
             "odeme_plani_data": self._current_plan,
+            "odeme_plani_id": (self._current_plan or {}).get("id"),
             # PyQt6 QDate objeleri (widget erişimi için)
             "date_belge_qdate": self.date_belge.date(),
             "date_vade_qdate":  self.date_vade.date(),
@@ -443,12 +451,21 @@ class BelgeVadeWidget(QFrame):
             except Exception:
                 pass
 
-        # Ödeme planı
+        # Ödeme planı — ID varsa (yeni kayıtlar) önce ID'ye göre eşleştirilir, yoksa (eski kayıtlar)
+        # görünen metne göre (geriye dönük uyumluluk).
+        plan_id = data.get("odeme_plani_id")
         plan_text = data.get("odeme_plani", "")
-        if plan_text:
+        idx = -1
+        if plan_id is not None:
+            for i in range(self.cmb_odeme_plani.count()):
+                item = self.cmb_odeme_plani.itemData(i)
+                if isinstance(item, dict) and item.get("id") == plan_id:
+                    idx = i
+                    break
+        if idx < 0 and plan_text:
             idx = self.cmb_odeme_plani.findText(plan_text)
-            if idx >= 0:
-                self.cmb_odeme_plani.setCurrentIndex(idx)
+        if idx >= 0:
+            self.cmb_odeme_plani.setCurrentIndex(idx)
 
     def clear(self):
         """Tüm alanları temizler, bugünün tarihi ve +30 gün vade ile başlar."""

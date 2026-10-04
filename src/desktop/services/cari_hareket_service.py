@@ -10,7 +10,7 @@ from datetime import date, datetime
 from sqlalchemy import func, or_, select
 
 from src.core.models import CariFis, CariHareket, Customer, FinansHesap
-from src.desktop.services import money_service
+from src.desktop.services import money_service, numara_servisi, sayi_bicimi
 
 # tür kodu -> (etiket, yön). "doviz" yönü kayıtta kullanıcı tarafından seçilir.
 TURLER: dict[str, tuple[str, str | None]] = {
@@ -22,10 +22,11 @@ TURLER: dict[str, tuple[str, str | None]] = {
     "virman_alacak": ("Virman Alacak", "alacak"),
     "acilis_borc": ("Açılış Borç", "borc"),
     "acilis_alacak": ("Açılış Alacak", "alacak"),
+    "kur_farki": ("Kur Farkı", None),              # tahsilat/ödeme kuru borç kurundan farklıysa yerel para farkı (yön kayıtta belirlenir; otomatik üretilir)
     "doviz": ("Döviz Cinsli Hareket", None),     # eski kayıtlar; fişte döviz satır bazındadır, yeni satırda seçilmez
 }
 #: Fiş satırında seçilebilen türler (döviz cinsli tür artık satırın dövizi ile karşılanır).
-FIS_SATIR_TURLERI: list[str] = [k for k in TURLER if k != "doviz"]
+FIS_SATIR_TURLERI: list[str] = [k for k in TURLER if k not in ("doviz", "kur_farki")]
 #: Fiş başlığındaki fiş türü -> yeni satırın başlangıç türü.
 FIS_TIPLERI: dict[str, str] = {
     "tahsilat": "Tahsilat Fişi", "odeme": "Tediye Fişi", "borc_dekontu": "Cari Borç Fişi",
@@ -67,6 +68,25 @@ class HareketOzeti:
         return self.borc - self.alacak
 
 
+@dataclass
+class DovizBakiye:
+    """Bir para birimindeki cari durumu. `bakiye` = borç − alacak (o dövizde); `yerel_islem` hareket günü kurlarıyla yerel karşılık;
+    `yerel_guncel` bakiyenin güncel kurla yerel değeri; aradaki fark gerçekleşmemiş kur farkıdır."""
+    para: str
+    borc: float = 0.0
+    alacak: float = 0.0
+    yerel_islem: float = 0.0
+    yerel_guncel: float = 0.0
+
+    @property
+    def bakiye(self) -> float:
+        return round(self.borc - self.alacak, 4)
+
+    @property
+    def kur_farki(self) -> float:
+        return round(self.yerel_guncel - self.yerel_islem, 2)
+
+
 class CariHareketService:
     def __init__(self, db) -> None:
         self.db = db
@@ -85,13 +105,14 @@ class CariHareketService:
         yon = TURLER[tur][1] or v.get("yon", h.yon)
         if yon not in YONLER:
             raise CariHareketError("Döviz cinsli harekette yön (Borç/Alacak) seçilmelidir.")
-        para = (v.get("para_birimi", h.para_birimi) or "TRY").upper()
+        yerel = money_service.yerel_para(self.db)
+        para = (v.get("para_birimi", h.para_birimi) or yerel).upper()
         kur = v.get("kur")
-        if para == "TRY":
+        if para == yerel:
             kur = 1.0
         elif not kur or float(kur) <= 0:
             try:
-                kur = money_service.get_rate(self.db, para)
+                kur = money_service.kur_bul(self.db, para, v.get("tarih", h.tarih))          # işlem gününün kuru
             except money_service.UnknownCurrencyError as e:
                 raise CariHareketError(str(e)) from e
         kur = float(kur)
@@ -103,10 +124,16 @@ class CariHareketService:
             self._finans_hesabi_yaz(h, tur, v.get("odeme_araci"), v.get("fin_hesap_id"), para)
         h.vade = v.get("vade", h.vade)
         h.para_birimi, h.kur, h.tutar = para, kur, tutar
-        h.tutar_tl = round(tutar * kur, 2)
+        h.tutar_tl = round(tutar * kur, sayi_bicimi.hane("tutar"))
 
     def _finans_hesabi_yaz(self, h: CariHareket, tur: str, arac: str | None, hesap_id: int | None, para: str = "TRY") -> None:
-        """Ödeme aracı seçildiyse (yalnız tahsilat/ödeme) o türde bir finans hesabı zorunludur; boşsa kasa/banka etkilenmez."""
+        """Ödeme aracı seçildiyse (yalnız tahsilat/ödeme) o türde bir finans hesabı zorunludur; boşsa kasa/banka etkilenmez.
+
+        Hibrit kısıt (kullanıcı kararı, 2026-09-29): hesabın kendi para birimi ile kapatılan CARİ hareketin para
+        birimi FARKLI olabilir — müşteri fiilen TL öder, kapanan borç USD/EUR olabilir (kur `tutar_tl` ile
+        kayıtlıdır). Kısıt yalnız hesabın KENDİ para birimi YEREL (TL) DEĞİLSE sıkı kalır — böylece "kasiyer USD
+        kasaya yanlışlıkla EUR tahsilatı girdi" hatası hâlâ engellenir, ama "TL hesaba döviz borcu kapatan bir
+        tahsilat girildi" (asıl istenen, yaygın senaryo) serbest kalır."""
         if not arac or tur not in ("tahsilat", "odeme"):
             h.odeme_araci = h.fin_hesap_id = h.hesap = None
             return
@@ -115,7 +142,9 @@ class CariHareketService:
         hesap = self.db.get(FinansHesap, hesap_id) if hesap_id else None
         if hesap is None or hesap.is_deleted or hesap.tur != arac:
             raise CariHareketError(f"{ODEME_ARACLARI[arac]} hesabı seçilmelidir.")
-        if hesap.doviz_kisitli and (hesap.para_birimi or "TRY").upper() != para:
+        hesap_para = (hesap.para_birimi or "TRY").upper()
+        yerel = money_service.yerel_para(self.db)
+        if hesap.doviz_kisitli and hesap_para != para and hesap_para != yerel:
             raise CariHareketError(f"'{hesap.ad}' hesabı yalnızca {hesap.para_birimi} ile işlem kabul eder (satır dövizi {para}).")
         h.odeme_araci, h.fin_hesap_id, h.hesap = arac, hesap.id, hesap.ad
 
@@ -137,12 +166,8 @@ class CariHareketService:
 
     # ---- fiş ---------------------------------------------------------------
     def sonraki_fis_no(self) -> str:
-        """Mevcut en büyük sayısal fiş numarasının bir fazlası (6 haneli)."""
-        en_buyuk = 0
-        for (no,) in self.db.execute(select(CariFis.fis_no)):
-            if str(no).isdigit():
-                en_buyuk = max(en_buyuk, int(no))
-        return f"{en_buyuk + 1:06d}"
+        """Bir sonraki boş fiş numarası (numara şablonundan; bkz. `numara_servisi`)."""
+        return numara_servisi.fis_onizle(self.db, "cari_fis")
 
     def fis_kaydet(self, baslik: dict, satirlar: list[dict], fis_id: int | None = None) -> CariFis:
         """Fişi ve satırlarını tek işlemde kaydeder. Satır sözlüğünde `id` varsa güncellenir, yoksa eklenir;
@@ -161,6 +186,7 @@ class CariHareketService:
             else:
                 fis = CariFis()
             fis.fis_no = (baslik.get("fis_no") or "").strip() or self.sonraki_fis_no()
+            numara_servisi.fis_kullanildi(self.db, "cari_fis", fis.fis_no)
             fis.tarih = baslik.get("tarih") or date.today()
             fis.saat = baslik.get("saat") or datetime.now().strftime("%H:%M:%S")
             for alan in ("belge_no", "sube", "ozel_kod", "yetki_kodu", "aciklama1", "aciklama2", "aciklama3"):
@@ -222,6 +248,7 @@ class CariHareketService:
         fis.is_deleted = True
         for h in satirlar:
             h.is_deleted = True
+        numara_servisi.fis_silindi(self.db, "cari_fis", fis.fis_no)          # son numaraysa geri verilir
         self.db.commit()
 
     def hide(self, ids: list[int]) -> int:
@@ -280,6 +307,27 @@ class CariHareketService:
             else:
                 o.alacak = float(toplam)
         return o
+
+    def dovizli_bakiye(self, customer_id: int, haric_fis_id: int | None = None) -> list[DovizBakiye]:
+        """Carinin para birimi başına borç/alacak/bakiyesi; yerel para ilk sırada. Her dövizde ayrı bakiye tutulur (100 USD borç 100 USD ile kapanır);
+        yerel karşılık hem hareket günü kurlarıyla hem güncel kurla verilir."""
+        f = HareketFiltre(customer_id=customer_id, haric_fis_id=haric_fis_id)
+        yerel = money_service.yerel_para(self.db)
+        sonuc: dict[str, DovizBakiye] = {}
+        for h in self.db.scalars(select(CariHareket).where(*self._where(f))):
+            d = sonuc.setdefault(h.para_birimi, DovizBakiye(h.para_birimi))
+            isaret = 1.0 if h.yon == "borc" else -1.0
+            if h.yon == "borc":
+                d.borc += h.tutar
+            else:
+                d.alacak += h.tutar
+            d.yerel_islem += isaret * h.tutar_tl
+        for d in sonuc.values():
+            try:
+                d.yerel_guncel = d.bakiye * money_service.kur_bul(self.db, d.para)
+            except money_service.UnknownCurrencyError:
+                d.yerel_guncel = d.yerel_islem                                  # kur yoksa işlem günü değeri
+        return sorted(sonuc.values(), key=lambda d: (d.para != yerel, d.para))
 
     def cari_bakiye(self, customer_id: int, haric_fis_id: int | None = None) -> float:
         return self.ozet(HareketFiltre(customer_id=customer_id, haric_fis_id=haric_fis_id)).bakiye

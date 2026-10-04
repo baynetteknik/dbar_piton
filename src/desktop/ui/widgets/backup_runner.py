@@ -14,7 +14,14 @@ from typing import Any, Callable
 
 from PyQt6.QtCore import QObject, QThread, QTimer, pyqtSignal
 
-from src.desktop.services.backup import disk_watch, schedule, service
+from src.desktop.services import settings_store
+from src.desktop.services.backup import (
+    disk_registry,
+    disk_watch,
+    presence,
+    schedule,
+    service,
+)
 from src.desktop.services.backup.models import JobStore
 from src.desktop.services.backup.runner import RunResult
 
@@ -62,12 +69,14 @@ class BackupRunner(QObject):
     progress = pyqtSignal(int, int)
     line = pyqtSignal(str)
     idle = pyqtSignal()
+    job_waiting = pyqtSignal(str, str)         # ad, bağlı kullanıcılar: başka kullanıcı bağlı olduğundan yedek beklemede
 
     def __init__(self, db, parent=None, engine_factory: Callable[[], Any] | None = None) -> None:
         super().__init__(parent)
         self.db = db
         self._engine_factory = engine_factory
-        self._queue: list[tuple[str, str | None]] = []
+        self._queue: list[tuple[str, str | None, bool]] = []          # (iş, disk kökü, kullanıcı beklemesini atla)
+        self._waiting: set[str] = set()
         self._thread: _JobThread | None = None
         self._current = None
         self._known_disks: set[str] | None = None
@@ -92,6 +101,7 @@ class BackupRunner(QObject):
     def tick(self, now: datetime | None = None) -> None:
         for job in schedule.due_jobs(JobStore(self.db).list(), now or datetime.now()):
             self.enqueue(job.id)
+        self._next()                            # kullanıcı yüzünden bekleyen iş varsa yeniden dene
 
     def poll_disks(self) -> None:
         vols = disk_watch.list_volumes()
@@ -99,26 +109,43 @@ class BackupRunner(QObject):
         if self._known_disks is None:          # ilk tarama: mevcut diskler "yeni" sayılmaz
             self._known_disks = roots
             return
-        for job, vol in disk_watch.arrivals(self._known_disks, vols, JobStore(self.db).list()):
+        registry = disk_registry.DiskStore(self.db).list()
+        for job, vol in disk_watch.arrivals(self._known_disks, vols, JobStore(self.db).list(), registry):
             self.enqueue(job.id, vol.root)
         self._known_disks = roots
 
     # ------------------------------------------------------------------ kuyruk
-    def enqueue(self, job_id: str, disk_root: str | None = None) -> bool:
+    def enqueue(self, job_id: str, disk_root: str | None = None, force: bool = False) -> bool:
         if any(q[0] == job_id for q in self._queue) or (self._current and self._current.id == job_id):
             return False
-        self._queue.append((job_id, disk_root))
+        self._queue.append((job_id, disk_root, force))
         self._next()
         return True
+
+    def connected_users(self) -> list[str]:
+        """Yedeği bekletecek diğer bağlı oturumlar (ayar kapalıysa boş)."""
+        if not settings_store.get_bool(self.db, presence.SETTING_WAIT, True):
+            return []
+        return [s.label for s in presence.others(self.db)]
 
     def _next(self) -> None:
         if self._thread is not None or not self._queue:
             return
-        job_id, disk_root = self._queue.pop(0)
+        job_id, disk_root, force = self._queue[0]
         job = JobStore(self.db).get(job_id)
         if job is None:
+            self._queue.pop(0)
             self._next()
             return
+        if not force:
+            users = self.connected_users()
+            if users:                                   # başkası çalışırken yedek başlamaz; sonraki denetimde yeniden denenir
+                if job_id not in self._waiting:
+                    self._waiting.add(job_id)
+                    self.job_waiting.emit(job.name, ", ".join(users))
+                return
+        self._waiting.discard(job_id)
+        self._queue.pop(0)
         ctx, self._notes = service.prepare(self.db, job, disk_root)
         self._current = job
         self._thread = _JobThread(job, ctx, self)

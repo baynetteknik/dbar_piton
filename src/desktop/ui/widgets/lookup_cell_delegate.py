@@ -8,6 +8,7 @@ Katalog kayıtları `{"id", "code", "name", ...}` sözlükleridir. `kod_kolonu`,
 
 from __future__ import annotations
 
+from PyQt6 import sip
 from PyQt6.QtCore import QRect, Qt, QTimer
 from PyQt6.QtWidgets import QAbstractItemDelegate, QCompleter, QLineEdit
 
@@ -62,9 +63,11 @@ class LookupCellDelegate(NavDelegate):
         if kayit is None:
             return
         self._sec(row, kayit)
-        le.setText(kayit["code"] if col == self.kod_kolonu else kayit["name"])
-        self.commitData.emit(le)
-        self.closeEditor.emit(le, QAbstractItemDelegate.EndEditHint.NoHint)
+        # Seçim penceresi açıkken editör odak kaybıyla ya da satır güncellemesiyle yok edilmiş olabilir
+        if not sip.isdeleted(le):
+            le.setText(kayit["code"] if col == self.kod_kolonu else kayit["name"])
+            self.commitData.emit(le)
+            self.closeEditor.emit(le, QAbstractItemDelegate.EndEditHint.NoHint)
         grid = self.parent()
         if getattr(grid, "_enter_nav", False):
             grid.setCurrentCell(row, col)
@@ -72,6 +75,7 @@ class LookupCellDelegate(NavDelegate):
 
     def _liste_ac(self, le, row: int, col: int) -> None:
         """Büyüteç: tam seçim listesi (yazılan metinle aranmış olarak); seçilirse satıra yazılır."""
-        kayit = self._liste(le.text().strip())
+        ilk = le.text().strip()
+        kayit = self._liste(ilk)
         if kayit is not None:
             self._secildi(le, row, col, kayit)

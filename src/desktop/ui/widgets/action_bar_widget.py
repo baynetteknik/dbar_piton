@@ -14,6 +14,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from src.desktop.ui.components.button_style import btn_style
 from src.desktop.ui.components.collapsible_section import CollapsibleSection
 from src.desktop.ui.components.edge_panel import EdgeTriggeredPanel
 
@@ -55,75 +56,19 @@ class ActionBarWidget(QWidget):
 
     def _default_btn_style(self) -> str:
         """Standart işlem butonu stili."""
-        return """
-            QPushButton {
-                background-color: #ffffff;
-                color: #1e293b;
-                border: 1px solid #cbd5e1;
-                border-radius: 6px;
-                padding: 6px 10px;
-                font-size: 11px;
-                font-weight: 600;
-                text-align: left;
-                font-family: 'Segoe UI';
-            }
-            QPushButton:hover { background-color: #f1f5f9; }
-            QPushButton:disabled { color: #94a3b8; background-color: #f8fafc; border-color: #e2e8f0; }
-        """
+        return btn_style()
 
     def _danger_btn_style(self) -> str:
         """Kırmızı uyarı/silme butonu stili."""
-        return """
-            QPushButton {
-                background-color: #fff1f2;
-                color: #e11d48;
-                border: 1px solid #fecdd3;
-                border-radius: 6px;
-                padding: 6px 10px;
-                font-size: 11px;
-                font-weight: 600;
-                text-align: left;
-                font-family: 'Segoe UI';
-            }
-            QPushButton:hover { background-color: #ffe4e6; border-color: #fda4af; }
-            QPushButton:disabled { color: #94a3b8; background-color: #f8fafc; border-color: #e2e8f0; }
-        """
+        return btn_style("#fee2e2", "#991b1b")
 
     def _warning_btn_style(self) -> str:
         """Sarı pasife alma/uyarı butonu stili."""
-        return """
-            QPushButton {
-                background-color: #fefce8;
-                color: #ca8a04;
-                border: 1px solid #fef08a;
-                border-radius: 6px;
-                padding: 6px 10px;
-                font-size: 11px;
-                font-weight: 600;
-                text-align: left;
-                font-family: 'Segoe UI';
-            }
-            QPushButton:hover { background-color: #fef9c3; border-color: #fde047; }
-            QPushButton:disabled { color: #94a3b8; background-color: #f8fafc; border-color: #e2e8f0; }
-        """
+        return btn_style("#fef9c3", "#854d0e")
 
     def _close_btn_style(self) -> str:
         """Pembe/Kırmızı kapatma butonu stili."""
-        return """
-            QPushButton {
-                background-color: #fee2e2;
-                border: 1px solid #fca5a5;
-                border-radius: 6px;
-                padding: 4px 8px;
-                font-family: 'Segoe UI';
-                font-size: 11px;
-                color: #991b1b;
-                font-weight: bold;
-                text-align: center;
-                min-height: 28px;
-            }
-            QPushButton:hover { background-color: #fca5a5; }
-        """
+        return btn_style("#fee2e2", "#991b1b") + " QPushButton { text-align:center; }"
 
     def init_ui(self):
         """EdgeTriggeredPanel ve içerik butonlarını yapılandırır."""

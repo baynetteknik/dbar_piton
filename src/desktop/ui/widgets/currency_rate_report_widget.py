@@ -59,6 +59,28 @@ class CurrencyRateReportWidget(QWidget):
 
         filt_row = QHBoxLayout()
         self.cmb_kod = QComboBox()
+        self.cmb_kod.setStyleSheet("""
+            QComboBox {
+                combobox-popup: 0;
+                border: 1px solid #cbd5e1;
+                border-radius: 4px;
+                padding: 4px 6px;
+                background-color: white;
+                color: #0f172a;
+                font-size: 11px;
+            }
+            QComboBox QAbstractItemView {
+                outline: 0;
+                padding: 0px;
+                border: 1px solid #cbd5e1;
+                background-color: #ffffff;
+                color: #0f172a;
+            }
+            QComboBox QAbstractItemView::item {
+                padding: 3px 6px;
+                min-height: 20px;
+            }
+        """)
         self.cmb_kod.currentIndexChanged.connect(self._reload_table)
         filt_row.addWidget(QLabel("Döviz:"))
         filt_row.addWidget(self.cmb_kod)

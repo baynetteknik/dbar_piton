@@ -8,7 +8,7 @@ from PyQt6.QtWidgets import QApplication, QFileDialog, QLabel
 from src.core.models import CariHareket, Customer, FinansHesap
 from src.desktop.security.permissions import ALL_PERMISSIONS, DEFAULT_ROLES
 from src.desktop.services.cari_hareket_service import CariHareketError, CariHareketService
-from src.desktop.services.finans_hesap_service import FinansHesapService, hesap_bakiyeleri, hesap_hareketleri
+from src.desktop.services.finans_hesap_service import FinansHesapError, FinansHesapService, hesap_bakiyeleri, hesap_hareketleri
 from src.desktop.ui.components.three_panel_base import ThreePanelBaseWidget
 from src.desktop.ui.finans_hesap_list_screen import FinansHesapListScreen
 from src.desktop.ui.screens.finans_hesap_editor import FinansHesapEditorDialog
@@ -44,6 +44,7 @@ def cariler(db_session):
 # ---------------------------------------------------------------- SERVİS
 def test_servis_yeni_alanlari_kaydeder_ve_sozluk_gidis_donus(db_session):
     s = FinansHesapService(db_session)
+    s.kaydet({"tur": "banka", "ad": "Ziraat Vadesiz"})                      # POS aktif edilebilmesi için önce bir banka hesabı gerekir
     h = s.kaydet({"tur": "pos", "ad": "Garanti POS", "banka": "Garanti", "uye_isyeri_no": "M123", "valor_gun": 2,
                   "komisyon_orani": 1.79, "iban": "TR00", "sube_adi": "Kadıköy", "doviz_kisitli": True, "para_birimi": "EUR"})
     d = s.sozluk(h)
@@ -52,7 +53,7 @@ def test_servis_yeni_alanlari_kaydeder_ve_sozluk_gidis_donus(db_session):
     s.kaydet({"tur": "pos", "ad": "Garanti POS 2", "kod": "POS001"}, hesap_id=h.id)          # yeni alanlar verilmezse korunur
     assert s.sozluk(db_session.get(FinansHesap, h.id))["uye_isyeri_no"] == "M123"
     s.kaydet({"tur": "kasa", "ad": "Kasa"})
-    assert [x.kod for x in s.liste(turler=("banka", "kredi_karti", "pos"))] == ["POS001"]
+    assert [x.kod for x in s.liste(turler=("banka", "kredi_karti", "pos"))] == ["BNK001", "POS001"]
     s.pasif_yap(h.id)
     assert s.liste(sadece_aktif=True, turler=("pos",)) == []
 
@@ -112,11 +113,12 @@ def test_bolum_baslik_seritleri_sisirilmez_alanlarin_ustunde_kalir(qapp, db_sess
 
 
 def test_banka_pos_karti_tur_etiketi_komisyon_hesap_makinesi_valor_ve_kaydet_yeni(qapp, db_session):
+    FinansHesapService(db_session).kaydet({"tur": "banka", "ad": "Ziraat Vadesiz"})   # POS aktif edilebilmesi için önce bir banka hesabı gerekir
     d = FinansHesapEditorDialog(db_session, grup="banka", tur="pos")
     assert d.editor._widgets["tur_etiket"].currentText() == "POS" and "acilis_bakiyesi" not in d.editor._widgets
     _doldur(d, ad="Ziraat POS", banka="Ziraat", komisyon_orani="1,79", valor_gun=2, uye_isyeri_no="M9")
     d.editor._on_save(and_new=True)
-    h = db_session.query(FinansHesap).one()
+    h = db_session.query(FinansHesap).filter_by(tur="pos").one()
     assert (h.tur, h.kod, h.komisyon_orani, h.valor_gun, h.uye_isyeri_no) == ("pos", "POS001", 1.79, 2, "M9")
     assert d.editor._widgets["ad"].text() == "" and "POS001" in d.editor.lbl_status.text()      # yeni kart için form sıfırlandı
     _doldur(d, ad="Vadesiz TL", tur_etiket="Banka Hesabı", iban="TR12")
@@ -124,8 +126,72 @@ def test_banka_pos_karti_tur_etiketi_komisyon_hesap_makinesi_valor_ve_kaydet_yen
     assert {x.tur for x in db_session.query(FinansHesap)} == {"pos", "banka"}
     _doldur(d, komisyon_orani="1+0,5")                                                          # hesap makinesi: ilk Enter yalnızca sonucu aktarır
     QTest.keyClick(d.editor._widgets["komisyon_orani"], Qt.Key.Key_Return)
-    assert d.editor._widgets["komisyon_orani"].text() == "1,50" and db_session.query(FinansHesap).count() == 2
+    assert d.editor._widgets["komisyon_orani"].text() == "1,50" and db_session.query(FinansHesap).count() == 3
     d.close()
+
+
+def test_pos_otomatik_mahsup_ve_hedef_banka_hesabi_kaydedilir_ve_geri_yuklenir(qapp, db_session):
+    """04.09: POS kartında "Otomatik Mahsup" + "Hedef Banka Hesabı" alanları — `FinansHesap.
+    pos_otomatik_mahsup`/`pos_hedef_hesap_id`'ye yazılır, kart tekrar açılınca aynı seçili gelir."""
+    banka = FinansHesapService(db_session).kaydet({"tur": "banka", "ad": "Ziraat Vadesiz", "banka": "Ziraat"})
+
+    d = FinansHesapEditorDialog(db_session, grup="banka", tur="pos")
+    assert "(Seçilmedi)" in [
+        d.editor._widgets["pos_hedef_hesap_etiket"].itemText(i)
+        for i in range(d.editor._widgets["pos_hedef_hesap_etiket"].count())
+    ]
+    _doldur(d, ad="Garanti POS", pos_otomatik_mahsup=True, pos_hedef_hesap_etiket=f"{banka.kod} — {banka.ad}")
+    d.editor._on_save()
+    h = db_session.query(FinansHesap).filter_by(tur="pos").one()
+    assert h.pos_otomatik_mahsup is True
+    assert h.pos_hedef_hesap_id == banka.id
+    d.close()
+
+    d2 = FinansHesapEditorDialog(db_session, grup="banka", hesap_id=h.id)
+    assert d2.editor._widgets["pos_otomatik_mahsup"].isChecked() is True
+    assert d2.editor._widgets["pos_hedef_hesap_etiket"].currentText() == f"{banka.kod} — {banka.ad}"
+    d2.close()
+
+
+def test_pos_banka_hesabi_olmadan_aktif_edilemez(db_session):
+    """2026-10-03: 'banka kartları tanımlaması olmadan POS tanımlanamasın yada aktif olmasın' —
+    hiç banka hesabı yokken POS'u aktif kaydetmek/aktifleştirmek engellenir, bir banka hesabı
+    tanımlandıktan sonra sorunsuz çalışır."""
+    s = FinansHesapService(db_session)
+    with pytest.raises(FinansHesapError, match="Banka Hesabı tanımlanmalı"):
+        s.kaydet({"tur": "pos", "ad": "Garanti POS"})
+    assert db_session.query(FinansHesap).count() == 0
+
+    pasif_pos = s.kaydet({"tur": "pos", "ad": "Garanti POS", "aktif": False})     # pasif olarak kaydetmek serbest
+    with pytest.raises(FinansHesapError):
+        s.pasif_yap(pasif_pos.id, pasif=False)                                   # ama aktifleştirmek engellenir
+
+    s.kaydet({"tur": "banka", "ad": "Ziraat Vadesiz"})
+    s.pasif_yap(pasif_pos.id, pasif=False)                                       # artık bir banka hesabı var
+    assert db_session.get(FinansHesap, pasif_pos.id).aktif is True
+
+
+def test_kredi_karti_alanlari_ve_varsayilan_banka_odeme_plani_kaydedilir_ve_geri_yuklenir(qapp, db_session):
+    from src.core.models import BankaOdemePlani
+    plan = BankaOdemePlani(kod="KK3TAK", aciklama="3 Taksit", komisyon_orani=2.5)
+    db_session.add(plan)
+    db_session.commit()
+
+    d = FinansHesapEditorDialog(db_session, grup="banka", tur="kredi_karti")
+    assert {"kk_kart_no", "kk_hesap_kesim_gunu", "kk_son_odeme_gunu", "kk_faiz_orani",
+            "varsayilan_banka_odeme_plani_etiket"} <= d.editor._widgets.keys()
+    _doldur(d, ad="Bonus Kart", kk_kart_no="**** 1234", kk_hesap_kesim_gunu=10, kk_son_odeme_gunu=20,
+            kk_faiz_orani="3,25", varsayilan_banka_odeme_plani_etiket=f"{plan.kod} — {plan.aciklama}")
+    d.editor._on_save()
+    h = db_session.query(FinansHesap).filter_by(tur="kredi_karti").one()
+    assert (h.kk_kart_no, h.kk_hesap_kesim_gunu, h.kk_son_odeme_gunu, h.kk_faiz_orani) == ("**** 1234", 10, 20, 3.25)
+    assert h.varsayilan_banka_odeme_plani_id == plan.id
+    d.close()
+
+    d2 = FinansHesapEditorDialog(db_session, grup="banka", hesap_id=h.id)
+    assert d2.editor._widgets["kk_kart_no"].text() == "**** 1234"
+    assert d2.editor._widgets["varsayilan_banka_odeme_plani_etiket"].currentText() == f"{plan.kod} — {plan.aciklama}"
+    d2.close()
 
 
 def test_kart_dogrulamalari_ad_zorunlu_ve_kod_tekrari_mesaj_verir(qapp, db_session):

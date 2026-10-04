@@ -23,7 +23,7 @@ from __future__ import annotations
 
 import logging
 
-from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtCore import Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import (
     QAction,
     QKeySequence,
@@ -32,6 +32,7 @@ from PyQt6.QtGui import (
     QStandardItemModel,
 )
 from PyQt6.QtWidgets import (
+    QCheckBox,
     QComboBox,
     QDialog,
     QDialogButtonBox,
@@ -51,9 +52,10 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from src.core import belge_turleri
+from src.desktop.services import belge_hesap
 from src.desktop.services.quotation_save_service import QuotationSaveService
 from src.desktop.ui.components.collapsible_section import CollapsibleSection
-from src.desktop.ui.widgets.portal_publish_widget import PortalPublishWidget
 from src.desktop.ui.components.edge_panel import EdgeTriggeredPanel
 from src.desktop.ui.components.filterable_table import FilterableTableView
 from src.desktop.ui.widgets.belge_vade_widget import BelgeVadeWidget
@@ -62,6 +64,7 @@ from src.desktop.ui.widgets.document_expenses_grid import DocumentExpensesGrid
 from src.desktop.ui.widgets.document_form.belge_notlari_widget import BelgeNotlariWidget
 from src.desktop.ui.widgets.document_lines_grid import DocumentLinesGrid, fmt_num
 from src.desktop.ui.widgets.hareket_finans_widget import HareketFinansWidget
+from src.desktop.ui.widgets.portal_publish_widget import PortalPublishWidget
 from src.desktop.ui.widgets.toplam_widget import ToplamWidget
 
 try:
@@ -167,19 +170,23 @@ class DocumentDetailScreen(QWidget):
         self.company_id = company_id
         self.initial_type_idx = initial_type_idx
         self.service = QuotationSaveService(db_session=db_session, company_id=company_id)
+        self._son_oto_fis_mesaji: str | None = None
         self._expenses = {"indirim": 0.0, "masraf": 0.0, "kdv": 0.0, "kdv_dagilim": {}}
         self._last_line_totals: dict = {}
         self._ozel_kod_inputs: dict[str, QLineEdit] = {}
         self._extra_left: list[QWidget] = []
         self._extra_right: list[QWidget] = []
+        self._otomatik_isle_uygun = False
 
         self._build_ui()
+        self._refresh_summary()          # sağ panel (Portal bölümü dahil) artık kurulu; başlangıç türüne göre eşitlenir
         self._load_products()
         self._load_customers()
         self._wire()
 
         if self.doc_id:
             self._load_document()
+            self._zincir_kur()
         else:
             self.lines.add_row()
             self.expenses.add_row()
@@ -203,7 +210,11 @@ class DocumentDetailScreen(QWidget):
         self.sec_ust_form.add_widget(self._build_top_form())
         root.addWidget(self.sec_ust_form)
 
+        from src.desktop.services import sayi_bicimi
+        sayi_bicimi.yukle(self.db)                 # kalem hücrelerinin kur/fiyat/miktar/tutar hane sayıları (Ayarlar › Kuruş Hanesi)
         self.lines = DocumentLinesGrid(profile_key="belge_kalemleri")
+        self.lines.set_currencies(self._aktif_kurlar(), self._yerel_para())
+        self.lines.set_stok_db(self.db)
         root.addWidget(self.lines, 1)
 
         self.sec_alt = CollapsibleSection("ALT PANEL (F6)", is_expanded=True, compact=True)
@@ -294,11 +305,12 @@ class DocumentDetailScreen(QWidget):
 
     @staticmethod
     def _dock_panel(panel: EdgeTriggeredPanel):
-        """EdgeTriggeredPanel'i overlay yerine layout-docklu (pinned, açık) yapar."""
+        """EdgeTriggeredPanel'i overlay yerine layout-docklu (pinned) yapar; varsayılan KAPALI başlar.
+        Açıkken bile pinli her iki panel ~450px genişlik ister — 1366px genişlikli ekranlarda (bkz. TOYA'nın
+        "her ekran açıldığı monitöre tam sığmalı" kuralı) bu, ekranın kendisinin sığmamasına yol açıyordu.
+        Kapalı başlayınca yalnız 14px'lik tetik şeridi görünür; kullanıcı istediğinde tıklayıp açabilir."""
         panel.is_pinned = True
         panel.pin_btn.setText("📍 Serbest")
-        panel.is_open = True
-        panel.panel_frame.show()
         panel.update_trigger_strip_icon()
 
     # ---- Header ----
@@ -347,7 +359,7 @@ class DocumentDetailScreen(QWidget):
         # Metin ile çerçeve arasında nefes payı olsun diye dikey padding de var
         # (height tek başına verilince içerik kenara yapışıyordu).
         chip_style = (
-            "background:#3b82f6;color:#ffffff;font-weight:800;font-size:11px;"
+            "combobox-popup: 0; background:#3b82f6;color:#ffffff;font-weight:800;font-size:11px;"
             f"padding:2px 10px;border-radius:4px;height:{hdr_h}px;"
         )
 
@@ -360,9 +372,20 @@ class DocumentDetailScreen(QWidget):
         self.cmb_doc_type.addItems(DOCUMENT_TYPES)
         self.cmb_doc_type.setCurrentIndex(min(self.initial_type_idx, len(DOCUMENT_TYPES) - 1))
         self.cmb_doc_type.setMinimumWidth(240)
-        self.cmb_doc_type.setStyleSheet(f"QComboBox{{{chip_style}}}")
+        self.cmb_doc_type.setStyleSheet(
+            f"QComboBox{{{chip_style}}}"
+            "QComboBox QAbstractItemView { outline: 0; padding: 0px; border: 1px solid #cbd5e1; background-color: #ffffff; color: #0f172a; }"
+            "QComboBox QAbstractItemView::item { padding: 3px 6px; min-height: 20px; }"
+        )
         self.cmb_doc_type.currentTextChanged.connect(lambda _t: self._refresh_summary())
+        self.cmb_doc_type.currentTextChanged.connect(lambda _t: self._otomatik_isle_gorunurlugu())
         lyt.addWidget(self.cmb_doc_type)
+
+        self.chk_otomatik_isle = QCheckBox("⚙️ Kaydedince Hareketleri İşle")
+        self.chk_otomatik_isle.setStyleSheet("QCheckBox{color:#dbeafe;font-size:11px;font-weight:600;} QCheckBox::indicator{width:14px;height:14px;}")
+        self.chk_otomatik_isle.setToolTip("İşaretliyse belge kaydedilince stok (ve faturaysa cari) hareketleri otomatik üretilir — "
+                                          "'BELGE ZİNCİRİ' bölümündeki 'Hareketleri İşle' düğmesiyle aynı işlemdir. İşaretsizse belge yalnızca taslak kaydedilir.")
+        lyt.addWidget(self.chk_otomatik_isle)
 
         lyt.addWidget(QLabel("🔖 Belge No:"))
         self.txt_doc_no = QLineEdit()
@@ -373,12 +396,21 @@ class DocumentDetailScreen(QWidget):
         lyt.addStretch()
         lyt.addWidget(QLabel("🚦 Durum:"))
         self.cmb_status = QComboBox()
-        self.cmb_status.addItems(["🔵 Taslak", "📤 Gönderildi", "✅ Kabul Edildi", "❌ Reddedildi"])
+        self.cmb_status.addItems(["🔵 Taslak", "📤 Gönderildi", "✅ Kabul Edildi", "❌ Reddedildi", "⌛ Süresi Doldu"])
         self.cmb_status.setMinimumWidth(140)
         self.cmb_status.currentTextChanged.connect(self._on_status_changed)
         lyt.addWidget(self.cmb_status)
         self._on_status_changed(self.cmb_status.currentText())
+        self._otomatik_isle_gorunurlugu()
         return bar
+
+    def _otomatik_isle_gorunurlugu(self) -> None:
+        """Yalnız hareket üreten belge türlerinde (irsaliye/fatura/iade faturası) 'Kaydedince Hareketleri İşle' işareti gösterilir.
+        `chk_otomatik_isle.isVisible()` ekran henüz gösterilmeden (ör. sekmeye eklenmeden önce, testlerde) Qt'nin üst zincir
+        görünürlüğüne bağlı olarak yanlış False dönebilir; bu yüzden kaydet akışı bu ayrı bayrağa bakar."""
+        turu, _yon = belge_turleri.cozumle(self.cmb_doc_type.currentText())
+        self._otomatik_isle_uygun = turu in belge_turleri.STOK_ETKILI or turu in belge_turleri.CARI_ETKILI
+        self.chk_otomatik_isle.setVisible(self._otomatik_isle_uygun)
 
     _HDR_CHIP_H = 22
 
@@ -388,6 +420,7 @@ class DocumentDetailScreen(QWidget):
         "Gönderildi": ("#fef3c7", "#b45309"),
         "Kabul Edildi": ("#dcfce7", "#15803d"),
         "Reddedildi": ("#fee2e2", "#b91c1c"),
+        "Süresi Doldu": ("#e2e8f0", "#475569"),
     }
 
     def status_label(self) -> str:
@@ -406,10 +439,12 @@ class DocumentDetailScreen(QWidget):
         label = text.split(" ", 1)[1] if " " in text else text
         bg, fg = self._STATUS_COLORS.get(label, ("#dbeafe", "#1d4ed8"))
         self.cmb_status.setStyleSheet(
-            f"QComboBox{{background:{bg};color:{fg};font-weight:700;"
+            f"QComboBox{{combobox-popup: 0; background:{bg};color:{fg};font-weight:700;"
             f"padding:2px 10px;border-radius:{self._HDR_CHIP_H // 2}px;font-size:11px;"
             f"height:{self._HDR_CHIP_H}px;}}"
-            f"QComboBox::drop-down{{border:none;width:18px;}}",
+            f"QComboBox::drop-down{{border:none;width:18px;}}"
+            "QComboBox QAbstractItemView { outline: 0; padding: 0px; border: 1px solid #cbd5e1; background-color: #ffffff; color: #0f172a; }"
+            "QComboBox QAbstractItemView::item { padding: 3px 6px; min-height: 20px; }",
         )
         self._refresh_summary()
 
@@ -510,6 +545,28 @@ class DocumentDetailScreen(QWidget):
         sec3 = CollapsibleSection("GÖRÜNÜM & SÜTUNLAR", is_expanded=True)
         sec3.add_widget(QLabel("Aktif Profil:"))
         self.cmb_profile = QComboBox()
+        self.cmb_profile.setStyleSheet("""
+            QComboBox {
+                combobox-popup: 0;
+                border: 1px solid #cbd5e1;
+                border-radius: 4px;
+                padding: 4px 6px;
+                background-color: white;
+                color: #0f172a;
+                font-size: 11px;
+            }
+            QComboBox QAbstractItemView {
+                outline: 0;
+                padding: 0px;
+                border: 1px solid #cbd5e1;
+                background-color: #ffffff;
+                color: #0f172a;
+            }
+            QComboBox QAbstractItemView::item {
+                padding: 3px 6px;
+                min-height: 20px;
+            }
+        """)
         self.cmb_profile.currentTextChanged.connect(self._on_column_profile_changed)
         sec3.add_widget(self.cmb_profile)
         b_prof_save = _btn("💾 Profili Kaydet")
@@ -550,7 +607,31 @@ class DocumentDetailScreen(QWidget):
         # hazır şablonlar arasından (varsayılan A4 dışında) seçim yapabilir.
         sec_print.add_widget(QLabel("Baskı Formu:"))
         self._tpl_selector = QComboBox()
+        self._tpl_selector.setStyleSheet("""
+            QComboBox {
+                combobox-popup: 0;
+                border: 1px solid #cbd5e1;
+                border-radius: 4px;
+                padding: 4px 6px;
+                background-color: white;
+                color: #0f172a;
+                font-size: 11px;
+            }
+            QComboBox QAbstractItemView {
+                outline: 0;
+                padding: 0px;
+                border: 1px solid #cbd5e1;
+                background-color: #ffffff;
+                color: #0f172a;
+            }
+            QComboBox QAbstractItemView::item {
+                padding: 3px 6px;
+                min-height: 20px;
+            }
+        """)
         self._populate_template_selector()
+        # Belge türü değişince (ör. Teklif -> Fatura) şablon önerisi de güncellensin.
+        self.cmb_doc_type.currentTextChanged.connect(lambda _t: self._populate_template_selector())
         sec_print.add_widget(self._tpl_selector)
 
         # Baskı işlemleri cyan, tasarım mor, paylaşım mor, WhatsApp yeşil — geri kalanı nötr.
@@ -582,13 +663,13 @@ class DocumentDetailScreen(QWidget):
             sec_print.add_widget(b)
         lyt.addWidget(sec_print)
 
-        # ONLİNE TEKLİF (PORTAL)
-        sec_portal = CollapsibleSection("ONLİNE TEKLİF (PORTAL)", is_expanded=True)
+        # ONLİNE TEKLİF (PORTAL) — yalnız "Verilen Satış Teklifi"nde anlamlı (müşterinin karar vereceği belge budur)
+        self.sec_portal = CollapsibleSection("ONLİNE TEKLİF (PORTAL)", is_expanded=True)
         self.portal_widget = PortalPublishWidget(self.db, ensure_saved=self._ensure_saved_for_portal)
         self.portal_widget.set_document(self.doc_id)
         self.portal_widget.state_changed.connect(self._on_portal_state_changed)
-        sec_portal.add_widget(self.portal_widget)
-        lyt.addWidget(sec_portal)
+        self.sec_portal.add_widget(self.portal_widget)
+        lyt.addWidget(self.sec_portal)
 
         # EVRAK ÖZETİ
         self.sec_summary = CollapsibleSection("EVRAK ÖZETİ", is_expanded=True)
@@ -601,16 +682,10 @@ class DocumentDetailScreen(QWidget):
             self.sec_summary.add_widget(lab)
         lyt.addWidget(self.sec_summary)
 
-        # HIZLI İŞLEMLER
-        sec_quick = CollapsibleSection("HIZLI İŞLEMLER", is_expanded=True)
-        _quick_colors = {
-            "🔄 Siparişe Dönüştür": ("#0369a1", "#ffffff", "#075985", "#075985"),
-        }
-        for label in ("🔄 Siparişe Dönüştür", "📋 Belgeyi Kopyala"):
-            b = _btn(label, *_quick_colors.get(label, ("#ffffff", "#1e293b", "#cbd5e1", "#f1f5f9")))
-            b.clicked.connect(lambda _c=False, ll=label: self._stub(ll))
-            sec_quick.add_widget(b)
-        lyt.addWidget(sec_quick)
+        # BELGE ZİNCİRİ (kayıtlı belgenin türüne göre: teklif → sipariş → irsaliye → fatura adımları)
+        self._zincir_kutu = QVBoxLayout()
+        self._zincir_kutu.setContentsMargins(0, 0, 0, 0)
+        lyt.addLayout(self._zincir_kutu)
 
         # KDV DAĞILIMI
         self.sec_kdv = CollapsibleSection("KDV DAĞILIMI", is_expanded=True)
@@ -748,6 +823,22 @@ class DocumentDetailScreen(QWidget):
         layout.insertWidget(layout.count() - 2, sec)  # "+ Widget Ekle" ve stretch'ten önce
         (self._extra_left if side == "left" else self._extra_right).append(w)
 
+    def _zincir_kur(self) -> None:
+        """Sağ paneldeki BELGE ZİNCİRİ bölümünü kayıtlı belgenin türüne göre yeniden kurar (kayıt/yükleme sonrası ve işlem sonrası)."""
+        from src.core.models import Quotation
+        from src.desktop.ui.widgets.belge_zinciri_bolumu import BelgeZinciriBolumu, TekBelgeSahibi
+        while self._zincir_kutu.count():
+            it = self._zincir_kutu.takeAt(0)
+            if it.widget() is not None:
+                it.widget().deleteLater()
+        if not (self.db and self.doc_id) or self.db.get(Quotation, self.doc_id) is None:
+            return
+        sahip = TekBelgeSahibi(self.db, self.doc_id, lambda: QTimer.singleShot(0, self._zincir_kur), self)
+        if sahip.quotation_type not in ("Quotation", "Order", "Waybill", "Invoice"):
+            return
+        sahip.toast_requested.connect(lambda m, _t: QMessageBox.information(self, "Belge Zinciri", m))
+        self._zincir_kutu.addWidget(BelgeZinciriBolumu(sahip))
+
     def _stub(self, name: str):
         logger.info("Aksiyon (henüz stub): %s", name)
         QMessageBox.information(self, name, f"'{name}' — sonraki adımda bağlanacak.")
@@ -841,6 +932,7 @@ class DocumentDetailScreen(QWidget):
         self.lines.totals_changed.connect(self._on_lines_totals)
         self.expenses.expenses_changed.connect(self._on_expenses_changed)
         self.finans.doviz_changed.connect(self._on_doviz_changed)
+        self.belge_vade.date_belge.dateChanged.connect(lambda d: self.finans.set_tarih(d.toPyDate()))      # kur belge tarihinin kurundan gelir
         self.cari.data_changed.connect(self._refresh_summary)
         self.cari.customer_selected.connect(lambda _d: self._refresh_summary())
         self.cari.balance_requested.connect(self._on_balance_requested)
@@ -855,41 +947,39 @@ class DocumentDetailScreen(QWidget):
         self._expenses = e
         self._refresh_totals()
 
+    def _yerel_para(self) -> str:
+        from src.desktop.services import money_service
+        return money_service.yerel_para(self.db) if self.db is not None else "TRY"
+
+    def _aktif_kurlar(self) -> dict[str, float]:
+        """Kalem satırlarında seçilebilecek aktif dövizler ve güncel kurları (kod -> TL karşılığı)."""
+        if self.db is None:
+            return {}
+        try:
+            from sqlalchemy import select
+
+            from src.core.models import Currency
+            from src.desktop.services import money_service
+            rows = self.db.scalars(select(Currency).where(Currency.is_deleted.is_(False), Currency.is_active.is_(True)))
+            kodlar = {c.code.upper() for c in rows if c.code} | {money_service.TRY_CODE}
+            return {k: money_service.kur_bul(self.db, k) for k in kodlar}          # yerel para karşılığı (yerel para = 1)
+        except Exception:  # noqa: BLE001 - döviz listesi okunamazsa yalnız TRY kalır
+            return {}
+
     def _on_doviz_changed(self, _kod: str, kur: float):
         self.lines.set_currency(self.finans.get_currency_symbol(), kur)
 
     def _refresh_totals(self):
         t = self._last_line_totals
-        ekstra_indirim = self._expenses.get("indirim", 0.0)
-        masraf = self._expenses.get("masraf", 0.0)
-        ekstra_kdv = self._expenses.get("kdv", 0.0)
-        matrah = t.get("kdv_matrahi", 0.0) - ekstra_indirim + masraf
-        kdv = t.get("kdv_toplam", 0.0) + ekstra_kdv
-        self.toplam.update_totals(
-            ara_toplam=t.get("ara_toplam", 0.0),
-            iskonto=t.get("iskonto", 0.0) + ekstra_indirim,
-            masraflar=masraf,
-            kdv_matrahi=matrah,
-            kdv_toplam=kdv,
-            genel_toplam=matrah + kdv,
-            doviz_sembol=t.get("doviz_sembol", "₺"),
-            doviz_kur=t.get("doviz_kur", 1.0),
-        )
-        self.expenses.set_grand_amount(matrah + kdv)
+        dip = belge_hesap.dip_toplam(t, self._expenses.get("indirim", 0.0), self._expenses.get("masraf", 0.0), self._expenses.get("kdv", 0.0))
+        self.toplam.update_totals(**dip, doviz_sembol=t.get("doviz_sembol", "₺"), doviz_kur=t.get("doviz_kur", 1.0))
+        self.expenses.set_grand_amount(dip["genel_toplam"])
         self._refresh_kdv_table()
         self._refresh_summary()
 
     def _refresh_kdv_table(self):
-        """Kalem KDV dağılımıyla masraf/indirim satırlarının KDV etkisini birleştirir."""
-        merged: dict[float, dict[str, float]] = {}
-        for src in (
-            self._last_line_totals.get("kdv_dagilim", {}),
-            self._expenses.get("kdv_dagilim", {}),
-        ):
-            for oran, d in src.items():
-                m = merged.setdefault(float(oran), {"matrah": 0.0, "kdv": 0.0})
-                m["matrah"] += d.get("matrah", 0.0)
-                m["kdv"] += d.get("kdv", 0.0)
+        """Kalem KDV dağılımıyla masraf/indirim satırlarının KDV etkisini birleştirir (birleştirme `belge_hesap`'ta)."""
+        merged = belge_hesap.kdv_dagilimi_birlestir(self._last_line_totals.get("kdv_dagilim", {}), self._expenses.get("kdv_dagilim", {}))
         self.kdv_model.removeRows(0, self.kdv_model.rowCount())
         for oran in sorted(merged):
             d = merged[oran]
@@ -906,6 +996,9 @@ class DocumentDetailScreen(QWidget):
         self.lbl_sum_cari.setText(f"👤 {cari}")
         self.lbl_sum_total.setText(f"💰 {fmt_num(self.toplam.get_grand_total())} ₺")
         self.lbl_sum_status.setText(f"Durum: {self.status_label()}")
+        if hasattr(self, "sec_portal"):
+            tur, yon = belge_turleri.cozumle(self.cmb_doc_type.currentText())
+            self.sec_portal.setVisible(tur == "teklif" and yon == "satis")
 
     # ------------------------------------------------------------------
     def _collect_payload(self) -> dict:
@@ -986,6 +1079,13 @@ class DocumentDetailScreen(QWidget):
             QMessageBox.critical(self, "Hata", result.error or "Kayıt başarısız.")
             return False
         self.doc_id = result.quotation_id
+        self._zincir_kur()
+        if self._otomatik_isle_uygun and self.chk_otomatik_isle.isChecked() and self._zincir_kutu.count():
+            from src.desktop.ui.widgets.belge_zinciri_bolumu import BelgeZinciriBolumu
+            w = self._zincir_kutu.itemAt(0).widget()
+            if isinstance(w, BelgeZinciriBolumu):
+                w.otomatik_isle()
+        self._son_oto_fis_mesaji = self._odeme_plani_otomasyonu_calistir()
         self.txt_doc_no.setText(result.quotation_number or "")
         if hasattr(self, "portal_widget"):
             self.portal_widget.set_document(self.doc_id)
@@ -993,6 +1093,29 @@ class DocumentDetailScreen(QWidget):
         payload["quotation_number"] = result.quotation_number
         self.document_saved.emit(payload)
         return True
+
+    def _odeme_plani_otomasyonu_calistir(self) -> str | None:
+        """Belge kaydedildikten SONRA çağrılır: Ödeme Planı'nın tipine göre otomatik kasa/banka fişi
+        oluşturur/günceller/geri alır (bkz. OdemePlaniOtomasyonServisi, gelistirme/04_odeme_planlari/
+        tasarim.md). Otomasyon sessiz çalışmaz — oluşan fişi kullanıcıya bildiren kısa bir metin döner,
+        yoksa None (otomasyon şartları sağlanmıyordur, bu bir hata değildir)."""
+        if not self.db or not self.doc_id:
+            return None
+        from src.core.models import Quotation
+        from src.desktop.services.odeme_plani_otomasyon_servisi import (
+            OdemePlaniOtomasyonServisi,
+        )
+
+        q = self.db.get(Quotation, self.doc_id)
+        if q is None:
+            return None
+        sonuclar = OdemePlaniOtomasyonServisi(self.db).belge_kaydedildi(q)
+        if not sonuclar:
+            return None
+        if len(sonuclar) == 1:
+            s = sonuclar[0]
+            return f"{s.fis.fis_no} nolu {s.etiket} fişi otomatik oluşturuldu"
+        return " + ".join(f"{s.fis.fis_no} ({s.etiket})" for s in sonuclar) + " fişleri otomatik oluşturuldu"
 
     def _confirm_save_before_output(self, title: str) -> bool:
         """
@@ -1023,15 +1146,19 @@ class DocumentDetailScreen(QWidget):
         """Kaydet ve ekranda kal (düzenlemeye devam)."""
         if self._persist():
             no = self.txt_doc_no.text().strip()
-            self._flash_status(f"✓ Kaydedildi{(' · ' + no) if no else ''}")
+            msg = f"✓ Kaydedildi{(' · ' + no) if no else ''}"
+            if self._son_oto_fis_mesaji:
+                msg += f" · {self._son_oto_fis_mesaji}"
+            self._flash_status(msg, uzun=bool(self._son_oto_fis_mesaji))
 
-    def _flash_status(self, msg: str):
-        """Alt barda kısa bir onay mesajı gösterir (modal diyalog yerine)."""
+    def _flash_status(self, msg: str, uzun: bool = False):
+        """Alt barda kısa bir onay mesajı gösterir (modal diyalog yerine). `uzun`: otomatik oluşan bir
+        fiş gibi, yalnız 'kaydedildi' den daha fazla okuma gerektiren mesajlar için ekrana daha uzun kalır."""
         if not hasattr(self, "_lbl_footer_status"):
             return
         self._lbl_footer_status.setText(msg)
         from PyQt6.QtCore import QTimer
-        QTimer.singleShot(2500, lambda: self._lbl_footer_status.setText(""))
+        QTimer.singleShot(5000 if uzun else 2500, lambda: self._lbl_footer_status.setText(""))
 
     def _on_save_new(self):
         if self._persist():
@@ -1044,7 +1171,10 @@ class DocumentDetailScreen(QWidget):
             self.expenses.add_row()
             self.notlar.set_notes("", "")
             self.lines._emit_totals()
-            self._flash_status("✓ Kaydedildi · yeni belge")
+            msg = "✓ Kaydedildi · yeni belge"
+            if self._son_oto_fis_mesaji:
+                msg = f"✓ Kaydedildi · {self._son_oto_fis_mesaji} · yeni belge"
+            self._flash_status(msg, uzun=bool(self._son_oto_fis_mesaji))
 
     def _on_save_print(self):
         """Önce belgeyi kaydeder (gerekirse uyararak), sonra baskı önizlemesini açar."""
@@ -1245,17 +1375,21 @@ class DocumentDetailScreen(QWidget):
 
     # ---- Baskı / Yazdırma ----------------------------------------------
     def _populate_template_selector(self):
-        """Baskı formu kombosunu hazır şablonlarla doldurur (ilki = varsayılan)."""
+        """Baskı formu kombosunu hazır şablonlarla doldurur. Belgenin kendi türüne
+        (`module`) uyan şablon varsa alfabetik sıra yerine öne alınıp varsayılan
+        seçili gelir; yoksa eski (alfabetik) davranışa düşer."""
         try:
             from src.desktop.designer.services.teklif_print_service import (
                 TeklifPrintService,
             )
-            templates = TeklifPrintService.available_templates()
+            templates = TeklifPrintService.available_templates_full()
         except Exception:
             logger.exception("Baskı şablonları listelenemedi")
             templates = []
+        turu, _yon = belge_turleri.cozumle(self.cmb_doc_type.currentText())
+        templates = sorted(templates, key=lambda t: (t[2] != turu, t[0]))
         self._tpl_selector.clear()
-        for title, path in templates:
+        for title, path, _module in templates:
             self._tpl_selector.addItem(title, str(path))
         if not templates:
             self._tpl_selector.addItem("Varsayılan A4", None)
@@ -1405,6 +1539,8 @@ class DocumentDetailScreen(QWidget):
             m_w, m_h = a.width() // 20, a.height() // 20
             dlg.setGeometry(a.adjusted(m_w, m_h, -m_w, -m_h))
         dlg.showMaximized()
+        from src.desktop.ui.components.window_fit_helper import zorla_ilk_yerlesim
+        zorla_ilk_yerlesim(dlg)
         return dlg
 
 
@@ -1427,9 +1563,11 @@ if __name__ == "__main__":
         "font_family": "Segoe UI, -apple-system, sans-serif",
         "font_size": "13px",
     })
+    from src.desktop.ui.components.window_fit_helper import ekrana_sigdir
+
     scr = DocumentDetailScreen()
     scr.setWindowTitle("Belge Detay - DocumentDetailScreen (PoC)")
-    scr.resize(1600, 880)  # "restore down" boyutu
+    ekrana_sigdir(scr, 1600, 880)  # "restore down" boyutu — 1366x768'de ekrana sığdırılır
     scr.document_saved.connect(lambda d: print("SAVED:", len(d.get("lines", [])), "satır"))
     scr.showMaximized()
     sys.exit(app.exec())

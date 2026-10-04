@@ -21,22 +21,52 @@ from PyQt6.QtWidgets import (
     QLabel,
     QLineEdit,
     QListWidget,
+    QMenu,
     QMessageBox,
     QPushButton,
     QSpinBox,
     QTabWidget,
     QTimeEdit,
+    QToolButton,
     QVBoxLayout,
     QWidget,
 )
 
-from src.desktop.services.backup import disk_watch, secrets
-from src.desktop.ui.components.dialog_style import apply_light_dialog_style
-from src.desktop.services.backup.models import KIND_FILES, KIND_TOYA, BackupJob, validate
+from src.desktop.services.backup import disk_registry, disk_watch, notify, secrets
+from src.desktop.services.backup.models import (
+    KIND_FILES,
+    KIND_TOYA,
+    BackupJob,
+    validate,
+)
 from src.desktop.services.backup.remote_providers import secret_name
+from src.desktop.ui.components.dialog_style import apply_light_dialog_style
 from src.desktop.ui.widgets.backup_target_dialog import TYPES, BackupTargetDialog
 
 _DAYS = ["Pzt", "Sal", "Çar", "Per", "Cum", "Cmt", "Paz"]
+
+_COMBO_STYLE = """
+    QComboBox {
+        combobox-popup: 0;
+        border: 1px solid #cbd5e1;
+        border-radius: 4px;
+        padding: 4px 6px;
+        background-color: white;
+        color: #0f172a;
+        font-size: 11px;
+    }
+    QComboBox QAbstractItemView {
+        outline: 0;
+        padding: 0px;
+        border: 1px solid #cbd5e1;
+        background-color: #ffffff;
+        color: #0f172a;
+    }
+    QComboBox QAbstractItemView::item {
+        padding: 3px 6px;
+        min-height: 20px;
+    }
+"""
 
 
 def _split(text: str) -> list[str]:
@@ -44,8 +74,10 @@ def _split(text: str) -> list[str]:
 
 
 class BackupJobDialog(QDialog):
-    def __init__(self, job: BackupJob | None = None, parent=None) -> None:
+    def __init__(self, job: BackupJob | None = None, parent=None, db=None) -> None:
         super().__init__(parent)
+        self.db = db
+        self._disks = disk_registry.DiskStore(db).list() if db is not None else []      # kayıtlı yedek diskleri
         self.job = job or BackupJob(name="")
         self.is_new = job is None
         self._targets: list[dict[str, Any]] = [dict(t) for t in self.job.cloud]
@@ -82,6 +114,7 @@ class BackupJobDialog(QDialog):
         w.setLayout(f)
         self.txt_name = QLineEdit()
         self.cmb_kind = QComboBox()
+        self.cmb_kind.setStyleSheet(_COMBO_STYLE)
         self.cmb_kind.addItem("💾 TOYA veritabanı (+ isteğe bağlı klasörler)", KIND_TOYA)
         self.cmb_kind.addItem("📁 Dosya / klasör yedeği", KIND_FILES)
         self.lst_sources = QListWidget()
@@ -97,21 +130,34 @@ class BackupJobDialog(QDialog):
         sbw.setLayout(sb)
         sb.setContentsMargins(0, 0, 0, 0)
         self.txt_dest = QLineEdit()
-        self.txt_dest.setPlaceholderText(r"D:\Yedekler\Belgeler   (harici disk: {disk}\Yedek)")
+        self.txt_dest.setPlaceholderText(r"D:\Yedekler\Belgeler   (harici disk: {disk:KIMLIK}\Yedek — 💽 Diskten… ile seçin)")
         b_dest = QPushButton("Seç…")
         b_dest.setFixedWidth(70)
         b_dest.clicked.connect(self._pick_dest)
+        self.btn_disk = QToolButton()
+        self.btn_disk.setText("💽 Diskten…")
+        self.btn_disk.setToolTip("Kayıtlı harici diskten hedef seç (sürücü harfi değişse de disk seri numarasıyla bulunur)")
+        self.btn_disk.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
+        dm = QMenu(self.btn_disk)
+        for d in self._disks:
+            dm.addAction(f"💽 {d.name}", lambda _=False, d=d: self.txt_dest.setText(rf"{{disk:{d.id}}}\TOYA_Yedek"))
+        if not self._disks:
+            dm.addAction("(Kayıtlı disk yok — Yedekleme Merkezi › Yedek Diskleri)").setEnabled(False)
+        self.btn_disk.setMenu(dm)
         dl = QHBoxLayout()
         dl.addWidget(self.txt_dest)
+        dl.addWidget(self.btn_disk)
         dl.addWidget(b_dest)
         dw = QWidget()
         dw.setLayout(dl)
         dl.setContentsMargins(0, 0, 0, 0)
         self.cmb_fmt = QComboBox()
+        self.cmb_fmt.setStyleSheet(_COMBO_STYLE)
         self.cmb_fmt.addItem("ZIP arşivi", "zip")
         self.cmb_fmt.addItem("TAR.GZ arşivi", "tar")
         self.cmb_fmt.addItem("Klasör senkronu (arşivsiz, silmez)", "mirror")
         self.cmb_mode = QComboBox()
+        self.cmb_mode.setStyleSheet(_COMBO_STYLE)
         self.cmb_mode.addItem("Tam yedek", "full")
         self.cmb_mode.addItem("Artımlı (son yedekten beri değişenler)", "incremental")
         self.txt_inc = QLineEdit()
@@ -176,6 +222,7 @@ class BackupJobDialog(QDialog):
         w, f = QWidget(), QFormLayout()
         w.setLayout(f)
         self.cmb_sched = QComboBox()
+        self.cmb_sched.setStyleSheet(_COMBO_STYLE)
         for k, label in (("manual", "Elle çalıştır"), ("daily", "Her gün"), ("weekly", "Haftalık"),
                          ("interval", "Belirli aralıkla"), ("disk", "Harici disk takılınca")):
             self.cmb_sched.addItem(label, k)
@@ -194,8 +241,11 @@ class BackupJobDialog(QDialog):
         self.spn_int.setSuffix(" dk")
         self.cmb_disk = QComboBox()
         self.cmb_disk.setEditable(True)
-        for v in disk_watch.list_volumes():
-            self.cmb_disk.addItem(v.label or v.root)
+        self.cmb_disk.setStyleSheet(_COMBO_STYLE)
+        for d in self._disks:                              # kayıtlı diskler (seri numarasıyla tanınır)
+            self.cmb_disk.addItem(f"💽 {d.name}", d.id)
+        for v in disk_watch.list_volumes():                # kayıtsız: eski usul etiketle eşleşir
+            self.cmb_disk.addItem(v.label or v.root, None)
         self.lbl_sched_help = QLabel()
         self.lbl_sched_help.setWordWrap(True)
         self.lbl_sched_help.setStyleSheet("color:#64748b; font-size:11px;")
@@ -204,7 +254,7 @@ class BackupJobDialog(QDialog):
         f.addRow("Saat", self.tm)
         f.addRow("Günler", self.days_w)
         f.addRow("Aralık", self.spn_int)
-        f.addRow("Disk etiketi", self.cmb_disk)
+        f.addRow("Harici disk", self.cmb_disk)
         f.addRow("", self.lbl_sched_help)
         f.addRow("", self.chk_enabled)
         self._sched_rows = {"daily": [self.tm], "weekly": [self.tm, self.days_w], "interval": [self.spn_int], "disk": [self.cmb_disk]}
@@ -213,17 +263,24 @@ class BackupJobDialog(QDialog):
         return w
 
     def _tab_notify(self) -> QWidget:
-        w, f = QWidget(), QFormLayout()
-        w.setLayout(f)
-        self.cmb_notify = QComboBox()
-        self.cmb_notify.addItem("Bildirim gönderme", "never")
-        self.cmb_notify.addItem("Yalnızca hata/uyarıda e-posta gönder", "failure")
-        self.cmb_notify.addItem("Her çalışmada e-posta gönder", "always")
+        w, v = QWidget(), QVBoxLayout()
+        w.setLayout(v)
+        v.addWidget(QLabel("<b>Hangi sonuçlarda bildirim gönderilsin?</b> (birden fazla seçebilirsiniz)"))
+        self.chk_events = {k: QCheckBox(t) for k, t in notify.EVENTS.items()}
+        for c in self.chk_events.values():
+            v.addWidget(c)
+        v.addSpacing(6)
+        v.addWidget(QLabel("<b>Bildirim kanalları</b>"))
+        self.chk_channels = {k: QCheckBox(t) for k, t in notify.CHANNELS.items()}
+        for c in self.chk_channels.values():
+            v.addWidget(c)
+        f = QFormLayout()
         self.txt_to = QLineEdit()
         self.txt_to.setPlaceholderText("alici@firma.com   (boş = SMTP gönderen adresi)")
-        f.addRow("E-posta raporu", self.cmb_notify)
-        f.addRow("Alıcı", self.txt_to)
-        f.addRow("", QLabel("SMTP ayarları Genel Ayarlar → E-Posta / SMTP'den alınır."))
+        f.addRow("E-posta alıcısı", self.txt_to)
+        v.addLayout(f)
+        v.addWidget(QLabel("SMTP ayarları Genel Ayarlar → E-Posta / SMTP'den alınır. Uygulama içi bildirim yedekleme ekranında görünür."))
+        v.addStretch()
         return w
 
     # ------------------------------------------------------------------ yükleme
@@ -246,9 +303,16 @@ class BackupJobDialog(QDialog):
         for i, c in enumerate(self.chk_days):
             c.setChecked(i in [int(d) for d in s.get("weekdays", [])])
         self.spn_int.setValue(int(s.get("interval_minutes", 60) or 60))
-        self.cmb_disk.setCurrentText(str(s.get("disk_label", "")))
+        if s.get("disk_id") and self.cmb_disk.findData(s["disk_id"]) >= 0:
+            self.cmb_disk.setCurrentIndex(self.cmb_disk.findData(s["disk_id"]))
+        else:
+            self.cmb_disk.setCurrentText(str(s.get("disk_label", "")))
         self.chk_enabled.setChecked(j.enabled)
-        self.cmb_notify.setCurrentIndex(max(0, self.cmb_notify.findData(j.notify.get("mode", "failure"))))
+        evs, chs = notify.events_of(j.notify), notify.channels_of(j.notify)
+        for k, c in self.chk_events.items():
+            c.setChecked(k in evs)
+        for k, c in self.chk_channels.items():
+            c.setChecked(k in chs)
         self.txt_to.setText(j.notify.get("to", ""))
         self._refresh_targets()
         self._refresh_pw()
@@ -284,14 +348,16 @@ class BackupJobDialog(QDialog):
             "daily": "Bilgisayar o saatte kapalıysa açıldığında bir kez telafi edilir. Başarısız olursa 30 dk sonra en çok 3 kez denenir.",
             "weekly": "Seçili günlerde, belirtilen saatte.",
             "interval": "Son denemeden bu kadar süre geçince.",
-            "disk": "Etiketi eşleşen disk takılınca çalışır. Hedef klasörü '{disk}\\Yedek' biçiminde yazın; sürücü harfi değişse de çalışır.",
+            "disk": "Seçilen disk takılınca çalışır. Kayıtlı disk (💽) seri numarasıyla tanınır; hedef klasörü '💽 Diskten…' ile seçin. "
+                    "Kayıtsız etiket yazarsanız yalnız etiketle eşleşir ('{disk}\\Yedek').",
         }[k])
 
     def _refresh_targets(self) -> None:
         self.lst_targets.clear()
         names = dict(TYPES)
         for t in self._targets:
-            self.lst_targets.addItem(f"{names.get(t.get('type'), t.get('type'))} — {t.get('label', '')}")
+            ek = f"  →  {t['folder_path']}" if t.get("type") == "gdrive" and t.get("folder_path") else ""
+            self.lst_targets.addItem(f"{names.get(t.get('type'), t.get('type'))} — {t.get('label', '')}{ek}")
 
     def _refresh_pw(self) -> None:
         has = bool(secrets.encryption_password())
@@ -376,15 +442,27 @@ class BackupJobDialog(QDialog):
         if st == "interval":
             sched["interval_minutes"] = self.spn_int.value()
         if st == "disk":
-            sched["disk_label"] = self.cmb_disk.currentText().strip()
+            idx = self.cmb_disk.currentIndex()
+            did = self.cmb_disk.itemData(idx) if (idx >= 0 and self.cmb_disk.currentText() == self.cmb_disk.itemText(idx)) else None
+            reg = next((d for d in self._disks if d.id == did), None)
+            if reg:
+                sched.update(disk_id=reg.id, disk_name=reg.name, disk_label=reg.label)
+            else:
+                sched["disk_label"] = self.cmb_disk.currentText().strip()
         return BackupJob(
             name=self.txt_name.text().strip(), kind=self.cmb_kind.currentData(), dest_dir=self.txt_dest.text().strip(),
             sources=[self.lst_sources.item(i).text() for i in range(self.lst_sources.count())], fmt=self.cmb_fmt.currentData(),
             mode=self.cmb_mode.currentData(), includes=_split(self.txt_inc.text()), excludes=_split(self.txt_exc.text()),
             keep=self.spn_keep.value(), encrypt=self.chk_encrypt.isChecked(), cloud=list(self._targets), schedule=sched,
-            notify={"mode": self.cmb_notify.currentData(), "to": self.txt_to.text().strip()},
+            notify=self._notify_dict(),
             enabled=self.chk_enabled.isChecked(), hidden=False, id=j.id, state=dict(j.state),
         )
+
+    def _notify_dict(self) -> dict[str, Any]:
+        events = [k for k, c in self.chk_events.items() if c.isChecked()]
+        channels = [k for k, c in self.chk_channels.items() if c.isChecked()]
+        mode = "never" if not events else "always" if len(events) == len(notify.EVENTS) else "failure"    # eski okuyucular için türetilir
+        return {"events": events, "channels": channels, "mode": mode, "to": self.txt_to.text().strip()}
 
     def _on_save(self) -> None:
         job = self.build_job()

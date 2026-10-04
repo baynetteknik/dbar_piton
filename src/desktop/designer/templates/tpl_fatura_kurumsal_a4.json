@@ -102,7 +102,7 @@
           "y_mm": 0.0,
           "w_mm": 52.0,
           "h_mm": 8.0,
-          "text": "Teklif",
+          "text": "SATIŞ FATURASI",
           "field": "",
           "expression": "",
           "format": "",
@@ -1093,5 +1093,6 @@
         }
       ]
     }
-  ]
+  ],
+  "module": "fatura"
 }

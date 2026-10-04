@@ -71,7 +71,7 @@ def test_version_helpers():
 def test_secret_is_generated_once_and_persisted(db_session):
     s1 = pkg.get_or_create_secret(db_session)
     assert len(s1) == 48 and s1 == pkg.get_or_create_secret(db_session)
-    assert get_setting(db_session, pkg.KEY_SECRET) == s1
+    assert pkg.portal_secret_store.al(db_session, pkg.KEY_SECRET) == s1 and not get_setting(db_session, pkg.KEY_SECRET)
 
 
 # ---- içerik kuralları -------------------------------------------------------

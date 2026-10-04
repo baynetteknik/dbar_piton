@@ -179,6 +179,8 @@ class CariEditorDialog(QDialog):
         self._plans = self._load_payment_plans()          # {ad: id}
         self._plan_name_by_id = {v: k for k, v in self._plans.items()}
 
+        self.has_saved: bool = False
+
         self.setWindowTitle("Cari Kartı")
         lyt = QVBoxLayout(self)
         lyt.setContentsMargins(0, 0, 0, 0)
@@ -217,7 +219,7 @@ class CariEditorDialog(QDialog):
             parent=self,
         )
         lyt.addWidget(self.editor)
-        self.editor.closed.connect(self.reject)
+        self.editor.closed.connect(self._on_close_requested)
         self.editor.saved.connect(self._on_save)
         self.editor.saved_and_new.connect(self._on_save_and_new)
 
@@ -238,6 +240,8 @@ class CariEditorDialog(QDialog):
 
         self._load_recent_activity()
         self.showMaximized()
+        from src.desktop.ui.components.window_fit_helper import zorla_ilk_yerlesim
+        zorla_ilk_yerlesim(self)
 
     # ------------------------------------------------------------------
     def _load_recent_activity(self) -> None:
@@ -322,6 +326,18 @@ class CariEditorDialog(QDialog):
         ).exec()
 
     # ------------------------------------------------------------------
+    def _on_close_requested(self):
+        if self.has_saved:
+            self.accept()
+        else:
+            self.reject()
+
+    def closeEvent(self, event):  # noqa: N802
+        if self.has_saved:
+            self.setResult(QDialog.DialogCode.Accepted)
+        super().closeEvent(event)
+
+    # ------------------------------------------------------------------
     def _save_payload(self, payload: dict):
         """Payload'ı servise kaydeder; başarılıysa `CustomerSaveResult`,
         değilse hata mesajı gösterip `None` döndürür."""
@@ -337,6 +353,7 @@ class CariEditorDialog(QDialog):
             QMessageBox.critical(self, "Kayıt Hatası", res.error or "Cari kaydedilemedi.")
             return None
         self.saved_customer_id = res.customer_id
+        self.has_saved = True
         return res
 
     def _on_save(self, payload: dict):

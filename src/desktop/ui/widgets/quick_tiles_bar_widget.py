@@ -4,13 +4,18 @@ Footer'ın hemen üzerinde yer alan, Açılır/Kapanır (Collapsible),
 yüksek kontrastlı, net okunabilir, kurumsal renkli mini durum ve metrik kartları bileşeni.
 """
 
-from typing import List, Dict, Any, Optional
-from PyQt6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QLabel, 
-    QPushButton, QFrame, QScrollArea, QGraphicsDropShadowEffect
-)
-from PyQt6.QtCore import Qt, pyqtSignal, QSettings
+from PyQt6.QtCore import QSettings, Qt, pyqtSignal
 from PyQt6.QtGui import QColor, QFont
+from PyQt6.QtWidgets import (
+    QFrame,
+    QGraphicsDropShadowEffect,
+    QHBoxLayout,
+    QLabel,
+    QPushButton,
+    QScrollArea,
+    QVBoxLayout,
+    QWidget,
+)
 
 
 class QuickTileButton(QPushButton):
@@ -69,7 +74,7 @@ class QuickTileButton(QPushButton):
 
         if value:
             lbl_value = QLabel(value)
-            lbl_value.setStyleSheet(f"font-size: 12px; font-weight: 800; color: #0f172a; font-family: 'Segoe UI';")
+            lbl_value.setStyleSheet("font-size: 12px; font-weight: 800; color: #0f172a; font-family: 'Segoe UI';")
             lbl_value.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
             text_box.addWidget(lbl_value)
 

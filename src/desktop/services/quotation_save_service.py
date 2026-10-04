@@ -10,7 +10,10 @@ from typing import Any
 
 from sqlalchemy import select
 
+from src.core import belge_turleri
 from src.core.models import Customer, Product, Quotation, QuotationLine
+from src.desktop.services import belge_hesap, numara_servisi
+from src.desktop.services.belge_kilit_servisi import BelgeKilitServisi
 
 logger = logging.getLogger(__name__)
 
@@ -50,14 +53,15 @@ class QuotationSaveService:
                     q = Quotation()
                     q.company_id = self.company_id
                     q.is_deleted = False
-                    self.db.add(q)
 
                 self._set_belge(q, dialog)
                 self._set_cari(q, dialog)
                 self._set_finans(q, dialog)
 
                 if not q.quotation_number:
-                    q.quotation_number = self._generate_number(q.id)
+                    q.quotation_number = self._generate_number(q)
+                if q not in self.db:
+                    self.db.add(q)          # numara üretimi flush eder; numarasız kayıt oturuma en sonda eklenir (NOT NULL)
 
                 q.notes = getattr(dialog, "doc_note1", "") or ""
                 if getattr(dialog, "doc_note2", ""):
@@ -87,8 +91,6 @@ class QuotationSaveService:
             doc_no = dialog.txt_top_doc_no.text().strip()
             if doc_no:
                 q.quotation_number = doc_no
-            elif not q.quotation_number:
-                q.quotation_number = self._generate_number(q.id)
         if hasattr(dialog, "cmb_doc_type"):
             raw_type = dialog.cmb_doc_type.currentText().upper()
             if "TEKLİF" in raw_type or "QUOTATION" in raw_type or "TEK" in raw_type:
@@ -101,8 +103,14 @@ class QuotationSaveService:
                 q.quotation_type = "Invoice"
             else:
                 q.quotation_type = dialog.cmb_doc_type.currentText()
+            q.belge_turu, q.yon = belge_turleri.cozumle(dialog.cmb_doc_type.currentText())
+            q.quotation_type = belge_turleri.quotation_type_of(q.belge_turu)
         if not q.quotation_type:
             q.quotation_type = "Quotation"
+        if not q.belge_turu:
+            q.belge_turu, q.yon = belge_turleri.cozumle(q.quotation_type)
+        if not q.quotation_number:
+            q.quotation_number = self._generate_number(q)
 
         if hasattr(dialog, "date_belge"):
             d = dialog.date_belge.date()
@@ -114,6 +122,8 @@ class QuotationSaveService:
             q.valid_until = datetime(v.year(), v.month(), v.day())
         if hasattr(dialog, "cmb_odeme_plani"):
             q.payment_plan = dialog.cmb_odeme_plani.currentText()
+            plan_data = dialog.cmb_odeme_plani.currentData()
+            q.payment_plan_id = plan_data.get("id") if isinstance(plan_data, dict) else None
         if not q.status:
             q.status = "draft"
 
@@ -203,11 +213,7 @@ class QuotationSaveService:
             line.discount3 = float(row_data.get("disc3", 0) or 0)
             line.vat_rate = float(row_data.get("vat", 20) or 20)
             line.currency = row_data.get("currency", "TRY")
-            line.total_amount = (
-                dialog._calc_line_total(row_data)
-                if hasattr(dialog, "_calc_line_total")
-                else self._calc(row_data)
-            )
+            line.total_amount = belge_hesap.eski_diyalog_satir_toplami(row_data)
             line.total_price = line.total_amount
 
             # Ürün eşleşmesi
@@ -249,24 +255,6 @@ class QuotationSaveService:
         q.tax_base = q.grand_total - q.total_vat
 
     @staticmethod
-    def _calc(row_data: dict[str, Any]) -> float:
-        """Satır net tutarını hesaplar."""
-        try:
-            qty = float(row_data.get("qty", 1) or 1)
-            price = float(row_data.get("price", 0) or 0)
-            d1 = float(row_data.get("disc1", 0) or 0)
-            d2 = float(row_data.get("disc2", 0) or 0)
-            d3 = float(row_data.get("disc3", 0) or 0)
-            vat = float(row_data.get("vat", 20) or 20)
-            base = qty * price
-            after = base * (1 - d1 / 100) * (1 - d2 / 100) * (1 - d3 / 100)
-            return round(after * (1 + vat / 100), 2)
-        except Exception:
-            return 0.0
-
-    _calc_total = _calc
-
-    @staticmethod
     def _read_row(tbl: Any, row: int) -> dict[str, Any]:
         """QTableWidget satırından manuel hücre verisi okur."""
         from PyQt6.QtWidgets import QComboBox, QLineEdit
@@ -296,30 +284,19 @@ class QuotationSaveService:
 
     _read_row_manually = _read_row
 
-    def _generate_number(self, quotation_id: int | None = None) -> str:
-        """
-        Çakışmaya karşı güvenli otomatik teklif evrak numarası üretir.
-        Aynı numara varsa bir sonraki boşta olan sıraya geçer.
-        """
-        now = datetime.now()
-        prefix = f"TEK-{now.year}{now.month:02d}-"
-        seq = quotation_id if (quotation_id and quotation_id > 0) else None
-        if seq is None:
-            from sqlalchemy import func
-            seq = (self.db.scalar(select(func.max(Quotation.id))) or 0) + 1
-        for _ in range(10_000):
-            candidate = f"{prefix}{seq:04d}"
-            exists = self.db.scalar(
-                select(Quotation.id).where(Quotation.quotation_number == candidate),
-            )
-            if not exists:
-                return candidate
-            seq += 1
-        return f"{prefix}{now.strftime('%d%H%M%S')}"
+    def _generate_number(self, q: Quotation, tarih=None) -> str:
+        """Belge türü/yönüne göre şablondan sonraki boş numara (bkz. `numara_servisi`)."""
+        return numara_servisi.belge_numarasi(
+            self.db,
+            q.belge_turu or "teklif",
+            q.yon,
+            tarih or q.date or q.issue_date,
+            company_id=getattr(q, "company_id", None),
+        )
 
     def update_status(self, quotation_id: int, new_status: str) -> SaveResult:
         """Teklif durumunu günceller."""
-        valid = {"draft", "sent", "accepted", "rejected", "converted"}
+        valid = {"draft", "sent", "accepted", "rejected", "converted", "expired"}
         if new_status not in valid:
             return SaveResult(
                 success=False,
@@ -353,6 +330,7 @@ class QuotationSaveService:
                     error=f"Bulunamadı: ID={quotation_id}",
                 )
 
+            BelgeKilitServisi(self.db).teklif_donusum_kontrol(src)      # engelde KilitHatasi → aşağıda hata olarak döner
             order = Quotation()
             for attr in [
                 "company_id",
@@ -361,6 +339,7 @@ class QuotationSaveService:
                 "currency",
                 "exchange_rate",
                 "payment_plan",
+                "payment_plan_id",
                 "notes",
                 "subtotal",
                 "total_discount",
@@ -371,18 +350,21 @@ class QuotationSaveService:
             ]:
                 setattr(order, attr, getattr(src, attr, None))
 
-            order.quotation_type = "SİPARİŞ: (1) ALINAN MÜŞTERİ SİPARİŞİ"
+            order.quotation_type = "Order"
+            order.belge_turu, order.yon = "siparis", (getattr(src, "yon", None) or "satis")
+            order.kaynak_belge_id = src.id
             order.status = "draft"
             order.is_deleted = False
             order.date = datetime.now()
-            order.quotation_number = (
-                f"SIP-{datetime.now().strftime('%Y%m%d%H%M%S')}"
+            order.quotation_number = numara_servisi.belge_numarasi(
+                self.db,
+                "siparis",
+                order.yon,
+                order.date,
+                company_id=order.company_id,
             )
             self.db.add(order)
             self.db.flush()
-            order.quotation_number = (
-                f"SIP-{datetime.now().year}{datetime.now().month:02d}-{order.id:04d}"
-            )
 
             for sl in src.lines or []:
                 nl = QuotationLine()
@@ -403,6 +385,8 @@ class QuotationSaveService:
                     "total_amount",
                     "total_price",
                     "currency",
+                    "doviz",
+                    "kur",
                     "line_order",
                 ]:
                     setattr(nl, attr, getattr(sl, attr, None))
@@ -510,15 +494,13 @@ class QuotationSaveService:
     # ------------------------------------------------------------------
     @staticmethod
     def _doc_type_to_quotation_type(doc_type: str) -> str:
-        t = (doc_type or "").upper()
-        if "SİPARİŞ" in t or "SIPARIS" in t or "ORDER" in t:
-            return "Order"
-        return "Quotation"
+        """Ekran metninden kanonik `quotation_type` (Quotation | Order | Waybill | Invoice)."""
+        return belge_turleri.quotation_type_of(belge_turleri.cozumle(doc_type)[0])
 
     # Teklif Durumu (DocumentDetailScreen üst bar rozeti) <-> Quotation.status kodu
     _STATUS_TR_TO_CODE = {
         "Taslak": "draft", "Gönderildi": "sent",
-        "Kabul Edildi": "accepted", "Reddedildi": "rejected",
+        "Kabul Edildi": "accepted", "Reddedildi": "rejected", "Süresi Doldu": "expired",
     }
     _STATUS_CODE_TO_TR = {v: k for k, v in _STATUS_TR_TO_CODE.items()}
 
@@ -558,9 +540,11 @@ class QuotationSaveService:
                 toplam = payload.get("toplam", {}) or {}
                 notlar = payload.get("notlar") or ("", "")
 
-                q.quotation_type = self._doc_type_to_quotation_type(payload.get("doc_type", ""))
+                q.belge_turu, q.yon = belge_turleri.cozumle(payload.get("doc_type", ""))
+                q.quotation_type = belge_turleri.quotation_type_of(q.belge_turu)
                 doc_no = (payload.get("doc_no") or belge.get("belge_no") or "").strip()
-                resolved = doc_no or q.quotation_number or self._generate_number(q.id)
+                belge_tarihi = self._parse_date(belge.get("tarih", ""))
+                resolved = doc_no or q.quotation_number or self._generate_number(q, belge_tarihi)
                 # Başka bir kayıtta aynı numara varsa çakışmayı önle (yeni numara üret).
                 clash = self.db.scalar(
                     select(Quotation.id).where(
@@ -568,7 +552,8 @@ class QuotationSaveService:
                         Quotation.id != q.id,
                     ),
                 )
-                q.quotation_number = self._generate_number(q.id) if clash else resolved
+                q.quotation_number = self._generate_number(q, belge_tarihi) if clash else resolved
+                numara_servisi.belge_kullanildi(self.db, q.belge_turu, q.yon, q.quotation_number)     # elle girilen numara sayacı ilerletir
 
                 customer = cari.get("customer") or {}
                 q.customer_id = customer.get("id") if isinstance(customer, dict) else None
@@ -583,6 +568,7 @@ class QuotationSaveService:
                 except (ValueError, TypeError):
                     q.exchange_rate = 1.0
                 q.payment_plan = belge.get("odeme_plani", "") or None
+                q.payment_plan_id = belge.get("odeme_plani_id") or (belge.get("odeme_plani_data") or {}).get("id")
 
                 iss = self._parse_date(belge.get("tarih", ""))
                 if iss:
@@ -642,6 +628,8 @@ class QuotationSaveService:
                         discount_rate=float(num.get("iskonto_yuzde", parse_safe(ln.get("iskonto_yuzde")))),
                         vat_rate=vat,
                         currency=q.currency,
+                        doviz=(ln.get("doviz") or "TRY").upper(),
+                        kur=float(num.get("kur", 1.0) or 1.0),
                         total_amount=float(num.get("net_tutar", 0.0)),
                         total_price=float(num.get("net_tutar", 0.0)),
                     ))
@@ -704,10 +692,14 @@ class QuotationSaveService:
                 "birim_fiyat": _fmt(ln.unit_price),
                 "iskonto_yuzde": _fmt(ln.discount_rate),
                 "kdv_yuzde": _fmt(ln.vat_rate),
+                "doviz": ln.doviz or "TRY",
+                "kur": _fmt(ln.kur if ln.kur else 1.0),
             })
         return {
             "doc_id": q.id,
-            "doc_type": q.quotation_type,
+            "doc_type": belge_turleri.ekran_metni(q.belge_turu, q.yon) or q.quotation_type,
+            "belge_turu": q.belge_turu,
+            "yon": q.yon,
             "doc_no": q.quotation_number,
             "cari": {
                 "code": "",
@@ -721,6 +713,7 @@ class QuotationSaveService:
                 "tarih": q.issue_date.strftime("%Y-%m-%d") if q.issue_date else "",
                 "vade": q.valid_until.strftime("%Y-%m-%d") if q.valid_until else "",
                 "odeme_plani": q.payment_plan or "",
+                "odeme_plani_id": q.payment_plan_id,
             },
             "finans": {
                 "doviz_kod": q.currency or "TRY",

@@ -82,6 +82,5 @@ def test_table_row_height_interactive(qapp, db_session):
 def test_alt_iskonto_context_menu_methods(qapp, db_session):
     """19.3 — Test alt iskonto context menu method and sort function exist."""
     dlg = TransactionDocumentDialog(db_session=db_session)
-    assert hasattr(dlg, "show_alt_iskonto_context_menu")
-    assert hasattr(dlg, "_show_alt_iskonto_context_menu")
-    assert hasattr(dlg, "_sort_alt_iskonto")
+    assert callable(dlg.show_alt_iskonto_context_menu)
+    assert callable(dlg._sort_alt_iskonto)

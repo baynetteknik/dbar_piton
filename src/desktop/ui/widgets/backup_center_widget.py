@@ -9,10 +9,12 @@ menüsündedir. Geri yükleme çalışan uygulamada yapılmaz: yedek doğrulanı
 from __future__ import annotations
 
 import logging
-import os
 import tempfile
+import uuid
+from dataclasses import replace
 from datetime import datetime
 from pathlib import Path
+from types import SimpleNamespace
 
 from PyQt6.QtCore import Qt, QUrl, pyqtSignal
 from PyQt6.QtGui import QDesktopServices
@@ -21,7 +23,6 @@ from PyQt6.QtWidgets import (
     QDialog,
     QFileDialog,
     QHBoxLayout,
-    QHeaderView,
     QInputDialog,
     QLabel,
     QLineEdit,
@@ -30,7 +31,6 @@ from PyQt6.QtWidgets import (
     QPlainTextEdit,
     QProgressBar,
     QPushButton,
-    QTableWidget,
     QTableWidgetItem,
     QToolButton,
     QVBoxLayout,
@@ -38,17 +38,36 @@ from PyQt6.QtWidgets import (
 )
 
 from src.desktop import backup_agent
-from src.desktop.services.backup import archive, crypto, file_job, schedule, secrets, service, toya_backup
+from src.desktop.core.grid_presets import GRID_PRESETS, register_preset
+from src.desktop.services import sync_log_service
+from src.desktop.services.backup import (
+    archive,
+    crypto,
+    disk_watch,
+    file_job,
+    notify,
+    schedule,
+    secrets,
+    service,
+    toya_backup,
+)
 from src.desktop.services.backup.models import KIND_TOYA, BackupJob, JobStore
 from src.desktop.services.backup.runner import _decrypt_verify
+from src.desktop.ui.components.app_grid import AppGrid
+from src.desktop.ui.widgets.backup_dashboard import BackupDashboard
+from src.desktop.ui.widgets.backup_disks_dialog import BackupDisksDialog
 from src.desktop.ui.widgets.backup_job_dialog import BackupJobDialog
+from src.desktop.ui.widgets.backup_restore_history_dialog import (
+    BackupRestoreHistoryDialog,
+)
 from src.desktop.ui.widgets.backup_runner import BackupRunner, TaskThread
 
 logger = logging.getLogger(__name__)
 _ICON = {"ok": "✅", "warning": "⚠️", "error": "❌", "nochange": "➖"}
 _HEALTH_COLOR = {"ok": "#15803d", "warn": "#b45309", "error": "#b91c1c"}
 _TR_STATUS = {"ok": "Başarılı", "warning": "Uyarı", "error": "Hata", "nochange": "Değişiklik yok"}
-_COLS = ["İş", "Tür", "Zamanlama", "Dış hedefler", "Son çalışma", "Durum", "Son sonuç"]
+_COLS = ["İŞ", "TÜR", "ZAMANLAMA", "HEDEFLER", "SON ÇALIŞMA", "DURUM", "SON SONUÇ"]
+PRESET_ID = "dbgrid_backup_isler"
 
 
 class BackupCenterWidget(QWidget):
@@ -94,14 +113,14 @@ class BackupCenterWidget(QWidget):
         root.addWidget(self.banner)
         root.addWidget(self.btn_cancel_pending)
 
-        self.table = QTableWidget(0, len(_COLS))
-        self.table.setHorizontalHeaderLabels(_COLS)
-        self.table.verticalHeader().setVisible(False)
-        self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        if PRESET_ID not in GRID_PRESETS:
+            register_preset(PRESET_ID, _COLS, [0.14, 0.09, 0.14, 0.22, 0.11, 0.09, 0.21], ["L", "L", "L", "L", "C", "L", "L"], name="Yedek İşleri")
+        self.table = AppGrid(PRESET_ID)                      # standart grid: renkler, sütun sürükleme/görünürlük kaydı
+        if self.db is not None:
+            self.table.enable_layout_persistence(self.db)
         self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
-        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
-        self.table.horizontalHeader().setSectionResizeMode(len(_COLS) - 1, QHeaderView.ResizeMode.Stretch)
+        self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self.table.setMinimumHeight(190)
         self.table.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.table.customContextMenuRequested.connect(self._context_menu)
@@ -125,6 +144,10 @@ class BackupCenterWidget(QWidget):
 
         row = QHBoxLayout()
         self.btn_new = QPushButton("➕ Yeni Yedek İşi")
+        self.btn_verify = QPushButton("✔ Doğrula")
+        self.btn_restore = QPushButton("↩ Geri Yükle…")
+        self.btn_verify.setToolTip("Seçili işin son yedeğini bütünlük açısından doğrular")
+        self.btn_restore.setToolTip("Seçili işin yedeğinden geri yükler (TOYA yedeği: yeniden başlatınca uygulanır; dosya yedeği: seçilen klasöre çıkarılır)")
         self.btn_run = QPushButton("▶ Şimdi Çalıştır")
         self.btn_run.setStyleSheet("QPushButton{background:#0f766e; color:white; border:none; border-radius:6px; padding:6px 16px;"
                                    " font-weight:700;}QPushButton:hover{background:#115e59;}QPushButton:disabled{background:#94a3b8;}")
@@ -132,6 +155,8 @@ class BackupCenterWidget(QWidget):
         self.btn_more.setText("⚙ Diğer")
         self.btn_more.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
         menu = QMenu(self.btn_more)
+        menu.addAction("💽 Yedek Diskleri (seri numarasıyla tanıma)…", self.open_disks)
+        menu.addAction("📜 Geri yükleme geçmişi…", self.open_restore_history)
         menu.addAction("🔑 Şifreleme parolasını belirle…", self._set_password)
         menu.addAction("🕒 Arka plan ajanını Görev Zamanlayıcı'ya ekle", self._register_agent)
         menu.addAction("🕒 Arka plan ajanını kaldır", self._unregister_agent)
@@ -140,10 +165,16 @@ class BackupCenterWidget(QWidget):
         row.addWidget(self.btn_new)
         row.addStretch()
         row.addWidget(self.btn_more)
+        row.addWidget(self.btn_verify)
+        row.addWidget(self.btn_restore)
         row.addWidget(self.btn_run)
         root.addLayout(row)
+        self.dashboard = BackupDashboard(self.db, self.jobs, self, kompakt=True)      # altta açılır/kapanır grafikli pano
+        root.addWidget(self.dashboard)
         self.btn_new.clicked.connect(self.new_job)
         self.btn_run.clicked.connect(self.run_selected)
+        self.btn_verify.clicked.connect(self.verify_selected)
+        self.btn_restore.clicked.connect(self.restore_selected)
         self.table.itemSelectionChanged.connect(self._sync_buttons)
 
     # ------------------------------------------------------------------ liste
@@ -163,16 +194,18 @@ class BackupCenterWidget(QWidget):
         for j in jobs:
             r = self.table.rowCount()
             self.table.insertRow(r)
+            self.table.setRowHeight(r, self.table.effective_row_height)
             st = j.state
             status = f"{_ICON.get(st.get('last_status'), '')} {_TR_STATUS.get(st.get('last_status'), st.get('last_status'))}" if st.get("last_status") else "—"
+            hedefler = schedule.targets_text(j) or ", ".join(["Klasör/disk"] + [t.get("label", t.get("type", "")) for t in j.cloud])
             vals = [j.name + ("" if j.enabled else " (durduruldu)"), "TOYA veritabanı" if j.kind == KIND_TOYA else "Dosya/klasör",
-                    schedule.describe(j), ", ".join(t.get("label", t.get("type", "")) for t in j.cloud) or "—",
+                    schedule.describe(j), hedefler,
                     (st.get("last_run") or "—").replace("T", " "), status, st.get("last_message", "")]
             for c, v in enumerate(vals):
                 it = QTableWidgetItem(v)
                 if c == 0:
                     it.setData(Qt.ItemDataRole.UserRole, j.id)
-                if c == len(vals) - 1:
+                if c in (3, len(vals) - 1):
                     it.setToolTip(v)
                 self.table.setItem(r, c, it)
             if j.id == keep:
@@ -184,6 +217,20 @@ class BackupCenterWidget(QWidget):
             self.lbl_health.setText("<br>".join(f"<span style='color:{_HEALTH_COLOR[lvl]}'>{'●'} <b>{j.name}</b>: {txt}</span>" for j, lvl, txt in health))
         self._refresh_pending()
         self._sync_buttons()
+        if hasattr(self, "dashboard"):
+            self.dashboard._isleri_doldur()
+            self.dashboard.yenile()
+
+    def open_restore_history(self) -> None:
+        BackupRestoreHistoryDialog(self.db, self).exec()
+
+    def _log_restore(self, job: BackupJob, action: str, ok: bool, file: str, message: str) -> None:
+        """Geri yükleme tarihçesi: her hazırlama/çıkarma/iptal kaydedilir (silinmez)."""
+        sync_log_service.record(self.db, "backup", sync_log_service.DIR_BACKUP_RESTORE, ok, message,
+                                {"job": job.name, "job_id": job.id, "action": action, "file": file})
+
+    def open_disks(self) -> None:
+        BackupDisksDialog(self.db, self).exec()
 
     def _refresh_pending(self) -> None:
         p = self._data_dir() and toya_backup.pending(self._data_dir())
@@ -194,7 +241,10 @@ class BackupCenterWidget(QWidget):
                                 "mevcut veritabanı önce 'restore_previous' klasörüne saklanır.")
 
     def _sync_buttons(self) -> None:
-        self.btn_run.setEnabled(self.selected_job() is not None and not self.runner.is_busy())
+        job = self.selected_job()
+        self.btn_run.setEnabled(job is not None and not self.runner.is_busy())
+        self.btn_verify.setEnabled(job is not None)
+        self.btn_restore.setEnabled(job is not None)
 
     def _data_dir(self) -> Path | None:
         p = service.db_path_of(self.db)
@@ -202,7 +252,7 @@ class BackupCenterWidget(QWidget):
 
     # ------------------------------------------------------------------ iş işlemleri
     def new_job(self) -> None:
-        dlg = BackupJobDialog(None, self)
+        dlg = BackupJobDialog(None, self, db=self.db)
         if dlg.exec() == QDialog.DialogCode.Accepted:
             ok, msg = self.store.save(dlg.job)
             self._say(msg, ok)
@@ -212,11 +262,28 @@ class BackupCenterWidget(QWidget):
         job = self.selected_job()
         if not job:
             return
-        dlg = BackupJobDialog(job, self)
+        dlg = BackupJobDialog(job, self, db=self.db)
         if dlg.exec() == QDialog.DialogCode.Accepted:
             ok, msg = self.store.save(dlg.job)
             self._say(msg, ok)
             self.refresh()
+
+    def disk_copy_selected(self) -> None:
+        """Seçili işin aynı kaynak/seçeneklerle, harici disk takılınca çalışan bir kopyasını oluşturur (dış hedefler kopyalanmaz).
+        Böylece asıl iş (ör. günlük, Google Drive'a) sürerken diske de ayrı bir yedek alınır."""
+        job = self.selected_job()
+        if not job:
+            return
+        etiketler = [v.label for v in disk_watch.list_volumes() if v.label]
+        etiket, ok = QInputDialog.getItem(self, "Harici Disk Kopyası", "Disk etiketi (bu disk takılınca yedek alınır):",
+                                          etiketler or [""], 0, True)
+        if not ok or not etiket.strip():
+            return
+        kopya = replace(job, id=uuid.uuid4().hex[:8], name=f"{job.name} (Harici Disk)", dest_dir=rf"{{disk}}\TOYA_Yedek\{job.slug}",
+                        cloud=[], schedule={"type": "disk", "disk_label": etiket.strip()}, state={}, hidden=False, enabled=True)
+        ok2, msg = self.store.save(kopya)
+        self._say(msg, ok2)
+        self.refresh()
 
     def hide_selected(self) -> None:
         job = self.selected_job()
@@ -232,7 +299,16 @@ class BackupCenterWidget(QWidget):
         if job.schedule.get("type") == "disk" and "{disk}" in job.dest_dir:
             QMessageBox.information(self, "Yedek", "Bu iş harici disk takılınca otomatik çalışır (hedef {disk} ile başlıyor).")
             return
-        if not self.runner.enqueue(job.id):
+        force = False
+        users = self.runner.connected_users()
+        if users:
+            yanit = QMessageBox.question(
+                self, "Bağlı kullanıcı var",
+                "Şu kullanıcılar bağlı: " + ", ".join(users) + "\n\nYedek sırasında bu kullanıcıların işlemleri yarım/tutarsız veriye yol açabilir. "
+                "Yine de şimdi başlatılsın mı?\n(Hayır derseniz herkes çıkınca otomatik başlar.)",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No, QMessageBox.StandardButton.No)
+            force = yanit == QMessageBox.StandardButton.Yes
+        if not self.runner.enqueue(job.id, force=force):
             self._say("Bu iş zaten çalışıyor/kuyrukta.", False)
         self._sync_buttons()
 
@@ -255,8 +331,13 @@ class BackupCenterWidget(QWidget):
 
     def _on_finished(self, name: str, status: str, message: str) -> None:
         self.progress.setVisible(False)
+        if hasattr(self, "dashboard"):
+            self.dashboard.yenile()
         ok = status in ("ok", "nochange")
         self._say(f"{_ICON.get(status, '')} {name}: {message}", ok if status != "warning" else None)
+        job = next((j for j in self.jobs() if j.name == name), None)
+        if job is not None and not notify.should_toast(job, SimpleNamespace(status=status)):
+            return                                   # bu iş için bu sonuç türünde uygulama içi bildirim istenmemiş
         self.toast_requested.emit(f"Yedek — {name}: {message}", "success" if ok else ("warning" if status == "warning" else "error"))
         self.refresh()
 
@@ -312,7 +393,10 @@ class BackupCenterWidget(QWidget):
     def restore_selected(self) -> None:
         job = self.selected_job()
         data_dir = self._data_dir()
-        if not job or job.kind != KIND_TOYA or data_dir is None:
+        if job and job.kind != KIND_TOYA:
+            self._restore_files(job)
+            return
+        if not job or data_dir is None:
             return
         start = job.dest_dir if Path(job.dest_dir).exists() else ""
         f, _ = QFileDialog.getOpenFileName(self, "Geri yüklenecek yedeği seçin", start, "TOYA yedeği (*.zip *.tar.gz *.enc)")
@@ -349,7 +433,45 @@ class BackupCenterWidget(QWidget):
                 self._say(f"Geri yükleme hazırlanamadı: {r.__class__.__name__}", False)
                 return
             self._say(r[1], r[0])
+            self._log_restore(job, "stage", bool(r[0]), path.name, r[1])
             self._refresh_pending()
+
+        self._run_task(work, done)
+
+    def _restore_files(self, job: BackupJob) -> None:
+        """Dosya yedeğini seçilen klasöre çıkarır; mevcut dosyalar ezilmez, her dosya özetle doğrulanır."""
+        start = job.dest_dir if Path(job.dest_dir).exists() else ""
+        f, _ = QFileDialog.getOpenFileName(self, "Geri yüklenecek yedeği seçin", start, "Yedek arşivi (*.zip *.tar.gz *.enc)")
+        if not f:
+            return
+        path = Path(f)
+        pw = None
+        if crypto.is_encrypted(path):
+            pw = self._password()
+            if not pw:
+                return
+        hedef = QFileDialog.getExistingDirectory(self, "Dosyaların çıkarılacağı klasör (boş/yeni bir klasör seçin)")
+        if not hedef:
+            return
+        self._say(f"Çıkarılıyor: {path.name}…")
+
+        def work():
+            with tempfile.TemporaryDirectory(prefix="toya_geri_") as tmp:
+                src = path
+                if crypto.is_encrypted(path):
+                    src = Path(tmp) / path.name[: -len(crypto.SUFFIX)]
+                    crypto.decrypt_file(path, src, pw or "")
+                return archive.extract_archive(src, Path(hedef))
+
+        def done(r):
+            if isinstance(r, Exception):
+                msg = f"Geri yükleme başarısız: {r}"
+                self._say(msg, False)
+                self._log_restore(job, "extract", False, path.name, msg)
+                return
+            msg = f"{len(r)} dosya '{hedef}' klasörüne çıkarıldı."
+            self._say(msg, True)
+            self._log_restore(job, "extract", True, path.name, msg)
 
         self._run_task(work, done)
 
@@ -358,6 +480,9 @@ class BackupCenterWidget(QWidget):
         if d:
             toya_backup.cancel_pending(d)
             self._say("Bekleyen geri yükleme iptal edildi.", True)
+            job = self.selected_job()
+            if job:
+                self._log_restore(job, "cancel", True, "", "Bekleyen geri yükleme iptal edildi.")
             self._refresh_pending()
 
     # ------------------------------------------------------------------ diğer
@@ -385,9 +510,9 @@ class BackupCenterWidget(QWidget):
         m.addAction("▶ Şimdi çalıştır", self.run_selected)
         m.addAction("✏️ Düzenle", self.edit_selected)
         m.addAction("✔ Son yedeği doğrula", self.verify_selected)
-        if job.kind == KIND_TOYA:
-            m.addAction("↩ Yedekten geri yükle…", self.restore_selected)
+        m.addAction("↩ Yedekten geri yükle…" if job.kind == KIND_TOYA else "↩ Yedeği klasöre çıkar (geri yükle)…", self.restore_selected)
         m.addAction("📂 Hedef klasörü aç", self.open_folder)
+        m.addAction("💽 Harici disk kopyası oluştur…", self.disk_copy_selected)
         m.addSeparator()
         m.addAction("🙈 Gizle", self.hide_selected)
         m.exec(self.table.viewport().mapToGlobal(pos))

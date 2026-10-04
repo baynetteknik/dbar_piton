@@ -150,6 +150,28 @@ class ReportPreviewWidget(QWidget):
         lbl_zoom.setStyleSheet("color: #CBD5E1; font-size: 11px;")
         tb.addWidget(lbl_zoom)
         self.cmb_zoom = QComboBox(self)
+        self.cmb_zoom.setStyleSheet("""
+    QComboBox {
+        combobox-popup: 0;
+        background-color: #1E293B;
+        color: #F8FAFC;
+        border: 1px solid #334155;
+        border-radius: 4px;
+        padding: 3px 8px;
+        font-size: 11px;
+    }
+    QComboBox QAbstractItemView {
+        outline: 0;
+        padding: 0px;
+        border: 1px solid #334155;
+        background-color: #1E293B;
+        color: #F8FAFC;
+    }
+    QComboBox QAbstractItemView::item {
+        padding: 3px 6px;
+        min-height: 20px;
+    }
+""")
         self.cmb_zoom.addItems([
             "📄 Sayfaya Sığdır (Tümünü Göster)",
             "↔️ Genişliğe Sığdır",

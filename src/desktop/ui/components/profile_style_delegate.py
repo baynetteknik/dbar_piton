@@ -5,15 +5,16 @@ from typing import Any
 
 from PyQt6.QtCore import QModelIndex, Qt
 from PyQt6.QtGui import QColor, QFont, QPainter
-from PyQt6.QtWidgets import QStyle, QStyledItemDelegate, QStyleOptionViewItem
+from PyQt6.QtWidgets import QStyle, QStyleOptionViewItem
 
 from src.desktop.managers.rule_manager import RuleManager
 from src.desktop.models.visual_rule_model import VisualRule
+from src.desktop.ui.components.grid_delegates import NavDelegate
 
 logger = logging.getLogger(__name__)
 
 
-class ProfileStyleDelegate(QStyledItemDelegate):
+class ProfileStyleDelegate(NavDelegate):
     """Custom delegate that paints cells according to active VisualRules."""
 
     #: İşaretli satırların arka plan tonu ve gösterge işareti

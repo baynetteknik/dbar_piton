@@ -29,7 +29,9 @@ def test_view_settings_widget_initialization(qapp):
 def test_view_settings_widget_module_change(qapp):
     """Test switching modules loads corresponding profile keys."""
     widget = ViewSettingsWidget()
-    widget.module_combo.setCurrentIndex(1)  # backup_tasks
+    idx = widget.module_combo.findData("backup_tasks")
+    assert idx != -1
+    widget.module_combo.setCurrentIndex(idx)
     assert widget.get_current_profile_key() == "backup_tasks"
     assert widget.profile_list.count() >= 1
 

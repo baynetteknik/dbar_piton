@@ -4,22 +4,39 @@ Görsellerde yer alan büyük mavi ikon modül butonları gridini barındıran,
 sağ ve sol tıklama destekli bağımsız merkez/gövde bileşeni.
 """
 
-from typing import List, Tuple, Optional
+from pathlib import Path
+from typing import List, Optional, Tuple
+
+from PyQt6.QtCore import QPoint, Qt, pyqtSignal
+from PyQt6.QtGui import QColor, QFont, QPixmap
 from PyQt6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QGridLayout,
-    QLabel, QPushButton, QFrame, QScrollArea,
-    QGraphicsDropShadowEffect, QGraphicsOpacityEffect
+    QFrame,
+    QGraphicsDropShadowEffect,
+    QGraphicsOpacityEffect,
+    QGridLayout,
+    QHBoxLayout,
+    QLabel,
+    QPushButton,
+    QScrollArea,
+    QVBoxLayout,
+    QWidget,
 )
-from PyQt6.QtCore import Qt, pyqtSignal, QPoint
-from PyQt6.QtGui import QColor, QFont
+
+#: Modül kartı ikonları (dizayn/ikonset001.jpg'den kırpıldı). `MenuGridButton` bu eşleme doluysa gerçek ikonu, boşsa
+#: emoji'yi gösterir — kod hazır, yalnız eşleme boş. ikonset001 kapatıldı: ayrıntılı/yumuşak gölgeli çizimler 46px'lik
+#: kart ikonunda net seçilmiyordu (kullanıcı geri bildirimi, 2026-09-26). Kullanıcı daha sade/düz çizgili bir set
+#: verince (ör. ikonset002 ya da yeniden çizim) buraya aynı anahtarlarla (bkz. `_init_ui`'daki `target` değerleri) eklenir.
+ICONS_DIR = Path(__file__).resolve().parent.parent / "assets" / "icons"
+TILE_ICONS: dict[str, str] = {}
 
 
 class MenuGridButton(QPushButton):
-    """Büyük mavi modül kart butonu."""
+    """Büyük mavi modül kart butonu. Gerçek bir ikon varsa (bkz. `TILE_ICONS`) beyaz yuvarlak
+    bir rozet içinde gösterilir; yoksa emoji ile kalır."""
 
     right_clicked = pyqtSignal(str, QPoint)
 
-    def __init__(self, name: str, emoji: str, target_module: str, parent=None):
+    def __init__(self, name: str, emoji: str, target_module: str, icon_path: str | None = None, parent=None):
         super().__init__(parent)
         self.name = name
         self.emoji = emoji
@@ -47,11 +64,21 @@ class MenuGridButton(QPushButton):
         btn_lyt.setSpacing(4)
         btn_lyt.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
-        self.lbl_emoji = QLabel(emoji)
-        self.lbl_emoji.setFont(QFont("Segoe UI", 34))
+        pixmap = QPixmap(icon_path) if icon_path and Path(icon_path).is_file() else None
+        self.lbl_emoji = QLabel()
+        self.lbl_emoji.setFixedSize(56, 56)
+        # Gerçek ikon dosyası olsun olmasın aynı beyaz yuvarlak "rozet" zemini kullanılır — emoji mavi
+        # kartın üzerinde daha net seçilsin ve tüm kartlar görsel olarak tutarlı görünsün (2026-10-03,
+        # kullanıcı geri bildirimi: ikonlar "daha belirgin ve anlaşılır" olmalı).
+        self.lbl_emoji.setStyleSheet("background-color:#ffffff; border-radius:12px;")
+        if pixmap and not pixmap.isNull():
+            self.lbl_emoji.setPixmap(pixmap.scaled(46, 46, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation))
+        else:
+            self.lbl_emoji.setText(emoji)
+            self.lbl_emoji.setFont(QFont("Segoe UI", 28))
         self.lbl_emoji.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.lbl_emoji.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
-        btn_lyt.addWidget(self.lbl_emoji)
+        btn_lyt.addWidget(self.lbl_emoji, 0, Qt.AlignmentFlag.AlignCenter)
 
         self.lbl_name = QLabel(name)
         self.lbl_name.setStyleSheet("font-size: 11px; font-weight: 700; color: #ffffff; font-family: 'Segoe UI';")
@@ -84,16 +111,17 @@ class MenuGridWidget(QWidget):
     def __init__(self, modules: Optional[List[Tuple[str, str, str]]] = None, parent=None):
         super().__init__(parent)
         self.modules = modules or [
-            ("Faturalar", "📄", "Faturalar"),
-            ("Kasa Yönetimi", "💰", "Kasa Yönetimi"),
+            ("Faturalar", "🧾", "Faturalar"),
+            ("İrsaliyeler", "🚚", "İrsaliyeler"),
+            ("Kasa Kartları", "💰", "Kasa Kartları"),
             ("Personel", "👔", "Personel"),
             ("Müşteriler", "👥", "Müşteriler & Cariler"),
-            ("Teklif Yönetimi", "📑", "Teklif Yönetimi"),
+            ("Teklif Yönetimi", "📝", "Teklif Yönetimi"),
             ("Sipariş Yönetimi", "📦", "Sipariş Yönetimi"),
             ("Stok Kartları", "🏷️", "Ürün Yönetimi"),
-            ("Çek / Senet", "📑", "Çek / Senet"),
-            ("Banka Hesapları", "🏦", "Banka Hesapları"),
-            ("Görevler", "🔄", "Görevler"),
+            ("Çek / Senet", "📜", "Çek / Senet"),
+            ("Banka & POS Kartları", "🏦", "Banka & POS Kartları"),
+            ("Görevler", "✅", "Görevler"),
             ("Cari Analiz", "📊", "Cari Analiz"),
             ("Genel Ayarlar", "⚙️", "Genel Ayarlar"),
         ]
@@ -170,7 +198,9 @@ class MenuGridWidget(QWidget):
         for i, (name, emoji, target) in enumerate(self.modules):
             row = i // cols_count
             col = i % cols_count
-            btn = MenuGridButton(name, emoji, target)
+            ikon_adi = TILE_ICONS.get(target)
+            icon_path = str(ICONS_DIR / f"{ikon_adi}.png") if ikon_adi else None
+            btn = MenuGridButton(name, emoji, target, icon_path)
             btn.clicked.connect(lambda checked, t=target: self.module_selected.emit(t))
             btn.right_clicked.connect(lambda t, pos: self.module_right_clicked.emit(t, pos))
             self.grid_layout.addWidget(btn, row, col)

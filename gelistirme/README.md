@@ -30,3 +30,10 @@ Her modül klasöründe standart 3 dosya yer alır:
 1. **`fields.md` (Ekran ve Form Alanları):** 3-bölmeli liste sütunları, filtreleri, tam ekran form alanları, tipleri ve zorunlulukları.
 2. **`database.md` (Veritabanı Şeması):** Tablo isimleri, kolon tipleri, index'ler, foreign key ilişkileri ve soft delete kuralları.
 3. **`tasks.md` (Görevler & Durum):** O modül için atanmış görevler, tamamlananlar, bekleyenler ve geliştirici notları.
+
+---
+
+## 🧱 MİMARİ NOTLARI
+
+- [`00_mimari/GRID_STANDARDI.md`](file:///C:/toya_erp/gelistirme/00_mimari/GRID_STANDARDI.md) — Tüm tablolar için tek standart grid (`FilterableTableView`, `EntryTableView`, `standart_grid`), yeni tablo kuralları, geçiş durumu.
+- `yz2_gorevler/YZ2_GOREV23.md … 26.md` — İkinci yapay zekaya verilen grid geçiş/envanter/kırık test görevleri (kod yazan ana geliştirici commit'i kullanıcı yapar).

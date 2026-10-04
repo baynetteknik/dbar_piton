@@ -5,22 +5,41 @@ Tam ekran (Maximized) açılan, sol tarafında işlem ve kayıt butonları barı
 kurumsal Master-Detail şablon düzenleme penceresidir.
 """
 
-from typing import Dict, Any, List, Optional
 import copy
-from PyQt6.QtWidgets import (
-    QDialog, QWidget, QVBoxLayout, QHBoxLayout, QLabel, 
-    QLineEdit, QPushButton, QTabWidget, QCheckBox, QComboBox, 
-    QTableWidget, QTableWidgetItem, QHeaderView, QTextEdit, 
-    QFrame, QMessageBox, QGroupBox, QSpinBox, QRadioButton, 
-    QButtonGroup, QScrollArea
-)
-from PyQt6.QtCore import Qt, pyqtSignal
-from PyQt6.QtGui import QFont, QColor, QKeySequence, QShortcut
+from typing import Any, Dict, List
 
-from src.desktop.core.grid_presets import GRID_PRESETS, get_preset
+from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtGui import QKeySequence, QShortcut
+from PyQt6.QtWidgets import (
+    QButtonGroup,
+    QCheckBox,
+    QComboBox,
+    QDialog,
+    QFrame,
+    QGroupBox,
+    QHBoxLayout,
+    QHeaderView,
+    QLabel,
+    QLineEdit,
+    QMessageBox,
+    QPushButton,
+    QRadioButton,
+    QScrollArea,
+    QSpinBox,
+    QTableWidget,
+    QTableWidgetItem,
+    QTabWidget,
+    QTextEdit,
+    QVBoxLayout,
+    QWidget,
+)
+
+from src.desktop.core.grid_presets import GRID_PRESETS
 from src.desktop.core.screen_registry import (
-    SCREEN_DEFINITIONS, DEFAULT_SYSTEM_TEMPLATES, 
-    register_screen_definition, get_screen_definition
+    DEFAULT_SYSTEM_TEMPLATES,
+    SCREEN_DEFINITIONS,
+    get_screen_definition,
+    register_screen_definition,
 )
 from src.desktop.managers.theme_manager import ThemeManager
 from src.desktop.ui.components.app_grid import AppGrid
@@ -217,7 +236,28 @@ class ScreenDefinitionDetailDialog(QDialog):
         self.cmb_base_template = QComboBox()
         for tpl_id, tpl_info in DEFAULT_SYSTEM_TEMPLATES.items():
             self.cmb_base_template.addItem(f"{tpl_info.get('title')}", tpl_id)
-        self.cmb_base_template.setStyleSheet("padding: 5px; border: 1px solid #cbd5e1; border-radius: 4px; background: white; font-weight: bold; font-size: 11px;")
+        self.cmb_base_template.setStyleSheet("""
+            QComboBox {
+                combobox-popup: 0;
+                padding: 5px;
+                border: 1px solid #cbd5e1;
+                border-radius: 4px;
+                background: white;
+                font-weight: bold;
+                font-size: 11px;
+            }
+            QComboBox QAbstractItemView {
+                outline: 0;
+                padding: 0px;
+                border: 1px solid #cbd5e1;
+                background-color: #ffffff;
+                color: #0f172a;
+            }
+            QComboBox QAbstractItemView::item {
+                padding: 3px 6px;
+                min-height: 20px;
+            }
+        """)
         self.cmb_base_template.currentIndexChanged.connect(self._on_base_template_changed)
         inh_lyt.addWidget(self.cmb_base_template)
 
@@ -328,7 +368,26 @@ class ScreenDefinitionDetailDialog(QDialog):
         form_lyt.addWidget(QLabel("Modül Grubu:"))
         self.cmb_module_group = QComboBox()
         self.cmb_module_group.addItems(["Kart Tanımları (Cari/Stok)", "Evrak & Fişler (Fatura/Teklif/Sipariş)", "Finans & Kasa", "Raporlar & Analiz"])
-        self.cmb_module_group.setStyleSheet("padding: 6px; border: 1px solid #cbd5e1; border-radius: 4px; background: white;")
+        self.cmb_module_group.setStyleSheet("""
+            QComboBox {
+                combobox-popup: 0;
+                padding: 6px;
+                border: 1px solid #cbd5e1;
+                border-radius: 4px;
+                background: white;
+            }
+            QComboBox QAbstractItemView {
+                outline: 0;
+                padding: 0px;
+                border: 1px solid #cbd5e1;
+                background-color: #ffffff;
+                color: #0f172a;
+            }
+            QComboBox QAbstractItemView::item {
+                padding: 3px 6px;
+                min-height: 20px;
+            }
+        """)
         form_lyt.addWidget(self.cmb_module_group)
 
         # Açıklama
@@ -362,7 +421,26 @@ class ScreenDefinitionDetailDialog(QDialog):
         self.chk_left_sidebar = QCheckBox("👈 Sol Sidebar Paneli:")
         self.cmb_left_comp = QComboBox()
         self.cmb_left_comp.addItems(["leftsidebar001 (Kategori & Filtre Ağacı)", "Özel Sol Panel"])
-        self.cmb_left_comp.setStyleSheet("padding: 4px; background: white; border: 1px solid #cbd5e1; border-radius: 4px;")
+        self.cmb_left_comp.setStyleSheet("""
+            QComboBox {
+                combobox-popup: 0;
+                padding: 4px;
+                background: white;
+                border: 1px solid #cbd5e1;
+                border-radius: 4px;
+            }
+            QComboBox QAbstractItemView {
+                outline: 0;
+                padding: 0px;
+                border: 1px solid #cbd5e1;
+                background-color: #ffffff;
+                color: #0f172a;
+            }
+            QComboBox QAbstractItemView::item {
+                padding: 3px 6px;
+                min-height: 20px;
+            }
+        """)
         h_left.addWidget(self.chk_left_sidebar)
         h_left.addWidget(self.cmb_left_comp, 1)
         reg_lyt.addLayout(h_left)
@@ -372,7 +450,26 @@ class ScreenDefinitionDetailDialog(QDialog):
         self.chk_right_sidebar = QCheckBox("👉 Sağ Sidebar Paneli:")
         self.cmb_right_comp = QComboBox()
         self.cmb_right_comp.addItems(["rightsidebar001 (Bakiye & Detay Özet Kartı)", "Özel Sağ Panel"])
-        self.cmb_right_comp.setStyleSheet("padding: 4px; background: white; border: 1px solid #cbd5e1; border-radius: 4px;")
+        self.cmb_right_comp.setStyleSheet("""
+            QComboBox {
+                combobox-popup: 0;
+                padding: 4px;
+                background: white;
+                border: 1px solid #cbd5e1;
+                border-radius: 4px;
+            }
+            QComboBox QAbstractItemView {
+                outline: 0;
+                padding: 0px;
+                border: 1px solid #cbd5e1;
+                background-color: #ffffff;
+                color: #0f172a;
+            }
+            QComboBox QAbstractItemView::item {
+                padding: 3px 6px;
+                min-height: 20px;
+            }
+        """)
         h_right.addWidget(self.chk_right_sidebar)
         h_right.addWidget(self.cmb_right_comp, 1)
         reg_lyt.addLayout(h_right)
@@ -395,7 +492,27 @@ class ScreenDefinitionDetailDialog(QDialog):
         h_preset.addWidget(QLabel("Temel Grid Preseti Seçin:"))
         self.cmb_preset = QComboBox()
         self.cmb_preset.addItems(list(GRID_PRESETS.keys()))
-        self.cmb_preset.setStyleSheet("padding: 6px; font-weight: bold; background: white; border: 1px solid #cbd5e1; border-radius: 4px;")
+        self.cmb_preset.setStyleSheet("""
+            QComboBox {
+                combobox-popup: 0;
+                padding: 6px;
+                font-weight: bold;
+                background: white;
+                border: 1px solid #cbd5e1;
+                border-radius: 4px;
+            }
+            QComboBox QAbstractItemView {
+                outline: 0;
+                padding: 0px;
+                border: 1px solid #cbd5e1;
+                background-color: #ffffff;
+                color: #0f172a;
+            }
+            QComboBox QAbstractItemView::item {
+                padding: 3px 6px;
+                min-height: 20px;
+            }
+        """)
         self.cmb_preset.currentTextChanged.connect(self._on_preset_selected)
         h_preset.addWidget(self.cmb_preset, 1)
         lyt.addLayout(h_preset)

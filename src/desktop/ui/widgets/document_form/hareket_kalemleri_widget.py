@@ -4,13 +4,19 @@ AppGrid tabanlı, dinamik satır ekleme/çıkarma, canlı iskonto ve KDV hesapla
 yeteneklerine sahip modüler evrak satırları bileşeni.
 """
 
-from typing import List, Dict, Any
-from PyQt6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QLabel, 
-    QPushButton, QTableWidget, QTableWidgetItem, QHeaderView, QGroupBox
-)
 from PyQt6.QtCore import Qt, pyqtSignal
-from PyQt6.QtGui import QColor, QFont
+from PyQt6.QtWidgets import (
+    QGroupBox,
+    QHBoxLayout,
+    QHeaderView,
+    QLabel,
+    QPushButton,
+    QTableWidget,
+    QTableWidgetItem,
+    QVBoxLayout,
+    QWidget,
+)
+
 from src.desktop.managers.theme_manager import ThemeManager
 
 

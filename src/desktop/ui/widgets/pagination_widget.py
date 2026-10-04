@@ -14,6 +14,8 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from src.desktop.ui.components.button_style import btn_style as _std_btn_style
+
 
 class PaginationWidget(QWidget):
     """Bağımsız ve yeniden kullanılabilir sayfalama (pagination) çubuğu bileşeni."""
@@ -42,28 +44,7 @@ class PaginationWidget(QWidget):
         layout.setContentsMargins(0, 4, 0, 0)
         layout.setSpacing(6)
 
-        btn_style = """
-            QPushButton {
-                border: 1px solid #cbd5e1;
-                border-radius: 4px;
-                padding: 4px 8px;
-                background-color: #ffffff;
-                color: #334155;
-                font-weight: bold;
-                font-size: 11px;
-                min-width: 28px;
-                min-height: 24px;
-            }
-            QPushButton:hover {
-                background-color: #f1f5f9;
-                border-color: #94a3b8;
-            }
-            QPushButton:disabled {
-                background-color: #f8fafc;
-                color: #cbd5e1;
-                border-color: #e2e8f0;
-            }
-        """
+        btn_style = _std_btn_style("#ffffff", "#334155") + " QPushButton { text-align:center; min-width:28px; }"
 
         combo_style = """
             QComboBox {
@@ -74,6 +55,7 @@ class PaginationWidget(QWidget):
                 color: #0f172a;
                 font-size: 11px;
                 min-height: 22px;
+                combobox-popup: 0;
             }
             QComboBox QAbstractItemView {
                 border: 1px solid #94a3b8;
@@ -81,6 +63,12 @@ class PaginationWidget(QWidget):
                 color: #0f172a;
                 selection-background-color: #2563eb;
                 selection-color: #ffffff;
+                outline: 0;
+                padding: 0px;
+            }
+            QComboBox QAbstractItemView::item {
+                padding: 3px 6px;
+                min-height: 20px;
             }
         """
 

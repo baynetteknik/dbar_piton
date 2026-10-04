@@ -140,6 +140,7 @@ label{display:block;margin:8px 0 2px;font-weight:600;font-size:13px}.row{display
 </style></head><body>';
     if ($user !== null) {
         echo '<nav><strong>TOYA Portal</strong>'
+            . '<a href="teklifler.php">Teklifler</a>'
             . '<a href="index.php' . h($q) . '">Özet</a>'
             . '<a href="cariler.php' . h($q) . '">Cariler</a>'
             . '<a href="faturalar.php' . h($q) . '">Faturalar</a>';

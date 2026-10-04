@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 import pytest
-from PyQt6.QtWidgets import QTableWidget
+from PyQt6.QtCore import Qt
 
 from src.desktop.services import settings_menu as sm
-from src.desktop.ui.components.app_grid import AppGrid
+from src.desktop.ui.components.entry_table_view import EntryTableView
+from src.desktop.ui.components.filterable_table import FilterableTableView
 from src.desktop.ui.settings import GeneralSettingsScreen
 
 
@@ -54,6 +55,7 @@ def screen(qapp, db_session):
 
 
 def test_right_sidebar_sections_start_collapsed_and_left_menu_has_no_action_boxes(screen):
+    screen.switch_panel("firma_bilgileri")   # varsayılan açılış artık "settings_hub" (paneller kapalı); normal bir menüye geçip davranışı test et
     sb = screen.right_sidebar
     assert screen.right_panel.is_open and screen.left_panel.is_open           # paneller açık, bölümler kapalı
     assert all(not sb.section(k).is_expanded for k in sb.keys())
@@ -80,7 +82,7 @@ def test_only_the_selected_menus_actions_are_visible_in_the_right_panel(screen):
 
 def test_code_display_is_a_parameter_defaulting_to_hover_hints(screen, db_session):
     m = screen.menu_buttons["cari_gruplari"]
-    grp = screen.menu_sections[4]
+    grp = next(s for s in screen.menu_sections if "CARİ" in s.header_btn.text())
     assert screen.code_mode == "ipucu" and screen.cmb_code_mode.currentData() == "ipucu"
     assert not m.code_visible() and grp.code_label.isHidden()                       # varsayılan: rozet yok, sade görünüm
     tip = m.toolTip()
@@ -157,6 +159,7 @@ def test_badge_takes_less_width_than_appending_the_code_to_the_text(qapp):
 
 def test_left_menu_search_by_name_and_by_code(screen):
     screen.show()
+    screen.switch_panel("firma_bilgileri")   # varsayılan açılış artık "settings_hub" (sol panel kapalı); arama görünürlüğü normal bir menüde test edilir
     screen.menu_search_input.setText("cari")
     vis = {pid for pid, (w, *_r) in screen.menu_item_containers.items() if w.isVisibleTo(screen)}
     assert vis == {"cari_gruplari", "cari_ozel_alanlar"}
@@ -255,21 +258,75 @@ def test_saved_order_with_unknown_and_missing_sections_is_repaired(qapp, db_sess
 
 
 # ---------------------------------------------------------------- standart grid + sağ tık işlemleri
-def test_all_definition_tables_are_standard_appgrids_with_theme_style(screen):
+def _baslik(t, c: int) -> str:
+    return str(t.model().headerData(c, Qt.Orientation.Horizontal) or "")
+
+
+def test_all_definition_tables_are_standard_entry_grids_with_theme_style(screen):
+    """Genel Ayarlar tanım tabloları standart gride taşındı (YZ2 Görev 27): AppGrid yerine `standart_grid`
+    (`EntryTableView` + kapsayıcı `FilterableTableView` = `.container`), merkezi tema (bkz. `STANDART_TABLO_QSS`)."""
     screen.switch_panel("yetkiler")
     names = [n for n in dir(screen) if n.startswith("tbl_")]
-    assert {"tbl_sube", "tbl_donem", "tbl_odeme", "tbl_fiyat", "tbl_kategori", "tbl_marka", "tbl_birim", "tbl_depo",
-            "tbl_cari_grup", "tbl_yetkiler", "tbl_lockout"} <= set(names)
+    assert {"tbl_odeme", "tbl_fiyat", "tbl_kategori", "tbl_marka", "tbl_birim",
+            "tbl_cari_grup", "tbl_yetkiler", "tbl_lockout", "tbl_form_tasarim"} <= set(names)
     for n in names:
         t = getattr(screen, n)
-        assert isinstance(t, AppGrid) and type(t) is not QTableWidget, n
+        assert isinstance(t, EntryTableView) and isinstance(t.container, FilterableTableView), n
         assert "font-family" in t.styleSheet() and t.alternatingRowColors() and not t.verticalHeader().isVisible()
-        assert t.horizontalHeaderItem(0).text() == t.horizontalHeaderItem(0).text().upper()      # standart BÜYÜK harf başlık
-    assert screen.tbl_cari_grup.horizontalHeaderItem(0).text() == "GRUP KODU"
-    assert screen.tbl_kategori.horizontalHeaderItem(1).text() == "ÜST KATEGORİ"                # Türkçe büyük harf (i → İ)
-    assert screen.tbl_cari_grup.editTriggers() != QTableWidget.EditTrigger.NoEditTriggers      # tanımlar düzenlenebilir
-    assert screen.tbl_yetkiler.editTriggers() == QTableWidget.EditTrigger.NoEditTriggers       # matris salt okunur
-    assert screen.tbl_yetkiler.columnCount() >= 2
+        assert _baslik(t, 0) == _baslik(t, 0).upper()                                          # standart BÜYÜK harf başlık
+    assert _baslik(screen.tbl_cari_grup, 0) == "GRUP KODU"
+    assert _baslik(screen.tbl_kategori, 1) == "ÜST KATEGORİ"                                   # Türkçe büyük harf (i → İ)
+    assert screen.tbl_cari_grup.model().item(0, 0).flags() & Qt.ItemFlag.ItemIsEditable         # tanımlar düzenlenebilir
+    assert not (screen.tbl_yetkiler.model().item(0, 0).flags() & Qt.ItemFlag.ItemIsEditable)    # matris salt okunur
+    assert screen.tbl_yetkiler.model().columnCount() >= 2
+    assert not (screen.tbl_form_tasarim.model().item(0, 0).flags() & Qt.ItemFlag.ItemIsEditable)  # dosya tabanlı, satırdan düzenlenmez
+    assert screen.tbl_form_tasarim.rowCount() >= 3                                               # teklif/irsaliye/fatura hazır şablonları
+
+
+def test_form_tasarimlari_has_no_owned_buttons_actions_come_from_islemler_and_context_menu(screen):
+    """Kullanıcı geri bildirimi: panelin kendi üst/alt buton satırı olmamalı, diğer tanım
+    tabloları gibi tek kaynak (sağ panel İŞLEMLER + sağ tık) üzerinden yönetilmeli."""
+    from PyQt6.QtWidgets import QPushButton
+
+    screen.switch_panel("form_tasarimlari")
+    panel = screen.panels["form_tasarimlari"]
+    sibling = screen.panels["stok_markalar"]  # standart dbgrid'in kendi (arama/sütun) düğmeleri referans
+    assert len(panel.findChildren(QPushButton)) == len(sibling.findChildren(QPushButton))        # panelin EK butonu yok
+    labels = [lbl for lbl, _cb in screen._panel_actions("form_tasarimlari")]
+    assert labels == ["➕ Yeni Form Ekle", "🎨 Tasarımcıda Aç", "🗑️ Sil", "🔄 Yenile"]
+    right = [lab for _b, lab, _c in screen.menu_sub_boxes["form_tasarimlari"].action_buttons]
+    assert labels == right                                                                       # sağ panel ile aynı kaynak
+
+
+def test_form_tasarimlari_add_and_delete_via_panel_actions(qapp, db_session, tmp_path, monkeypatch):
+    """Yeni Form Ekle -> dosya yazılır + grid'e düşer; Sil -> dosya silinir + grid'den düşer."""
+    from src.desktop.designer.services import teklif_print_service
+    from src.desktop.ui.widgets import form_designs_widget as fdw
+
+    monkeypatch.setattr(teklif_print_service, "_TEMPLATES_DIR", tmp_path)
+    s = GeneralSettingsScreen(db_session=db_session)
+    try:
+        s.switch_panel("form_tasarimlari")
+        assert s.tbl_form_tasarim.rowCount() == 0
+
+        monkeypatch.setattr(fdw.YeniFormDialog, "exec", lambda self: 1)
+        monkeypatch.setattr(fdw.YeniFormDialog, "values", lambda self: ("Test Formu", "fatura", "A4"))
+        opened = []
+        s._form_tasarim_ac_yol = lambda p: opened.append(p)
+
+        actions = dict(s._panel_actions("form_tasarimlari"))
+        actions["➕ Yeni Form Ekle"]()
+        assert s.tbl_form_tasarim.rowCount() == 1
+        assert _baslik(s.tbl_form_tasarim, 0) == "FORM ADI"
+        assert s.tbl_form_tasarim.model().item(0, 0).text() == "Test Formu"
+        assert opened and opened[0].exists()
+
+        s.tbl_form_tasarim.selectRow(0)
+        actions["🗑️ Sil"]()
+        assert s.tbl_form_tasarim.rowCount() == 0
+        assert not opened[0].exists()
+    finally:
+        s.close()
 
 
 def test_context_actions_are_the_same_as_the_right_panel_and_actually_work(screen):
@@ -499,7 +556,8 @@ def test_real_tooltip_window_is_blue_with_white_text_for_a_styled_widget(screen)
     if os.environ.get("QT_QPA_PLATFORM") == "offscreen":
         pytest.skip("gerçek ekran pikseli gerekir")
     screen.show()
-    screen.menu_sections[4].set_expanded(True)
+    grp = next(s for s in screen.menu_sections if "CARİ" in s.header_btn.text())
+    grp.set_expanded(True)
     QApplication.processEvents()
     btn = screen.menu_buttons["cari_gruplari"]
     QToolTip.showText(btn.mapToGlobal(QPoint(30, 12)), btn.toolTip(), btn)
@@ -509,6 +567,8 @@ def test_real_tooltip_window_is_blue_with_white_text_for_a_styled_widget(screen)
         pytest.skip("bu ortamda ipucu penceresi oluşmadı")
     g = tips[0].geometry()
     px = QColor(QApplication.primaryScreen().grabWindow(0, g.x(), g.y(), g.width(), g.height()).toImage().pixel(6, 6))
+    if px.name() == "#000000":
+        pytest.skip("oturum ekranı kilitli veya pencere yakalama siyah")
     assert px.name() == "#2563eb"
 
 
@@ -559,10 +619,10 @@ def test_system_group_is_split_into_backup_connections_view_and_general_submenus
     of = lambda title: [b.text() for pid, b in screen.menu_buttons.items() if inner[title].isAncestorOf(b)]     # noqa: E731
     assert of("🗄️ Yedekleme") == ["Merkez", "Portal"]
     assert of("🔌 Bağlantılar") == ["CMS / ERP", "Portal Yayın", "Online Portal"]
-    assert of("🎨 Görünüm") == ["Profiller", "Ekran Gridleri"]
+    assert of("🎨 Görünüm") == ["Profiller", "Ekran Gridleri", "Form Tasarımları"]
     assert of("🧾 Genel") == ["E-Posta", "KDV", "Kuruş Hanesi"]
     flat = [b.text() for b in screen.menu_buttons.values() if _sistem(screen).isAncestorOf(b) and not any(i.isAncestorOf(b) for i in inner.values())]
-    assert flat == ["Güvenlik", "Sürüm & Git"]                                          # alt menüsüz öğeler grupta düz kalır
+    assert flat == ["Güvenlik", "Sürüm & Git", "Yardım"]                                # alt menüsüz öğeler grupta düz kalır
     names = [b.text() for b in screen.menu_buttons.values()]
     assert not any("Ayarları" in n or "Tanımları" in n and n in ("KDV Tanımları", "Kuruş Hanesi Tanımları") for n in names)
     assert all(sec.is_expanded is False for sec, _t, _c in screen.menu_inner_all)       # hepsi kapalı gelir
@@ -585,6 +645,7 @@ def test_clicking_a_submenu_item_opens_group_and_submenu_and_shows_the_short_bre
 
 def test_menu_search_finds_submenu_items_by_name_code_and_submenu_and_hides_empty_submenus(screen):
     screen.show()
+    screen.switch_panel("firma_bilgileri")   # varsayılan açılış artık "settings_hub" (sol panel kapalı); arama görünürlüğü normal bir menüde test edilir
     vis = lambda: {pid for pid, (w, *_r) in screen.menu_item_containers.items() if w.isVisibleTo(screen)}       # noqa: E731
     screen.menu_search_input.setText("kdv")
     assert vis() == {"kdv_oranlari"}
@@ -614,11 +675,18 @@ def test_code_mode_reaches_submenu_headers_too(screen):
 
 
 def test_kdv_panel_is_a_standard_editable_grid_that_persists(qapp, db_session):
+    """KDV Oranları paneli 2026-09-30'dan itibaren firmaya bağlı (`KdvTanimi.company_id`) — panel bir
+    aktif firma gerektiriyor, aksi halde boş görünür (bkz. `gelistirme/13_sirket_tanimlari/tasarim.md`)."""
+    from src.desktop.services.company_service import CompanyService
+    firma_svc = CompanyService(db_session)
+    firma_id = firma_svc.save({**CompanyService.blank_company(), "code": "TST", "short_name": "Test A.Ş."}).company_id
+    firma_svc.aktif_firma_sec(firma_id)
+
     s = GeneralSettingsScreen(db_session=db_session)
     s.switch_panel("kdv_oranlari")
     t = s.tbl_kdv
-    assert isinstance(t, AppGrid) and t.editTriggers() != QTableWidget.EditTrigger.NoEditTriggers
-    assert [t.horizontalHeaderItem(i).text() for i in range(4)] == ["KOD", "AÇIKLAMA", "ORAN (%)", "DURUM"]
+    assert isinstance(t, EntryTableView) and t.model().item(0, 0).flags() & Qt.ItemFlag.ItemIsEditable
+    assert [_baslik(t, i) for i in range(4)] == ["KOD", "AÇIKLAMA", "ORAN (%)", "DURUM"]
     assert [t.item(r, 2).text() for r in range(t.rowCount())] == ["0", "1", "10", "20"]
     dict(s._panel_actions("kdv_oranlari"))["➕ Yeni KDV Ekle"]()
     t.item(t.rowCount() - 1, 0).setText("KDV8")
@@ -633,3 +701,200 @@ def test_kdv_panel_is_a_standard_editable_grid_that_persists(qapp, db_session):
     assert s2.tbl_kdv.rowCount() == 4
     assert "KDV" in " ".join(lab for lab, _cb in s2._panel_actions("kdv_oranlari"))
     s2.close()
+
+
+def test_odeme_planlari_odeme_tipi_hedef_hesap_banka_plani_ve_otomatik_fis_kaydedip_geri_yuklenir(qapp, db_session):
+    """2026-10-02: Ödeme Planları artık yapılandırılmış Ödeme Tipi + Hedef Hesap (FinansHesap FK) +
+    Banka Ödeme Planı (BankaOdemePlani FK) + Otomatik Fiş taşıyor (bkz. gelistirme/04_odeme_planlari/
+    tasarim.md, 04.05/04.11) — faturadan otomatik kasa/banka fişi oluşturmanın temeli. Dördü de grid'de
+    ComboDelegate ile düzenlenir, DB'ye yapılandırılmış kod olarak yazılır, geri okununca aynı görünür
+    metne döner."""
+    from PyQt6.QtGui import QStandardItem
+
+    from src.core.models import BankaOdemePlani, FinansHesap, PaymentPlan
+
+    kasa = FinansHesap(tur="kasa", kod="K01", ad="Merkez Kasa", aktif=True)
+    db_session.add(kasa)
+    banka_plani = BankaOdemePlani(
+        kod="GARANTI3TAK", aciklama="Garanti 3 Taksit", komisyon_orani=2.5, bsmv_orani=5.0, is_active=True,
+    )
+    db_session.add(banka_plani)
+    db_session.commit()
+
+    s = GeneralSettingsScreen(db_session=db_session)
+    s.switch_panel("odeme_planlari")
+    t = s.tbl_odeme
+    assert [_baslik(t, i) for i in range(8)] == [
+        "KOD", "AÇIKLAMA", "GÜN", "ÖDEME TİPİ", "HEDEF HESAP", "BANKA ÖDEME PLANI", "OTOMATİK FİŞ", "DURUM",
+    ]
+    # "NAKIT" varsayılan satırı: Ödeme Tipi zaten "Nakit" — Hedef Hesap'ı K01'e bağla.
+    nakit_row = next(r for r in range(t.rowCount()) if t.item(r, 0).text() == "NAKIT")
+    t.item(nakit_row, 4).setText("K01 — Merkez Kasa")
+    # Yeni bir satır: POS tipi, Banka Ödeme Planı'na bağlı, otomatik fiş kapalı.
+    r = t.rowCount()
+    t.insertRow(r)
+    for c, val in enumerate(
+        ["POSPLAN", "POS İLE ÖDEME", "0", "POS", "K01 — Merkez Kasa", "GARANTI3TAK — Garanti 3 Taksit", "Hayır", "Aktif"],
+    ):
+        t.setItem(r, c, QStandardItem(val))
+
+    s.save_current_panel()
+    s.close()
+
+    nakit = db_session.query(PaymentPlan).filter_by(code="NAKIT").one()
+    assert nakit.odeme_tipi == "nakit"
+    assert nakit.hedef_finans_hesap_id == kasa.id
+    assert nakit.otomatik_fis_olustur is True
+
+    pos = db_session.query(PaymentPlan).filter_by(code="POSPLAN").one()
+    assert pos.odeme_tipi == "pos"
+    assert pos.hedef_finans_hesap_id == kasa.id
+    assert pos.banka_odeme_plani_id == banka_plani.id
+    assert pos.otomatik_fis_olustur is False
+
+    s2 = GeneralSettingsScreen(db_session=db_session)
+    s2.switch_panel("odeme_planlari")
+    t2 = s2.tbl_odeme
+    nakit_row2 = next(r for r in range(t2.rowCount()) if t2.item(r, 0).text() == "NAKIT")
+    assert t2.item(nakit_row2, 4).text() == "K01 — Merkez Kasa"
+    pos_row2 = next(r for r in range(t2.rowCount()) if t2.item(r, 0).text() == "POSPLAN")
+    assert t2.item(pos_row2, 3).text() == "POS"
+    assert t2.item(pos_row2, 5).text() == "GARANTI3TAK — Garanti 3 Taksit"
+    assert t2.item(pos_row2, 6).text() == "Hayır"
+    s2.close()
+
+
+def test_odeme_plani_ekle_dialog_popup_grid_e_satir_ekler_ve_duzenler(qapp, db_session, monkeypatch):
+    """2026-10-02: "➕ Yeni Plan Ekle" artık popup (Dönem'deki gibi) açıyor; grid hücreleri hâlâ doğrudan
+    düzenlenebilir kalıyor (popup EK bir giriş yolu, mevcut hızlı düzenlemeyi kaldırmıyor). "✏️ Seçiliyi
+    Düzenle" aynı popup'ı seçili satırla önceden doldurup açar."""
+    from src.desktop.ui.widgets.odeme_plani_ekle_dialog import OdemePlaniEkleDialog
+
+    s = GeneralSettingsScreen(db_session=db_session)
+    s.switch_panel("odeme_planlari")
+    before = s.tbl_odeme.rowCount()
+
+    monkeypatch.setattr(OdemePlaniEkleDialog, "exec", lambda self: 1)
+    monkeypatch.setattr(
+        OdemePlaniEkleDialog, "deger",
+        lambda self: {
+            "kod": "YENIPLAN", "aciklama": "Yeni Plan", "gun": "15", "tip": "Havale/EFT",
+            "hesap": s._HEDEF_HESAP_BOS, "banka_plani": s._BANKA_PLANI_BOS, "otomatik": "Evet", "aktif": "Aktif",
+        },
+    )
+    dict(s._panel_actions("odeme_planlari"))["➕ Yeni Plan Ekle"]()
+    assert s.tbl_odeme.rowCount() == before + 1
+    son = s.tbl_odeme.rowCount() - 1
+    assert s.tbl_odeme.item(son, 0).text() == "YENIPLAN"
+    assert s.tbl_odeme.item(son, 3).text() == "Havale/EFT"
+    assert s.tbl_odeme.selectedIndexes()[0].row() == son   # popup'tan sonra yeni satır seçili
+
+    # Grid hücresi hâlâ doğrudan düzenlenebilir (popup bunu engellemiyor).
+    s.tbl_odeme.item(son, 1).setText("Elle Düzenlendi")
+    assert s.tbl_odeme.item(son, 1).text() == "Elle Düzenlendi"
+
+    # "✏️ Seçiliyi Düzenle" — aynı satırı günceller, yeni satır eklemez.
+    monkeypatch.setattr(
+        OdemePlaniEkleDialog, "deger",
+        lambda self: {
+            "kod": "YENIPLAN", "aciklama": "Düzenlendi", "gun": "20", "tip": "Havale/EFT",
+            "hesap": s._HEDEF_HESAP_BOS, "banka_plani": s._BANKA_PLANI_BOS, "otomatik": "Hayır", "aktif": "Pasif",
+        },
+    )
+    dict(s._panel_actions("odeme_planlari"))["✏️ Seçiliyi Düzenle"]()
+    assert s.tbl_odeme.rowCount() == before + 1              # satır sayısı artmadı
+    assert s.tbl_odeme.item(son, 1).text() == "Düzenlendi"
+    assert s.tbl_odeme.item(son, 7).text() == "Pasif"
+    s.close()
+
+
+def test_cok_turlu_satirlari_duzenle_kaydedilmemis_plani_uyarir_kaydedilmisi_acar(qapp, db_session, monkeypatch):
+    """2026-10-02 (04.11): "📑 Çok Türlü Satırları Düzenle" — seçili satır henüz DB'ye kaydedilmemiş bir
+    plansa (kod eşleşmiyor) kullanıcıyı önce kaydetmesi için uyarır; kaydedilmiş bir plansa
+    `OdemePlaniSatirlariDialog`'u doğru `plan.id` ile açar."""
+    from PyQt6.QtWidgets import QMessageBox
+
+    from src.core.models import PaymentPlan
+    from src.desktop.ui.widgets.odeme_plani_satirlari_dialog import (
+        OdemePlaniSatirlariDialog,
+    )
+
+    s = GeneralSettingsScreen(db_session=db_session)
+    s.switch_panel("odeme_planlari")
+    t = s.tbl_odeme
+
+    # Henüz kaydedilmemiş (DB'de karşılığı olmayan) bir kod seçelim.
+    from PyQt6.QtGui import QStandardItem
+    r = t.rowCount()
+    t.insertRow(r)
+    t.setItem(r, 0, QStandardItem("KAYITSIZ"))
+    t.selectRow(r)
+    uyari_gosterildi = []
+    monkeypatch.setattr(QMessageBox, "information", staticmethod(lambda *a, **k: uyari_gosterildi.append(1)))
+    dict(s._panel_actions("odeme_planlari"))["📑 Çok Türlü Satırları Düzenle"]()
+    assert uyari_gosterildi == [1]
+
+    # Şimdi gerçek, DB'ye kayıtlı bir plan seçelim.
+    plan = PaymentPlan(code="GERCEKPLAN", description="Test")
+    db_session.add(plan)
+    db_session.commit()
+    r2 = t.rowCount()
+    t.insertRow(r2)
+    t.setItem(r2, 0, QStandardItem("GERCEKPLAN"))
+    t.selectRow(r2)
+    acilan = []
+    monkeypatch.setattr(OdemePlaniSatirlariDialog, "exec", lambda self: acilan.append(self.plan_id) or 0)
+    dict(s._panel_actions("odeme_planlari"))["📑 Çok Türlü Satırları Düzenle"]()
+    assert acilan == [plan.id]
+    s.close()
+
+
+def test_banka_odeme_planlari_paneli_komisyon_bsmv_hizmet_bedeli_kaydedip_geri_yuklenir(qapp, db_session):
+    """2026-10-02: Banka Ödeme Planları — taksit sayısına göre değişen komisyon/BSMV/hizmet bedeli, ayrı
+    bir menü (FİNANS TANIMLARI > Banka Ödeme Planları, bkz. gelistirme/04_odeme_planlari/tasarim.md,
+    04.11). `BankaOdemePlani.net_tutar()` komisyon TUTARI üzerinden BSMV hesaplar."""
+    from PyQt6.QtGui import QStandardItem
+
+    from src.core.models import BankaOdemePlani, FinansHesap
+
+    pos_hesap = FinansHesap(tur="pos", kod="POS01", ad="Garanti POS", aktif=True)
+    db_session.add(pos_hesap)
+    db_session.commit()
+
+    s = GeneralSettingsScreen(db_session=db_session)
+    s.switch_panel("banka_odeme_planlari")
+    t = s.tbl_banka_odeme
+    assert [_baslik(t, i) for i in range(8)] == [
+        "KOD", "AÇIKLAMA", "HESAP", "TAKSİT SAYISI", "KOMİSYON %", "BSMV %", "HİZMET BEDELİ", "DURUM",
+    ]
+    r = t.rowCount()
+    t.insertRow(r)
+    for c, val in enumerate(
+        ["GARANTI3TAK", "Garanti 3 Taksit", "POS01 — Garanti POS", "3", "2.50", "5.00", "1.00", "Aktif"],
+    ):
+        t.setItem(r, c, QStandardItem(val))
+
+    s.save_current_panel()
+    s.close()
+    qapp.processEvents()   # bu paneldeki ComboDelegate'ler ekranı canlı tutuyor; kapanışın gerçekten işlenmesi için
+
+    plan = db_session.query(BankaOdemePlani).filter_by(kod="GARANTI3TAK").one()
+    assert plan.finans_hesap_id == pos_hesap.id
+    assert plan.taksit_sayisi == 3
+    assert plan.komisyon_orani == pytest.approx(2.5)
+    assert plan.bsmv_orani == pytest.approx(5.0)
+    assert plan.hizmet_bedeli == pytest.approx(1.0)
+    assert plan.is_active
+    assert plan.net_tutar(1000) == pytest.approx(1000 - 25 - 1.25 - 1.0)   # 1000 - komisyon - bsmv - hizmet
+
+    s2 = GeneralSettingsScreen(db_session=db_session)
+    s2.switch_panel("banka_odeme_planlari")
+    t2 = s2.tbl_banka_odeme
+    row = next(r for r in range(t2.rowCount()) if t2.item(r, 0).text() == "GARANTI3TAK")
+    assert t2.item(row, 2).text() == "POS01 — Garanti POS"
+    assert t2.item(row, 4).text() == "2.50"
+    s2.close()
+    qapp.processEvents()
+
+
+

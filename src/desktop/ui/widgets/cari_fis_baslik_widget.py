@@ -10,7 +10,15 @@ from __future__ import annotations
 from datetime import date, datetime
 
 from PyQt6.QtCore import QDate, Qt, pyqtSignal
-from PyQt6.QtWidgets import QCheckBox, QComboBox, QDateEdit, QFrame, QGridLayout, QLabel, QLineEdit
+from PyQt6.QtWidgets import (
+    QCheckBox,
+    QComboBox,
+    QDateEdit,
+    QFrame,
+    QGridLayout,
+    QLabel,
+    QLineEdit,
+)
 
 from src.desktop.services.cari_hareket_service import FIS_TIPLERI
 from src.desktop.ui.components.grid_delegates import apply_calendar_style

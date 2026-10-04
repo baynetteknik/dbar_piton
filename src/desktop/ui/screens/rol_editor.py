@@ -60,6 +60,8 @@ class RolEditorDialog(QDialog):
             }, is_edit=False)
 
         self.showMaximized()
+        from src.desktop.ui.components.window_fit_helper import zorla_ilk_yerlesim
+        zorla_ilk_yerlesim(self)
 
     def _on_save(self, payload: dict):
         res = self.service.save(payload, role_id=self.role_id)

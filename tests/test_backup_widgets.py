@@ -106,7 +106,7 @@ def test_target_dialog_requires_fields_and_tests_local_folder(qapp, tmp_path, mo
 def test_google_connect_stores_only_refresh_token_in_secret_dict(qapp, monkeypatch):
     from src.desktop.services.backup import remote_providers as rp
 
-    monkeypatch.setattr(rp, "authorize_google_interactive", lambda cid, cs: {"refresh_token": "RT"})
+    monkeypatch.setattr(rp, "authorize_google_interactive", lambda cid, cs, **kw: {"refresh_token": "RT"})
     d = BackupTargetDialog({"type": "gdrive", "client_id": "cid"})
     d.fields["client_secret"].setText("CS")
     d._connect_google()
@@ -128,13 +128,14 @@ def test_job_dialog_builds_a_valid_job_and_writes_target_secrets_to_keyring(qapp
     for i in (0, 4):
         d.chk_days[i].setChecked(True)
     d.tm.setTime(d.tm.time().fromString("03:30", "HH:mm"))
-    d.cmb_notify.setCurrentIndex(d.cmb_notify.findData("always"))
+    for c in list(d.chk_events.values()) + list(d.chk_channels.values()):
+        c.setChecked(True)                                                    # tüm olaylar + tüm kanallar
     d.txt_to.setText("yonetici@firma.com")
     d._targets.append({"id": "t9", "type": "ftp", "label": "FTP", "host": "h", "user": "u"})
     d._pending_secrets["t9"] = {"password": "ftp-gizli"}
     j = d.build_job()
     assert (j.name, j.excludes, j.schedule) == ("Günlük Belgeler", ["*.tmp", "node_modules"], {"type": "weekly", "time": "03:30", "weekdays": [0, 4]})
-    assert j.notify == {"mode": "always", "to": "yonetici@firma.com"} and "ftp-gizli" not in str(j.to_dict())   # iş kaydında gizli bilgi yok
+    assert j.notify == {"events": ["ok", "warning", "error", "nochange"], "channels": ["email", "app"], "mode": "always", "to": "yonetici@firma.com"} and "ftp-gizli" not in str(j.to_dict())   # iş kaydında gizli bilgi yok
     d._on_save()
     assert d.result() == QDialog.DialogCode.Accepted
     assert sec.get_json(secret_name(j.id, "t9")) == {"password": "ftp-gizli"}
@@ -235,13 +236,26 @@ def test_center_restore_stages_verified_backup_and_can_cancel(qapp, db_session, 
     assert toya_backup.pending(tmp_path / "veri") is None
 
 
-def test_center_restore_menu_is_only_for_toya_jobs(qapp, db_session, tmp_path, keyring_store):
+def test_center_dosya_isi_yedegi_klasore_cikarir_ve_tarihce_kaydeder(qapp, db_session, tmp_path, keyring_store, monkeypatch):
     store = JobStore(db_session)
-    store.save(_job(tmp_path))
+    job = _job(tmp_path)
+    store.save(job)
     w = BackupCenterWidget(db_session)
     w.table.selectRow(0)
-    w.restore_selected()                                                                    # dosya işi: hiçbir şey yapmaz
-    assert w.selected_job().kind == "files"
+    from src.desktop.services.backup import runner as _r
+    res = _r.run_job(job, _r.RunContext())
+    assert res.ok and res.path
+    hedef = tmp_path / "cikan"
+    monkeypatch.setattr(QFileDialog, "getOpenFileName", lambda *a, **k: (str(res.path), ""))
+    monkeypatch.setattr(QFileDialog, "getExistingDirectory", lambda *a, **k: str(hedef))
+    w.restore_selected()
+    assert _wait(qapp, lambda: "çıkarıldı" in w.lbl_status.text())
+    assert any(hedef.rglob("*.txt")) or any(p.is_file() for p in hedef.rglob("*"))
+    from src.desktop.ui.widgets.backup_restore_history_dialog import BackupRestoreHistoryDialog
+    d = BackupRestoreHistoryDialog(db_session)
+    assert d.grid.rowCount() == 1 and d.grid.item(0, 2).text() == "Dosyalar klasöre çıkarıldı" and d.grid.item(0, 4).text().startswith("✔")
+    d.close()
+    assert w.btn_restore.isEnabled() and w.btn_verify.isEnabled()
 
 
 # ---------------------------------------------------------------- çalıştırıcı
@@ -302,3 +316,26 @@ def test_runner_reports_missing_password_as_error_and_survives_unexpected_except
     r.enqueue(j.id)
     assert _wait(qapp, lambda: done)
     assert done[0][0] == "error" and "Beklenmeyen" in done[0][1] and not r.is_busy()
+
+
+def test_center_creates_external_disk_copy_of_selected_job_without_cloud_targets(qapp, db_session, tmp_path, keyring_store, monkeypatch):
+    from PyQt6.QtWidgets import QInputDialog
+    store = JobStore(db_session)
+    job = _job(tmp_path, mode="incremental", keep=7)
+    job.cloud = [{"id": "t1", "type": "gdrive", "label": "Drive", "folder_id": "F1", "folder_path": "Drive'ım / Yedekler"}]
+    job.schedule = {"type": "daily", "time": "02:00"}
+    store.save(job)
+    w = BackupCenterWidget(db_session)
+    w.table.selectRow(0)
+    monkeypatch.setattr(QInputDialog, "getItem", staticmethod(lambda *a, **k: ("YEDEK-DISK", True)))
+    w.disk_copy_selected()
+    isler = {j.name: j for j in store.list()}
+    assert set(isler) == {"Belgeler", "Belgeler (Harici Disk)"} and w.table.rowCount() == 2
+    kopya = isler["Belgeler (Harici Disk)"]
+    assert kopya.id != job.id and kopya.cloud == [] and kopya.schedule == {"type": "disk", "disk_label": "YEDEK-DISK"}
+    assert kopya.dest_dir == "{disk}\\TOYA_Yedek\\belgeler" and kopya.sources == job.sources and kopya.mode == "incremental" and kopya.keep == 7
+    assert isler["Belgeler"].cloud and isler["Belgeler"].schedule["type"] == "daily"        # asıl iş değişmedi
+    monkeypatch.setattr(QInputDialog, "getItem", staticmethod(lambda *a, **k: ("", True)))   # boş etiket: işlem yok
+    w.disk_copy_selected()
+    assert len(store.list()) == 2
+    w.runner.stop()

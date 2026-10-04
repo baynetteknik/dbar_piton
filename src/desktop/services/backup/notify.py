@@ -21,11 +21,35 @@ logger = logging.getLogger(__name__)
 _LABEL = {"ok": "BAŞARILI", "warning": "UYARI", "error": "HATA", "nochange": "DEĞİŞİKLİK YOK"}
 
 
+EVENTS = {"ok": "✅ Başarıyla tamamlanan görevler", "warning": "⚠ Uyarıyla tamamlananlar (dosya/hedef atlandı)",
+          "error": "❌ Hatalar", "nochange": "⏭ Değişiklik yok (yedek alınmadı)"}
+CHANNELS = {"email": "📧 E-posta", "app": "🔔 Uygulama içi bildirim"}
+
+
+def events_of(notify: dict) -> set[str]:
+    """Bildirim istenen sonuçlar. Yeni kayıtlarda `events` listesi; eski kayıtlarda `mode` (never/failure/always) buna çevrilir."""
+    if "events" in notify:
+        return {e for e in notify["events"] if e in EVENTS}
+    return {"never": set(), "failure": {"error", "warning"}, "always": set(EVENTS)}.get(notify.get("mode", "never"), set())
+
+
+def channels_of(notify: dict) -> set[str]:
+    """Bildirim kanalları. Eski kayıtlarda e-posta (mode != never ise) + uygulama içi bildirim."""
+    if "channels" in notify:
+        return {c for c in notify["channels"] if c in CHANNELS}
+    return {"email", "app"}
+
+
 def should_notify(job: BackupJob, res: RunResult) -> bool:
-    mode = job.notify.get("mode", "never")
-    if mode == "always":
+    """E-posta gönderilmeli mi: sonuç türü seçili olaylardan biri ve e-posta kanalı açık."""
+    return res.status in events_of(job.notify) and "email" in channels_of(job.notify)
+
+
+def should_toast(job: BackupJob, res: RunResult) -> bool:
+    """Uygulama içi bildirim gösterilmeli mi. Eski kayıtlarda (`events` yok) her sonuç gösterilir (önceki davranış)."""
+    if "events" not in job.notify:
         return True
-    return mode == "failure" and res.status in ("error", "warning")
+    return res.status in events_of(job.notify) and "app" in channels_of(job.notify)
 
 
 def build_report(job: BackupJob, res: RunResult) -> tuple[str, str, str]:

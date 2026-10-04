@@ -14,7 +14,6 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any, Callable
 
-from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
     QDialog,
     QFrame,
@@ -32,6 +31,7 @@ from src.desktop.core.grid_presets import GRID_PRESETS, register_preset
 from src.desktop.ui.components.app_grid import AppGrid
 from src.desktop.ui.components.collapsible_section import CollapsibleSection
 from src.desktop.ui.components.dialog_style import apply_light_dialog_style
+from src.desktop.ui.components.window_fit_helper import ekrana_sigdir
 from src.desktop.ui.widgets.git_charts import PALETTE, BarChart, HBarChart, StackBar
 
 TYPE_LABELS = {"modified": ("Değişti", PALETTE["amber"]), "untracked": ("Yeni (izlenmeyen)", PALETTE["primary"]),
@@ -61,7 +61,7 @@ class GitReportDialog(QDialog):
         self._on_save_md = on_save_md
         self._on_refresh = on_refresh
         self.setWindowTitle("📊 Git İşlem Raporu" if operation else "📊 Git Durum Raporu")
-        self.resize(940, 760)
+        ekrana_sigdir(self, 940, 760)   # 1366x768'de 760 yükseklik görev çubuğuyla neredeyse çakışıyordu
         apply_light_dialog_style(self)
         _preset("dbgrid_git_rapor_commit", ["COMMIT", "TARİH", "YAZAR", "MESAJ"], [0.12, 0.14, 0.2, 0.54], ["C", "C", "L", "L"])
         _preset("dbgrid_git_rapor_dosya", ["DURUM", "KLASÖR", "DOSYA"], [0.16, 0.2, 0.64], ["C", "L", "L"])

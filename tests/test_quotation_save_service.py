@@ -104,6 +104,40 @@ def test_save_new_quotation_from_dialog(qapp, db_session: Session):
     assert saved_q.lines[0].unit_price == 150.0
 
 
+def test_odeme_plani_secimi_db_den_canli_gelir_ve_id_kaydedilir(qapp, db_session: Session):
+    """2026-10-02 (04.06): Eski/opsiyonel TransactionDocumentDialog'da (TOYA_OLD_DOC_DIALOG=1) "Ödeme
+    Planı" artık sabit bir listeden değil, Genel Ayarlar'da tanımlı `PaymentPlan`'lardan CANLI geliyor
+    (`DocumentDetailScreen`'deki `BelgeVadeWidget` ile aynı desen); seçilen planın gerçek ID'si
+    `Quotation.payment_plan_id`'ye yazılıyor."""
+    from src.core.models import PaymentPlan
+
+    plan = PaymentPlan(code="NAKIT", description="NAKİT", days=0, payment_type="Nakit", is_active=True)
+    db_session.add(plan)
+    db_session.commit()
+
+    dialog = TransactionDocumentDialog(db_session=db_session, company_id=1)
+    labels = [dialog.cmb_odeme_plani.itemText(i) for i in range(dialog.cmb_odeme_plani.count())]
+    assert "NAKIT - NAKİT" in labels            # sabit listede yok — DB'den geldiği kanıtı
+    assert "30GVD - 30 GÜN VADE" not in labels  # eski sabit listenin varsayılan satırları artık görünmüyor
+
+    idx = labels.index("NAKIT - NAKİT")
+    dialog.cmb_odeme_plani.setCurrentIndex(idx)
+    dialog.txt_top_doc_no.setText("TEK-ODM-001")
+    dialog.set_row_data(0, {
+        "item_type": "Malzeme", "code": "STK-1", "name": "Ürün",
+        "qty": 1.0, "price": 10.0, "vat": 20,
+    })
+    dialog.calculate_totals()
+
+    service = QuotationSaveService(db_session=db_session, company_id=1)
+    result = service.save_from_dialog(dialog)
+    assert result.success is True
+
+    saved_q = db_session.get(Quotation, result.quotation_id)
+    assert saved_q.payment_plan_id == plan.id
+    assert saved_q.payment_plan == "NAKIT - NAKİT"
+
+
 def test_update_existing_quotation_and_load(qapp, db_session: Session):
     """Test updating an existing quotation and reloading into dialog."""
     # 1. Create initial quotation
@@ -205,7 +239,7 @@ def test_status_update_and_order_conversion(db_session: Session):
     # Check newly created order
     order = db_session.get(Quotation, conv_res.quotation_id)
     assert order is not None
-    assert "SİPARİŞ" in order.quotation_type
+    assert order.quotation_type == "Order" and order.belge_turu == "siparis" and order.kaynak_belge_id == q.id     # teklif → sipariş bağı
     assert order.status == "draft"
     assert len(order.lines) == 1
     assert order.lines[0].sku == "STK-001"
@@ -240,3 +274,21 @@ def test_save_payload_links_real_customer(db_session: Session):
     assert res.success
     q = db_session.get(Quotation, res.quotation_id)
     assert q.customer_id == cust.id
+
+
+def test_line_currency_and_rate_survive_save_and_reload(db_session: Session):
+    svc = QuotationSaveService(db_session=db_session, company_id=1)
+    payload = {
+        "doc_type": "Teklif", "doc_no": "", "cari": {"name": "X"}, "belge_vade": {}, "finans": {}, "toplam": {},
+        "lines": [
+            {"kod": "T1", "aciklama": "TL", "doviz": "TRY", "_num": {"miktar": 1, "birim_fiyat": 100, "net_tutar": 100.0, "kur": 1.0}},
+            {"kod": "D1", "aciklama": "USD", "doviz": "usd", "_num": {"miktar": 2, "birim_fiyat": 10, "net_tutar": 20.0, "kur": 41.25}},
+        ],
+        "notlar": ("", ""), "status": "Taslak",
+    }
+    res = svc.save_payload(payload)
+    assert res.success, res.error
+    lines = sorted(db_session.get(Quotation, res.quotation_id).lines, key=lambda l: l.line_order)
+    assert [(l.doviz, l.kur) for l in lines] == [("TRY", 1.0), ("USD", 41.25)]
+    yuklenen = svc.load_payload(res.quotation_id)["lines"]
+    assert [(r["doviz"], r["kur"]) for r in yuklenen] == [("TRY", "1"), ("USD", "41.25")]

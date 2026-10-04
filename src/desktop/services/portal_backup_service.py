@@ -26,6 +26,7 @@ from typing import Callable
 import requests
 
 from src.desktop.services import portal_sync_service, sync_log_service
+from src.desktop.services import portal_secret_store
 from src.desktop.services.settings_store import get_int, get_setting, set_setting
 
 logger = logging.getLogger(__name__)
@@ -49,10 +50,10 @@ class RemoteConfig:
     def from_db(cls, db) -> "RemoteConfig | None":
         if not portal_sync_service.is_configured(db):
             return None
-        return cls(portal_sync_service._base(db), get_setting(db, portal_sync_service.KEY_API_KEY, "") or "")
+        return cls(portal_sync_service._base(db), portal_secret_store.al(db, portal_sync_service.KEY_API_KEY))
 
     def _headers(self) -> dict:
-        return {"X-API-Key": self.api_key}
+        return {"X-API-Key": self.api_key, "User-Agent": portal_sync_service.USER_AGENT}
 
     def _url(self, path: str) -> str:
         return f"{self.base_url}/api/v1{path}"

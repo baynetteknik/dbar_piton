@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Any
 
 from src.core.config import settings
-from src.desktop.services.backup import schedule, secrets
+from src.desktop.services.backup import disk_registry, disk_watch, schedule, secrets
 from src.desktop.services.backup.lock import JobLock
 from src.desktop.services.backup.models import BackupJob, JobStore
 from src.desktop.services.backup.notify import send_report
@@ -39,11 +39,21 @@ def prepare(db, job: BackupJob, disk_root: str | None = None) -> tuple[RunContex
     @return (bağlam, hazırlık uyarıları)"""
     ctx = RunContext(db_path=db_path_of(db), db_key=getattr(settings.db, "db_key", None), disk_root=disk_root)
     notes: list[str] = []
+    volumes = disk_watch.list_volumes()
+    store = disk_registry.DiskStore(db)
+    ctx.disks = disk_registry.roots(store.list(), volumes)
+    store.touch(volumes)
     if job.encrypt:
         ctx.password = secrets.encryption_password()
     for t in job.cloud:
         try:
-            ctx.providers.append(build_provider(t, secrets.get_json(secret_name(job.id, str(t.get("id", ""))))))
+            cfg = dict(t)
+            if cfg.get("type") == "local" and "{disk" in cfg.get("path", ""):
+                yol = disk_registry.resolve(cfg["path"], ctx.disks, disk_root)
+                if yol is None:
+                    raise ProviderError("harici disk takılı değil")
+                cfg["path"] = yol
+            ctx.providers.append(build_provider(cfg, secrets.get_json(secret_name(job.id, str(t.get("id", ""))))))
         except ProviderError as exc:
             notes.append(f"Hedef atlandı ({t.get('label') or t.get('type')}): {exc}")
     return ctx, notes

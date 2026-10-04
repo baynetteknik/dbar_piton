@@ -132,6 +132,10 @@ class ReportTemplate:
     title: str
     schema_version: str = "2.0"
     template_type: str = "print_report"
+    #: Bu şablonun tasarlandığı modül (bkz. `src/core/belge_turleri.BELGE_TURLERI`,
+    #: ör. "teklif", "siparis", "irsaliye", "fatura"). Boşsa eski/etiketsiz şablon —
+    #: veri ağacı ve otomatik şablon seçimi bu durumda ortak "belge" alan setine düşer.
+    module: str = ""
     page: PageConfig = field(default_factory=PageConfig)
     bands: list[BandConfig] = field(default_factory=list)
 
@@ -212,6 +216,96 @@ class ReportTemplate:
             title=d.get("title", "Özel Şablon"),
             schema_version=d.get("schema_version", "2.0"),
             template_type=d.get("template_type", "print_report"),
+            module=d.get("module", ""),
             page=page,
             bands=bands,
         )
+
+    def to_dict(self) -> dict[str, Any]:
+        """`from_dict`'in tersi — yalnızca varsayılandan sapan öğe alanlarını yazar."""
+        orientation = self.page.orientation.value if hasattr(self.page.orientation, "value") else str(self.page.orientation)
+        out: dict[str, Any] = {
+            "schema_version": self.schema_version,
+            "template_id": self.template_id,
+            "title": self.title,
+            "template_type": self.template_type,
+            "module": self.module,
+            "page": {
+                "size": self.page.size,
+                "orientation": orientation,
+                "width_mm": self.page.width_mm,
+                "height_mm": self.page.height_mm,
+                "margin_top_mm": self.page.margin_top_mm,
+                "margin_bottom_mm": self.page.margin_bottom_mm,
+                "margin_left_mm": self.page.margin_left_mm,
+                "margin_right_mm": self.page.margin_right_mm,
+            },
+            "bands": [],
+        }
+        for b in self.bands:
+            band_dict: dict[str, Any] = {"id": b.id, "type": b.type, "height_mm": b.height_mm, "items": []}
+            if b.dataset:
+                band_dict["dataset"] = b.dataset
+            if b.can_grow:
+                band_dict["can_grow"] = b.can_grow
+            if b.keep_together:
+                band_dict["keep_together"] = b.keep_together
+            if not b.enabled:
+                band_dict["enabled"] = b.enabled
+            for itm in b.items:
+                itm_dict: dict[str, Any] = {
+                    "id": itm.id, "type": itm.type,
+                    "x_mm": itm.x_mm, "y_mm": itm.y_mm, "w_mm": itm.w_mm, "h_mm": itm.h_mm,
+                }
+                for attr, default in (
+                    ("text", None), ("field", None), ("expression", None), ("format", None),
+                    ("font_bold", False), ("font_italic", False),
+                    ("border_top", False), ("border_bottom", False),
+                    ("border_left", False), ("border_right", False),
+                    ("bg_color", None), ("word_wrap", False),
+                ):
+                    val = getattr(itm, attr)
+                    if val != default:
+                        itm_dict[attr] = val
+                if itm.font_size != 9:
+                    itm_dict["font_size"] = itm.font_size
+                if itm.align != "left":
+                    itm_dict["align"] = itm.align
+                if itm.border_color != "#CCCCCC":
+                    itm_dict["border_color"] = itm.border_color
+                if itm.border_width != 0.5:
+                    itm_dict["border_width"] = itm.border_width
+                if itm.corner_radius > 0:
+                    itm_dict["corner_radius"] = itm.corner_radius
+                if itm.text_color != "#000000":
+                    itm_dict["text_color"] = itm.text_color
+                band_dict["items"].append(itm_dict)
+            out["bands"].append(band_dict)
+        return out
+
+
+#: Baskı sayfası boyutları (mm, dikey) — designer_widget.py'deki PAGE_SIZES_MM ile aynı tutulmalı.
+_BLANK_PAGE_SIZES_MM: dict[str, tuple[float, float]] = {
+    "A3": (297.0, 420.0), "A4": (210.0, 297.0), "A5": (148.0, 210.0), "Letter": (215.9, 279.4),
+}
+#: Sıfırdan yeni form: motorun `render_document`'ta aradığı çekirdek bantlar, öğesiz.
+_BLANK_BAND_SKELETON: list[tuple[str, str, float]] = [
+    ("band_page_header", "page_header", 28.0),
+    ("band_header_group", "header_group", 24.0),
+    ("band_column_header", "column_header", 7.0),
+    ("band_detail", "detail_data", 7.5),
+    ("band_report_summary", "report_summary", 38.0),
+    ("band_page_footer", "page_footer", 16.0),
+]
+
+
+def blank_template(template_id: str, title: str, module: str = "", page_size: str = "A4") -> ReportTemplate:
+    """Yeni bir "Form Tasarımları" kaydı için boş (öğesiz) başlangıç şablonu üretir."""
+    width_mm, height_mm = _BLANK_PAGE_SIZES_MM.get(page_size, (210.0, 297.0))
+    return ReportTemplate(
+        template_id=template_id,
+        title=title,
+        module=module,
+        page=PageConfig(size=page_size, width_mm=width_mm, height_mm=height_mm),
+        bands=[BandConfig(id=bid, type=btype, height_mm=h) for bid, btype, h in _BLANK_BAND_SKELETON],
+    )

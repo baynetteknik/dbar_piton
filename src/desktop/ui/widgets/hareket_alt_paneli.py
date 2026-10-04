@@ -14,7 +14,14 @@ from dataclasses import dataclass, field
 
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QBrush, QColor
-from PyQt6.QtWidgets import QFrame, QHBoxLayout, QLabel, QPushButton, QTableWidgetItem, QVBoxLayout
+from PyQt6.QtWidgets import (
+    QFrame,
+    QHBoxLayout,
+    QLabel,
+    QPushButton,
+    QTableWidgetItem,
+    QVBoxLayout,
+)
 
 from src.desktop.core.grid_presets import GRID_PRESETS, register_preset
 from src.desktop.services import settings_store

@@ -4,12 +4,17 @@ Fatura Notları, Banka IBAN bilgileri, Teslimat Şartları ve Özel Notların
 evrak detaylarında düzenlenmesini sağlayan modüler form bileşeni.
 """
 
-from typing import Dict, Any, Tuple
+from typing import Tuple
+
+from PyQt6.QtCore import pyqtSignal
 from PyQt6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QLabel, 
-    QTextEdit, QGroupBox, QPushButton
+    QGroupBox,
+    QHBoxLayout,
+    QLabel,
+    QTextEdit,
+    QVBoxLayout,
+    QWidget,
 )
-from PyQt6.QtCore import Qt, pyqtSignal
 
 
 class BelgeNotlariWidget(QWidget):

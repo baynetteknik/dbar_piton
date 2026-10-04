@@ -4,10 +4,12 @@ Ekle, Düzenle, Sil, Pasife Al, Toplu İşlemler ve Yenile butonlarını barınd
 merkezi yetkilendirme ve klavye kısayolu destekli bağımsız bileşen.
 """
 
-from PyQt6.QtWidgets import QWidget, QVBoxLayout, QPushButton, QMenu, QGroupBox
 from PyQt6.QtCore import Qt, pyqtSignal
-from PyQt6.QtGui import QAction, QKeySequence, QShortcut
+from PyQt6.QtGui import QAction
+from PyQt6.QtWidgets import QGroupBox, QMenu, QPushButton, QVBoxLayout, QWidget
+
 from src.desktop.managers.theme_manager import ThemeManager
+from src.desktop.ui.components.button_style import btn_style
 
 
 class CrudActionsWidget(QWidget):
@@ -29,26 +31,7 @@ class CrudActionsWidget(QWidget):
         self._init_ui()
 
     def _btn_style(self, bg="#ffffff", text="#1e293b", border="#cbd5e1", is_bold=True):
-        weight = "700" if is_bold else "600"
-        return f"""
-            QPushButton {{
-                background-color: {bg};
-                color: {text};
-                border: 1px solid {border};
-                border-radius: 6px;
-                padding: 8px 12px;
-                font-size: 11px;
-                font-weight: {weight};
-                text-align: left;
-                font-family: 'Segoe UI';
-            }}
-            QPushButton:hover {{
-                background-color: #f1f5f9;
-            }}
-            QPushButton:pressed {{
-                background-color: #e2e8f0;
-            }}
-        """
+        return btn_style(bg, text)
 
     def _init_ui(self):
         main_lyt = QVBoxLayout(self)

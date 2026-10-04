@@ -4,12 +4,18 @@ Evrak detayında (Fatura, Teklif, Sipariş) genel dip iskontolarını,
 masraf/kargo/işçilik kalemlerini ve tevkifat oranını yöneten modüler bileşen.
 """
 
-from typing import Dict, Any
+from typing import Any, Dict
+
+from PyQt6.QtCore import pyqtSignal
 from PyQt6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, 
-    QLabel, QDoubleSpinBox, QComboBox, QGroupBox, QLineEdit
+    QComboBox,
+    QDoubleSpinBox,
+    QGridLayout,
+    QGroupBox,
+    QLabel,
+    QVBoxLayout,
+    QWidget,
 )
-from PyQt6.QtCore import Qt, pyqtSignal
 
 
 class AltIskontoMasraflarWidget(QWidget):
@@ -52,6 +58,11 @@ class AltIskontoMasraflarWidget(QWidget):
         grid.setContentsMargins(10, 8, 10, 8)
 
         input_style = "padding: 5px; border: 1px solid #cbd5e1; border-radius: 4px; font-size: 11px; background: white;"
+        combo_style = (
+            "QComboBox { padding: 5px; border: 1px solid #cbd5e1; border-radius: 4px; font-size: 11px; background: white; combobox-popup: 0; }"
+            " QComboBox QAbstractItemView { outline: 0; border: 1px solid #cbd5e1; background: white; padding: 0px; }"
+            " QComboBox QAbstractItemView::item { padding: 3px 6px; min-height: 20px; }"
+        )
 
         # 1. Genel İskonto Oranı (%)
         grid.addWidget(QLabel("Genel İskonto (%):"), 0, 0)
@@ -92,7 +103,7 @@ class AltIskontoMasraflarWidget(QWidget):
             "604 - Temizlik / Güvenlik (9/10)",
             "605 - Servis Taşımacılığı (5/10)"
         ])
-        self.cmb_tevkifat.setStyleSheet(input_style)
+        self.cmb_tevkifat.setStyleSheet(combo_style)
         self.cmb_tevkifat.currentIndexChanged.connect(lambda: self.values_changed.emit())
         grid.addWidget(self.cmb_tevkifat, 1, 3)
 

@@ -114,6 +114,28 @@ class ScreenDesignerWidget(QWidget):
         lyt.addWidget(QLabel("Şablon Aç:", bar, styleSheet="color:#94A3B8;font-size:11px;"))
         self.cmb_open = QComboBox(bar)
         self.cmb_open.setMinimumWidth(220)
+        self.cmb_open.setStyleSheet("""
+            QComboBox {
+                combobox-popup: 0;
+                border: 1px solid #cbd5e1;
+                border-radius: 4px;
+                padding: 4px 8px;
+                background-color: white;
+                color: #0f172a;
+                font-size: 11px;
+            }
+            QComboBox QAbstractItemView {
+                outline: 0;
+                padding: 0px;
+                border: 1px solid #cbd5e1;
+                background-color: #ffffff;
+                color: #0f172a;
+            }
+            QComboBox QAbstractItemView::item {
+                padding: 3px 6px;
+                min-height: 20px;
+            }
+        """)
         self._reload_open_combo()
         self.cmb_open.activated.connect(self._on_open_selected)
         lyt.addWidget(self.cmb_open)
@@ -231,6 +253,28 @@ class ScreenDesignerWidget(QWidget):
         self.txt_screen_id.setPlaceholderText("örn. scr_evrak_ozel")
         self.txt_title = QLineEdit(wrap)
         self.cmb_base = QComboBox(wrap)
+        self.cmb_base.setStyleSheet("""
+            QComboBox {
+                combobox-popup: 0;
+                border: 1px solid #cbd5e1;
+                border-radius: 4px;
+                padding: 4px 8px;
+                background-color: white;
+                color: #0f172a;
+                font-size: 11px;
+            }
+            QComboBox QAbstractItemView {
+                outline: 0;
+                padding: 0px;
+                border: 1px solid #cbd5e1;
+                background-color: #ffffff;
+                color: #0f172a;
+            }
+            QComboBox QAbstractItemView::item {
+                padding: 3px 6px;
+                min-height: 20px;
+            }
+        """)
         for tpl_id, tpl in DEFAULT_SYSTEM_TEMPLATES.items():
             self.cmb_base.addItem(tpl.get("title", tpl_id), tpl_id)
         idx = self.cmb_base.findData("tpl_fis_detail")

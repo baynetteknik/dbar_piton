@@ -3,6 +3,7 @@
 import sys
 
 import pytest
+from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import QApplication
 
 from src.desktop.ui.widgets.document_lines_grid import (
@@ -132,3 +133,72 @@ def test_row_highlighter_applied(qapp):
     assert "item:selected" in g.grid.table_view.styleSheet()
     g.set_row_highlight_color("#fde68a")
     assert "#fde68a" in g.grid.table_view.styleSheet()
+
+
+def test_line_currency_converts_totals_to_tl_and_uses_configured_decimals(qapp):
+    """Satırda döviz seçilince kur otomatik gelir, net tutar satır dövizinde, belge toplamı TL karşılığında olur."""
+    from src.desktop.services import sayi_bicimi
+    from src.desktop.ui.widgets.document_lines_grid import COL_BFIYAT, COL_DOVIZ, COL_KUR
+
+    sayi_bicimi._onbellek.clear()                                       # varsayılanlar: kur 4, fiyat 4, miktar 2, tutar 2
+    g = DocumentLinesGrid()
+    g.set_currencies({"USD": 40.0, "EUR": 45.5})
+    assert g._doviz_kodlari() == ["TRY", "EUR", "USD"]
+    got = {}
+    g.totals_changed.connect(lambda d: got.update(d))
+    g.add_row({"kod": "A", "aciklama": "TL kalem", "miktar": "2", "birim_fiyat": "100", "kdv_yuzde": "20"})
+    g.add_row({"kod": "B", "aciklama": "USD kalem", "miktar": "1", "birim_fiyat": "10", "kdv_yuzde": "20"})
+    assert g._cell(0, COL_MIKTAR) == "2,00" and g._cell(0, COL_BFIYAT) == "100,0000" and g._cell(0, COL_KUR) == "1,0000"
+    g.model.item(1, COL_DOVIZ).setText("USD")                           # döviz seçimi kuru otomatik doldurur
+    assert g._cell(1, COL_KUR) == "40,0000"
+    assert g._cell(1, COL_NET) == "10,00"                               # net tutar satırın kendi dövizinde
+    assert got["kdv_matrahi"] == pytest.approx(200.0 + 400.0)           # toplam TL karşılığı (10 USD × 40)
+    assert got["kdv_toplam"] == pytest.approx(120.0)
+    rec = g.get_lines()[1]
+    assert rec["doviz"] == "USD" and rec["_num"]["kur"] == pytest.approx(40.0)
+    g.model.item(1, COL_KUR).setText("41,5000")                         # kur elle değiştirilebilir
+    assert got["kdv_matrahi"] == pytest.approx(200.0 + 415.0)
+    g.model.item(1, COL_DOVIZ).setText("TRY")
+    assert g.get_lines()[1]["_num"]["kur"] == 1.0                       # TL satırında kur her zaman 1
+
+
+def test_number_format_settings_roundtrip(db_session):
+    from src.desktop.services import sayi_bicimi
+
+    sayi_bicimi._onbellek.clear()
+    assert (sayi_bicimi.hane("kur"), sayi_bicimi.hane("fiyat"), sayi_bicimi.hane("miktar"), sayi_bicimi.hane("tutar")) == (4, 4, 2, 2)
+    sayi_bicimi.kaydet(db_session, {"kur": 6, "fiyat": 3, "tutar": 0})
+    sayi_bicimi._onbellek.clear()
+    sayi_bicimi.yukle(db_session)
+    assert (sayi_bicimi.hane("kur"), sayi_bicimi.hane("fiyat"), sayi_bicimi.hane("tutar")) == (6, 3, 0)
+    sayi_bicimi._onbellek.clear()
+
+
+def test_belge_gridi_enter_ile_sonraki_hucreye_gecer_ve_son_satirda_yeni_satir_acar(qapp):
+    """Belge kalemleri de fiş gridi gibi standart giriş motorunu kullanır: Enter/Tab gezinme, son hücreden sonra yeni satır."""
+    from PyQt6.QtCore import QEvent
+    from PyQt6.QtGui import QKeyEvent
+
+    from src.desktop.ui.widgets.document_lines_grid import COL_ACIKLAMA, COL_BARKOD, COL_KDV, COL_KUR
+
+    g = DocumentLinesGrid()
+    g.add_row({"kod": "A", "aciklama": "x"})
+    tv = g.grid.table_view
+
+    def tus(key):
+        idx = tv.currentIndex()
+        editor = tv.indexWidget(idx)
+        d = tv.itemDelegateForColumn(idx.column()) or tv.itemDelegate()
+        d.eventFilter(editor, QKeyEvent(QEvent.Type.KeyPress, key, Qt.KeyboardModifier.NoModifier))
+        QApplication.processEvents()
+
+    tv.setCurrentCell(0, COL_BARKOD)
+    tv.editItem(g.model.item(0, COL_BARKOD))
+    tus(Qt.Key.Key_Return)
+    assert tv.currentColumn() == COL_ACIKLAMA and tv.state() == tv.State.EditingState        # barkod → açıklama
+    n = g.model.rowCount()
+    tv.setCurrentCell(n - 1, COL_KUR)
+    tv.editItem(g.model.item(n - 1, COL_KUR))
+    tus(Qt.Key.Key_Return)                                                                       # son satırın son hücresi → yeni satır
+    assert g.model.rowCount() == n + 1 and tv.currentRow() == n
+    assert g.model.item(0, COL_KDV) is not None

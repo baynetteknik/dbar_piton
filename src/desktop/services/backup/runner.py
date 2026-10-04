@@ -39,6 +39,7 @@ class RunContext:
     sleep: Callable[[float], None] = time.sleep
     now: datetime | None = None
     disk_root: str | None = None           # '{disk}' yer tutucusu için takılı sürücü kökü
+    disks: dict[str, str] = field(default_factory=dict)   # '{disk:KIMLIK}' için {kayıtlı disk kimliği: takılı sürücü kökü}
 
 
 @dataclass
@@ -53,6 +54,7 @@ class RunResult:
     warnings: list[str] = field(default_factory=list)
     uploads: list[tuple[str, bool, str]] = field(default_factory=list)
     removed: int = 0
+    targets: list[tuple[str, bool, str]] = field(default_factory=list)   # yazıldığı tüm hedefler: klasör + dış hedefler
 
     @property
     def ok(self) -> bool:
@@ -76,13 +78,15 @@ def run_job(job: BackupJob, ctx: RunContext, progress: Progress | None = None, l
     res = _run(job, ctx, progress, say, started)
     res.seconds = time.time() - started
     res.started = started
+    yerel = [(f"Klasör/disk: {res.path.parent}", True, "Yazıldı")] if res.path is not None and res.status in ("ok", "warning") else []
+    res.targets = yerel + list(res.uploads)
     return res
 
 
 def _run(job: BackupJob, ctx: RunContext, progress: Progress | None, say: Log, started: float) -> RunResult:
-    resolved = disk_watch.resolve_dest(job.dest_dir, ctx.disk_root)
+    resolved = disk_watch.resolve_dest(job.dest_dir, ctx.disk_root, ctx.disks)
     if resolved is None:
-        return RunResult("error", "Yedek diski takılı değil (hedef klasör {disk} ile başlıyor).")
+        return RunResult("error", "Yedek diski takılı değil (hedef klasör bir harici diske bağlı).")
     dest = Path(resolved)
     try:
         dest.mkdir(parents=True, exist_ok=True)
@@ -166,7 +170,8 @@ def _run(job: BackupJob, ctx: RunContext, progress: Progress | None, say: Log, s
             remote = prov.size(final.name)
             if remote is not None and remote != final.stat().st_size:
                 raise OSError(f"Boyut uyuşmuyor (uzak {remote}, yerel {final.stat().st_size})")
-            uploads.append((prov.label, True, "Yüklendi"))
+            temizlenen = _remote_retention(prov, job.slug, job.keep)
+            uploads.append((prov.label, True, "Yüklendi" + (f" · {temizlenen} eski yedek temizlendi" if temizlenen else "")))
         except Exception as exc:  # noqa: BLE001 - bir hedefin hatası diğerlerini durdurmamalı
             uploads.append((prov.label, False, str(exc)[:200]))
             logger.warning("Yedek yüklenemedi (%s): %s", prov.label, exc)
@@ -181,16 +186,37 @@ def _run(job: BackupJob, ctx: RunContext, progress: Progress | None, say: Log, s
     return RunResult("warning" if (failed or warns) else "ok", msg, final, files, size, warnings=warns, uploads=uploads, removed=removed)
 
 
+def _remote_retention(prov, slug: str, keep: int) -> int:
+    """Yükleme başarılıysa uzak hedefteki (Drive / FTP / S3 / klasör) eski yedek kümelerini de saklama kuralına göre siler.
+    Yalnızca bu işin adıyla eşleşen dosyalara dokunulur; hata olursa yükleme sonucunu bozmaz."""
+    try:
+        silinecek = file_job.retention_victims([f["name"] for f in prov.list()], slug, keep)
+        for name in silinecek:
+            prov.delete(name)
+        return len(silinecek)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Uzak saklama temizliği yapılamadı (%s): %s", getattr(prov, "label", "?"), exc)
+        return 0
+
+
 def finish_run(db, store: JobStore, job: BackupJob, res: RunResult) -> None:
     """Ana iş parçacığında: iş durumunu ve aktarım günlüğünü yazar."""
     now = datetime.now().isoformat(timespec="seconds")
     state = {"last_run": now, "last_status": res.status, "last_message": res.message[:500],
              "fail_streak": int(job.state.get("fail_streak", 0)) + 1 if res.status == "error" else 0}
+    atlanan = [(w.split(":", 1)[0], False, w.split(":", 1)[-1].strip()) for w in res.warnings if w.startswith("Hedef atlandı")]
+    targets = list(res.targets or res.uploads) + atlanan
+    state["last_targets"] = [[n, ok, str(m)[:120]] for n, ok, m in targets][:10]
     if res.status in ("ok", "warning"):
         state.update(last_success=now, last_success_ts=res.started, last_file=res.path.name if res.path else "")
+    elif res.status == "nochange":
+        state.update(last_success=now)                              # güncel: değişiklik yok da başarılı bir denetimdir
     store.update_state(job.id, **state)
     sync_log_service.record(
         db, "backup", sync_log_service.DIR_BACKUP_JOB, res.ok, f"[{job.name}] {res.message}",
-        {"job": job.name, "files": res.files, "bytes": res.size, "status": res.status},
+        {"job": job.name, "job_id": job.id, "files": res.files, "bytes": res.size, "status": res.status,
+         "mode": "mirror" if job.fmt == "mirror" else ("inc" if res.path and "-inc-" in res.path.name else "full"),
+         "seconds": round(res.seconds, 1), "file": res.path.name if res.path else "",
+         "uploads": [[n, ok, str(m)[:120]] for n, ok, m in targets][:10], "warnings": len(res.warnings), "dest": job.dest_dir},
         datetime.utcfromtimestamp(res.started) if res.started else None,
     )

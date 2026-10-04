@@ -4,10 +4,16 @@ Depo, fiyat listesi, varsayılan iskonto, KDV muafiyet kodu ve satış temsilcis
 ayarlarını yöneten modüler bileşen.
 """
 
-from typing import Dict, Any
+from typing import Any, Dict
+
 from PyQt6.QtWidgets import (
-    QWidget, QVBoxLayout, QGridLayout, QLabel, 
-    QComboBox, QDoubleSpinBox, QGroupBox
+    QComboBox,
+    QDoubleSpinBox,
+    QGridLayout,
+    QGroupBox,
+    QLabel,
+    QVBoxLayout,
+    QWidget,
 )
 
 
@@ -49,19 +55,24 @@ class HareketAyarlariWidget(QWidget):
         grid.setContentsMargins(10, 8, 10, 8)
 
         input_style = "padding: 5px; border: 1px solid #cbd5e1; border-radius: 4px; font-size: 11px; background: white;"
+        combo_style = (
+            "QComboBox { padding: 5px; border: 1px solid #cbd5e1; border-radius: 4px; font-size: 11px; background: white; combobox-popup: 0; }"
+            " QComboBox QAbstractItemView { outline: 0; border: 1px solid #cbd5e1; background: white; padding: 0px; }"
+            " QComboBox QAbstractItemView::item { padding: 3px 6px; min-height: 20px; }"
+        )
 
         # 1. Depo
         grid.addWidget(QLabel("Depo:"), 0, 0)
         self.cmb_warehouse = QComboBox()
         self.cmb_warehouse.addItems(["01 - Merkez Ana Depo", "02 - Şube Sevkiyat Deposu", "03 - Üretim / Hammadde Deposu"])
-        self.cmb_warehouse.setStyleSheet(input_style)
+        self.cmb_warehouse.setStyleSheet(combo_style)
         grid.addWidget(self.cmb_warehouse, 0, 1)
 
         # 2. Fiyat Listesi
         grid.addWidget(QLabel("Fiyat Listesi:"), 0, 2)
         self.cmb_price_list = QComboBox()
         self.cmb_price_list.addItems(["Standart Satış Fiyatı", "Bayi / Toptan Fiyatı", "Özel Proje Fiyatı", "Kampanyalı Fiyat"])
-        self.cmb_price_list.setStyleSheet(input_style)
+        self.cmb_price_list.setStyleSheet(combo_style)
         grid.addWidget(self.cmb_price_list, 0, 3)
 
         # 3. Varsayılan İskonto %
@@ -77,7 +88,7 @@ class HareketAyarlariWidget(QWidget):
         grid.addWidget(QLabel("Temsilci / Plasiyer:"), 1, 2)
         self.cmb_sales_rep = QComboBox()
         self.cmb_sales_rep.addItems(["Ahmet Yılmaz (Satış Müdürü)", "Mehmet Kaya (Saha Temsilcisi)", "Ayşe Demir (Müşteri İlişkileri)"])
-        self.cmb_sales_rep.setStyleSheet(input_style)
+        self.cmb_sales_rep.setStyleSheet(combo_style)
         grid.addWidget(self.cmb_sales_rep, 1, 3)
 
         main_lyt.addWidget(self.grp_box)

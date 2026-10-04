@@ -145,7 +145,12 @@ class FtpProvider:
 
 
 # =====================================================================  Google Drive
-GDRIVE_SCOPE = "https://www.googleapis.com/auth/drive.file"
+GDRIVE_SCOPE = "https://www.googleapis.com/auth/drive.file"          # yalnız TOYA'nın oluşturduğu dosyalar
+GDRIVE_SCOPE_FULL = "https://www.googleapis.com/auth/drive"          # mevcut klasörlere göz atmak için (klasör gezgini)
+_ALL = {"supportsAllDrives": "true"}                                 # paylaşılan sürücüler (Shared Drives) için
+ROOT = "root"
+SHARED = "sharedWithMe"
+_FOLDER_MIME = "application/vnd.google-apps.folder"
 GDRIVE_AUTH = "https://accounts.google.com/o/oauth2/v2/auth"
 GDRIVE_TOKEN = "https://oauth2.googleapis.com/token"
 GDRIVE_API = "https://www.googleapis.com/drive/v3"
@@ -154,8 +159,9 @@ GDRIVE_CHUNK = 8 * 1024 * 1024  # 256 KB'ın katı olmalı
 
 
 def authorize_google_interactive(client_id: str, client_secret: str, timeout: int = 180,
-                                 open_browser: Callable[[str], Any] = webbrowser.open) -> dict[str, str]:
-    """Kurulu uygulama (loopback) akışı: tarayıcı açılır, kullanıcı Google hesabıyla izin verir, refresh_token döner."""
+                                 open_browser: Callable[[str], Any] = webbrowser.open, full_access: bool = False) -> dict[str, str]:
+    """Kurulu uygulama (loopback) akışı: tarayıcı açılır, kullanıcı Google hesabıyla izin verir, refresh_token döner.
+    `full_access=True` mevcut Drive klasörlerine göz atmak (klasör gezgini) için tam Drive erişimi ister."""
     state = _secrets.token_urlsafe(16)
     verifier = _secrets.token_urlsafe(48)
     challenge = _b64(hashlib.sha256(verifier.encode()).digest())
@@ -184,7 +190,8 @@ def authorize_google_interactive(client_id: str, client_secret: str, timeout: in
     threading.Thread(target=srv.serve_forever, daemon=True).start()
     try:
         url = GDRIVE_AUTH + "?" + urllib.parse.urlencode({
-            "client_id": client_id, "redirect_uri": redirect, "response_type": "code", "scope": GDRIVE_SCOPE,
+            "client_id": client_id, "redirect_uri": redirect, "response_type": "code",
+            "scope": GDRIVE_SCOPE_FULL if full_access else GDRIVE_SCOPE,
             "access_type": "offline", "prompt": "consent", "state": state,
             "code_challenge": challenge, "code_challenge_method": "S256"})
         open_browser(url)
@@ -211,13 +218,42 @@ def _b64(raw: bytes) -> str:
 
 class GoogleDriveProvider:
     def __init__(self, client_id: str, client_secret: str, refresh_token: str, folder_name: str = "TOYA Yedek",
-                 label: str = "Google Drive") -> None:
+                 label: str = "Google Drive", folder_id: str = "", sa_json: str = "") -> None:
         self.cid, self.secret, self.refresh = client_id, client_secret, refresh_token
         self.folder_name, self.label = folder_name, label
+        self.folder_id, self.sa_json = (folder_id or "").strip(), (sa_json or "").strip()
         self._token = ""
-        self._folder = ""
+        self._folder = self.folder_id       # seçilmiş klasör kimliği varsa ada göre arama/oluşturma yapılmaz
+        self._folder_checked = False
+
+    def _sa_token(self) -> str:
+        """Servis hesabı (JSON anahtarı) ile RS256 imzalı JWT → erişim belirteci. Paylaşılan sürücüler ve Workspace için."""
+        import time
+
+        from cryptography.hazmat.primitives import hashes, serialization
+        from cryptography.hazmat.primitives.asymmetric import padding
+        try:
+            data = json.loads(self.sa_json)
+            email, pem = data["client_email"], data["private_key"]
+        except (ValueError, KeyError) as exc:
+            raise _perm("Servis hesabı JSON anahtarı geçersiz (client_email / private_key yok).") from exc
+        now = int(time.time())
+        head = _b64(json.dumps({"alg": "RS256", "typ": "JWT"}).encode())
+        body = _b64(json.dumps({"iss": email, "scope": GDRIVE_SCOPE_FULL, "aud": GDRIVE_TOKEN, "iat": now, "exp": now + 3600}).encode())
+        try:
+            key = serialization.load_pem_private_key(pem.encode(), password=None)
+            sig = key.sign(f"{head}.{body}".encode(), padding.PKCS1v15(), hashes.SHA256())
+        except Exception as exc:  # noqa: BLE001
+            raise _perm("Servis hesabı özel anahtarı okunamadı/imzalanamadı.") from exc
+        r = requests.post(GDRIVE_TOKEN, data={"grant_type": "urn:ietf:params:oauth:grant-type:jwt-bearer",
+                                              "assertion": f"{head}.{body}.{_b64(sig)}"}, timeout=TIMEOUT)
+        if r.status_code != 200:
+            raise _perm(f"Servis hesabı oturumu açılamadı (HTTP {r.status_code}).")
+        return r.json()["access_token"]
 
     def _auth(self) -> dict[str, str]:
+        if not self._token and self.sa_json:
+            self._token = self._sa_token()
         if not self._token:
             r = requests.post(GDRIVE_TOKEN, data={"client_id": self.cid, "client_secret": self.secret,
                                                   "refresh_token": self.refresh, "grant_type": "refresh_token"}, timeout=TIMEOUT)
@@ -261,14 +297,79 @@ class GoogleDriveProvider:
     def _find(self, name: str) -> dict[str, Any] | None:
         safe = name.replace("\\", "\\\\").replace("'", "\\'")
         q = f"name = '{safe}' and '{self._folder_id()}' in parents and trashed = false"
-        r = self._req("GET", f"{GDRIVE_API}/files", params={"q": q, "fields": "files(id,size)"})
+        r = self._req("GET", f"{GDRIVE_API}/files", params={"q": q, "fields": "files(id,size)", **_ALL, "includeItemsFromAllDrives": "true"})
         files = r.json().get("files", []) if r.status_code == 200 else []
         return files[0] if files else None
 
+    # ---- klasör gezgini (Windows Gezgini gibi): listele / oluştur / yol -------------------------------
+    def list_folders(self, parent_id: str = ROOT) -> list[dict[str, str]]:
+        """`parent_id` içindeki klasörler (ada göre). `ROOT` = Drive'ım, `SHARED` = Benimle paylaşılanlar."""
+        if parent_id == SHARED:
+            q = f"sharedWithMe = true and mimeType = '{_FOLDER_MIME}' and trashed = false"
+        else:
+            q = f"'{parent_id}' in parents and mimeType = '{_FOLDER_MIME}' and trashed = false"
+        out: list[dict[str, str]] = []
+        token = ""
+        while True:
+            params = {"q": q, "fields": "nextPageToken,files(id,name)", "pageSize": 200, "orderBy": "name",
+                      **_ALL, "includeItemsFromAllDrives": "true", "corpora": "allDrives"}
+            if token:
+                params["pageToken"] = token
+            r = self._req("GET", f"{GDRIVE_API}/files", params=params)
+            if r.status_code == 403:
+                raise _perm("Klasörleri görmek için tam Drive erişimi gerekir; hedefte 'mevcut klasörlere göz at' seçeneğiyle "
+                            "Google'a yeniden bağlanın.")
+            if r.status_code != 200:
+                raise ProviderError(f"Drive klasörleri listelenemedi (HTTP {r.status_code}).")
+            js = r.json()
+            out += [{"id": f["id"], "name": f["name"]} for f in js.get("files", [])]
+            token = js.get("nextPageToken", "")
+            if not token:
+                return out
+
+    def create_folder(self, name: str, parent_id: str = ROOT) -> dict[str, str]:
+        name = (name or "").strip()
+        if not name or any(ch in name for ch in '\\/'):
+            raise ProviderError("Geçersiz klasör adı.")
+        meta: dict[str, Any] = {"name": name, "mimeType": _FOLDER_MIME}
+        if parent_id and parent_id != SHARED:
+            meta["parents"] = [parent_id]
+        r = self._req("POST", f"{GDRIVE_API}/files", params={"fields": "id,name", **_ALL}, json=meta)
+        if r.status_code not in (200, 201):
+            raise ProviderError(f"Drive klasörü oluşturulamadı (HTTP {r.status_code}).")
+        return {"id": r.json()["id"], "name": r.json()["name"]}
+
+    def folder_path(self, folder_id: str) -> str:
+        """Klasörün görünen yolu: `Drive'ım / Yedekler / TOYA` (en fazla 10 üst düzey; alınamazsa klasör adı)."""
+        names: list[str] = []
+        cur = folder_id
+        for _ in range(10):
+            r = self._req("GET", f"{GDRIVE_API}/files/{cur}", params={"fields": "id,name,parents", **_ALL})
+            if r.status_code != 200:
+                break
+            js = r.json()
+            parents = js.get("parents")
+            names.append("Drive'ım" if not parents and js.get("name") in ("My Drive", "Drive'ım", "Drive'ım") else js["name"])
+            if not parents:
+                break
+            cur = parents[0]
+        else:
+            names.append("…")
+        return " / ".join(reversed(names)) if names else folder_id
+
     def test(self) -> tuple[bool, str]:
         try:
-            self._folder_id()
-            return True, f"Google Drive bağlantısı başarılı (klasör: {self.folder_name})."
+            fid = self._folder_id()
+            if self.folder_id and not self._folder_checked:
+                r = self._req("GET", f"{GDRIVE_API}/files/{fid}", params={"fields": "id,name,trashed", **_ALL})
+                if r.status_code != 200 or r.json().get("trashed"):
+                    raise ProviderError("Seçili Drive klasörü bulunamadı (silinmiş ya da erişim yok); klasörü yeniden seçin.")
+                self._folder_checked = True
+            try:
+                yol = self.folder_path(fid) if self.folder_id else self.folder_name
+            except (ProviderError, requests.RequestException):
+                yol = self.folder_name
+            return True, f"Google Drive bağlantısı başarılı (klasör: {yol})."
         except (ProviderError, requests.RequestException) as exc:
             return False, str(exc) if isinstance(exc, ProviderError) else "Google Drive'a erişilemedi."
 
@@ -279,11 +380,11 @@ class GoogleDriveProvider:
         total = Path(local).stat().st_size
         meta: dict[str, Any] = {"name": remote_name}
         if existing:
-            init = self._req("PATCH", f"{GDRIVE_UPLOAD}/{existing['id']}", params={"uploadType": "resumable"}, json=meta,
+            init = self._req("PATCH", f"{GDRIVE_UPLOAD}/{existing['id']}", params={"uploadType": "resumable", **_ALL}, json=meta,
                              headers={"X-Upload-Content-Length": str(total)})
         else:
             meta["parents"] = [self._folder_id()]
-            init = self._req("POST", GDRIVE_UPLOAD, params={"uploadType": "resumable"}, json=meta,
+            init = self._req("POST", GDRIVE_UPLOAD, params={"uploadType": "resumable", **_ALL}, json=meta,
                              headers={"X-Upload-Content-Length": str(total)})
         if init.status_code != 200 or "Location" not in init.headers:
             raise ProviderError(f"Drive yükleme oturumu açılamadı (HTTP {init.status_code}).")
@@ -312,7 +413,8 @@ class GoogleDriveProvider:
 
     def list(self) -> list[dict[str, Any]]:
         r = self._req("GET", f"{GDRIVE_API}/files", params={"q": f"'{self._folder_id()}' in parents and trashed = false",
-                                                            "fields": "files(id,name,size)", "pageSize": 1000})
+                                                            "fields": "files(id,name,size)", "pageSize": 1000,
+                                                            **_ALL, "includeItemsFromAllDrives": "true"})
         return sorted(({"name": f["name"], "size": int(f.get("size", 0)), "id": f["id"]} for f in r.json().get("files", [])),
                       key=lambda x: x["name"])
 
@@ -330,7 +432,7 @@ class GoogleDriveProvider:
     def delete(self, remote_name: str) -> None:
         f = self._find(remote_name)
         if f:
-            self._req("DELETE", f"{GDRIVE_API}/files/{f['id']}")
+            self._req("DELETE", f"{GDRIVE_API}/files/{f['id']}", params=_ALL)
 
 
 # =====================================================================  S3 (SigV4)
@@ -473,7 +575,8 @@ def build_provider(cfg: dict[str, Any], secret: dict[str, Any]) -> Provider:
                            int(cfg.get("port", 21)), bool(cfg.get("tls")), bool(cfg.get("verify_cert", True)), label or "FTP")
     if t == "gdrive":
         return GoogleDriveProvider(cfg.get("client_id", ""), secret.get("client_secret", ""), secret.get("refresh_token", ""),
-                                   cfg.get("folder", "TOYA Yedek"), label or "Google Drive")
+                                   cfg.get("folder", "TOYA Yedek") or "TOYA Yedek", label or "Google Drive",
+                                   folder_id=cfg.get("folder_id", ""), sa_json=secret.get("sa_json", ""))
     if t == "s3":
         return S3Provider(cfg.get("bucket", ""), cfg.get("access_key", ""), secret.get("secret_key", ""), cfg.get("region", "us-east-1"),
                           cfg.get("endpoint", ""), cfg.get("prefix", ""), label or "S3")

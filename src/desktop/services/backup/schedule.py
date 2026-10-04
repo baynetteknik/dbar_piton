@@ -68,7 +68,7 @@ def describe(job: BackupJob) -> str:
     if kind == "interval":
         return f"Her {s.get('interval_minutes')} dakikada"
     if kind == "disk":
-        return f"'{s.get('disk_label')}' diski takılınca"
+        return f"'{s.get('disk_name') or s.get('disk_label')}' diski takılınca"
     return "Elle"
 
 
@@ -84,6 +84,14 @@ def expected_period(job: BackupJob) -> timedelta | None:
     return None
 
 
+def targets_text(job: BackupJob) -> str:
+    """Son çalışmanın hedef sonuçları: '✔ Klasör/disk: D:\Yedek · ✘ Google Drive (kota dolu)'. Kayıt yoksa boş."""
+    out = []
+    for n, ok, m in job.state.get("last_targets") or []:
+        out.append(f"{'✔' if ok else '✘'} {n}" + ("" if ok else f" ({m})"))
+    return " · ".join(out)
+
+
 def health(jobs: list[BackupJob], now: datetime) -> list[tuple[BackupJob, str, str]]:
     """(iş, seviye ok|warn|error, açıklama). 'Çalışıyor gibi görünen ama aslında yedek almayan' işleri yakalar."""
     out: list[tuple[BackupJob, str, str]] = []
@@ -91,13 +99,19 @@ def health(jobs: list[BackupJob], now: datetime) -> list[tuple[BackupJob, str, s
         if not j.enabled:
             continue
         last_ok = _parse(j.state.get("last_success"))
+        if last_ok is None and j.state.get("last_status") in ("ok", "warning", "nochange"):
+            last_ok = _parse(j.state.get("last_run"))                     # eski kayıtlarda last_success yoktu
         per = expected_period(j)
+        hedef = targets_text(j)
+        ek = f" Hedefler: {hedef}" if hedef else ""
         if j.state.get("last_status") == "error":
-            out.append((j, "error", f"Son deneme başarısız: {j.state.get('last_message', '')[:120]}"))
+            out.append((j, "error", f"Son deneme başarısız: {j.state.get('last_message', '')[:120]}{ek}"))
         elif last_ok is None:
             out.append((j, "warn", "Henüz başarılı yedek yok."))
         elif per and now - last_ok > per * 2 + timedelta(hours=1):
-            out.append((j, "warn", f"Son başarılı yedek {(now - last_ok).days} gün önce (zamanlama: {describe(j)})."))
+            out.append((j, "warn", f"Son başarılı yedek {(now - last_ok).days} gün önce (zamanlama: {describe(j)}).{ek}"))
+        elif any(not ok for _n, ok, _m in j.state.get("last_targets") or []):
+            out.append((j, "warn", f"Yedek alındı ama bazı hedeflere yazılamadı.{ek}"))
         else:
-            out.append((j, "ok", "Güncel."))
+            out.append((j, "ok", f"Güncel.{ek}"))
     return out

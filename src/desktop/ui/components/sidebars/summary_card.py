@@ -3,10 +3,17 @@ TOYA ERP - Modüler Sağ Sidebar Bileşeni: rightsidebar001
 Seçili kaydın anlık bakiye, risk limiti ve özet finansal durumunu gösteren karttır.
 """
 
-from PyQt6.QtWidgets import (
-    QFrame, QVBoxLayout, QLabel, QPushButton, QGridLayout, QSpacerItem, QSizePolicy
-)
 from PyQt6.QtCore import Qt
+from PyQt6.QtWidgets import (
+    QFrame,
+    QGridLayout,
+    QLabel,
+    QPushButton,
+    QSizePolicy,
+    QSpacerItem,
+    QVBoxLayout,
+)
+
 from src.desktop.managers.theme_manager import ThemeManager
 
 

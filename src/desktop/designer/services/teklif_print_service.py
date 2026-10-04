@@ -21,6 +21,14 @@ logger = logging.getLogger(__name__)
 _TEMPLATES_DIR = Path(__file__).parent.parent / "templates"
 DEFAULT_TEMPLATE_PATH = _TEMPLATES_DIR / "tpl_teklif_kurumsal_a4.json"
 
+
+def templates_dir() -> Path:
+    """Şablon JSON dosyalarının bulunduğu klasör — diğer modüllerin (ör.
+    `form_designs_widget.py`) yeni şablon yazarken kullanması için. Fonksiyon olması,
+    testlerin `_TEMPLATES_DIR` modül değişkenini monkeypatch edip okuma/yazmayı aynı
+    (geçici) klasöre yönlendirebilmesini sağlar."""
+    return _TEMPLATES_DIR
+
 # Kağıt boyutuna göre hazır şablonlar (A4 kurumsal tasarımın ISO 216'daki standart
 # %70.7 küçültme oranıyla A5'e ölçeklenmiş hali — bkz. tpl_teklif_kurumsal_a5.json).
 # "PDF Yazdır (F9)" A4 üretmeye devam eder; A5 bunun yanına eklenen ek bir seçenektir.
@@ -280,12 +288,21 @@ class TeklifPrintService:
         Seçilebilir hazır şablonların (başlık, yol) listesi. Görsel tasarımcı
         tamamlanana kadar kullanıcı buradan varsayılan dışında bir form seçebilir.
         """
-        out: list[tuple[str, Path]] = []
+        return [(title, path) for title, path, _module in TeklifPrintService.available_templates_full()]
+
+    @staticmethod
+    def available_templates_full() -> list[tuple[str, Path, str]]:
+        """`available_templates()` ile aynı, ayrıca her şablonun `module` etiketini de döner
+        (bkz. `ReportTemplate.module`) — belge ekranının şablon seçicisi bununla, kaydedilmiş
+        belgenin kendi türüne (`belge_turu`) uyan şablonu alfabetik sıra yerine öne alır."""
+        out: list[tuple[str, Path, str]] = []
         for path in sorted(_TEMPLATES_DIR.glob("tpl_*.json")):
             try:
                 with open(path, "r", encoding="utf-8") as f:
-                    title = json.load(f).get("title") or path.stem
+                    d = json.load(f)
+                title = d.get("title") or path.stem
+                module = d.get("module") or ""
             except Exception:  # noqa: BLE001 - bozuk şablon listeyi düşürmesin
-                title = path.stem
-            out.append((str(title), path))
+                title, module = path.stem, ""
+            out.append((str(title), path, module))
         return out

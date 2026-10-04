@@ -8,7 +8,6 @@ yeni kullanıcıya göre güncellenir.
 
 from __future__ import annotations
 
-from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
     QComboBox,
     QDialog,
@@ -40,6 +39,28 @@ class SwitchUserDialog(QDialog):
 
         form = QFormLayout()
         self.cmb_user = QComboBox()
+        self.cmb_user.setStyleSheet("""
+            QComboBox {
+                combobox-popup: 0;
+                border: 1px solid #cbd5e1;
+                border-radius: 4px;
+                padding: 5px 8px;
+                background-color: white;
+                color: #0f172a;
+                font-size: 11px;
+            }
+            QComboBox QAbstractItemView {
+                outline: 0;
+                padding: 0px;
+                border: 1px solid #cbd5e1;
+                background-color: #ffffff;
+                color: #0f172a;
+            }
+            QComboBox QAbstractItemView::item {
+                padding: 3px 6px;
+                min-height: 20px;
+            }
+        """)
         for u in self.service.list_users(active=True):
             label = f"{u.username}" + (f" — {u.full_name}" if u.full_name else "")
             self.cmb_user.addItem(label, u.id)

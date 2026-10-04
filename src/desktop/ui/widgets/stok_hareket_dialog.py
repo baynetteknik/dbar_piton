@@ -9,21 +9,20 @@ from __future__ import annotations
 import logging
 
 from PyQt6.QtCore import Qt
-from PyQt6.QtGui import QBrush, QColor
-from PyQt6.QtWidgets import QDialog, QHBoxLayout, QLabel, QPushButton, QTableWidgetItem, QVBoxLayout
+from PyQt6.QtGui import QBrush, QColor, QStandardItem
+from PyQt6.QtWidgets import QDialog, QHBoxLayout, QLabel, QPushButton, QVBoxLayout
 
 from src.core.models import Product
-from src.desktop.core.grid_presets import GRID_PRESETS, register_preset
 from src.desktop.services.stok_fis_service import depo_dagilimi, urun_hareketleri
-from src.desktop.ui.components.app_grid import AppGrid
 from src.desktop.ui.components.dialog_style import apply_light_dialog_style
+from src.desktop.ui.components.entry_table_view import standart_grid
 from src.desktop.ui.widgets.money_edit import bicimle
 
 logger = logging.getLogger(__name__)
 
 PRESET_ID = "dbgrid_stok_kart_hareket"
 _LABELS = ["TARİH", "FİŞ NO", "TÜR", "DEPO", "HEDEF", "MİKTAR", "BİRİM", "B.FİYAT", "TUTAR", "ETKİ", "KAYNAK"]
-_W = [0.12, 0.08, 0.15, 0.06, 0.06, 0.09, 0.06, 0.09, 0.10, 0.09, 0.10]
+_KEYS = ["tarih", "fis_no", "tur", "depo", "hedef", "miktar", "birim", "fiyat", "tutar", "etki", "kaynak"]
 _HIZA = ["C", "C", "L", "C", "C", "R", "C", "R", "R", "R", "C"]
 C_FISNO = 1
 
@@ -37,8 +36,6 @@ class StokHareketDialog(QDialog):
         self.setWindowTitle("Stok Hareketleri")
         self.setWindowState(Qt.WindowState.WindowMaximized)          # ekran standardı: ekranı kaplayarak açılır
         apply_light_dialog_style(self)
-        if PRESET_ID not in GRID_PRESETS:
-            register_preset(PRESET_ID, _LABELS, _W, _HIZA, name="Stok Kartı Hareketleri")
 
         lyt = QVBoxLayout(self)
         lyt.setContentsMargins(14, 12, 14, 12)
@@ -51,11 +48,10 @@ class StokHareketDialog(QDialog):
         self.lbl_dagilim.setWordWrap(True)
         lyt.addWidget(self.lbl_dagilim)
 
-        self.grid = AppGrid(PRESET_ID)
-        if db_session is not None:
-            self.grid.enable_layout_persistence(db_session)
+        self.entry = standart_grid(PRESET_ID, list(zip(_KEYS, _LABELS, strict=True)))
+        self.grid = self.entry.table_view
         self.grid.cellDoubleClicked.connect(self._satir_ac)
-        lyt.addWidget(self.grid, 1)
+        lyt.addWidget(self.entry, 1)
 
         self.lbl_bos = QLabel("Bu ürün için stok hareketi bulunmuyor.")
         self.lbl_bos.setStyleSheet("color:#94a3b8; font-size:11px;")
@@ -99,7 +95,7 @@ class StokHareketDialog(QDialog):
                         bicimle(h["tutar"], 2) if h["tutar"] else "", ("+" if etki > 0 else "") + bicimle(etki, 3) if etki else "0",
                         h["kaynak"]]
             for c, t in enumerate(hucreler):
-                it = QTableWidgetItem(t)
+                it = QStandardItem(t)
                 it.setFlags(Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable)
                 it.setTextAlignment({"L": Qt.AlignmentFlag.AlignLeft, "R": Qt.AlignmentFlag.AlignRight,
                                      "C": Qt.AlignmentFlag.AlignCenter}[_HIZA[c]] | Qt.AlignmentFlag.AlignVCenter)

@@ -23,6 +23,7 @@ DIR_MIRROR_TO_PORTAL = "mirror_to_portal"
 DIR_DEPLOY = "deploy_to_portal"
 DIR_BACKUP = "backup_from_portal"
 DIR_BACKUP_JOB = "backup_job"
+DIR_BACKUP_RESTORE = "backup_restore"     # yedekten geri yükleme / dosya çıkarma / iptal kayıtları (tarihçe)
 
 
 def record(db, source: str, direction: str, success: bool, message: str,

@@ -165,10 +165,22 @@ class ExcelImportDialog(QDialog):
         self.combo_sites = QComboBox()
         self.combo_sites.setStyleSheet("""
             QComboBox {
+                combobox-popup: 0;
                 border: 1px solid #cbd5e1;
                 border-radius: 6px;
                 padding: 6px;
                 background-color: white;
+            }
+            QComboBox QAbstractItemView {
+                outline: 0;
+                padding: 0px;
+                border: 1px solid #cbd5e1;
+                background-color: #ffffff;
+                color: #0f172a;
+            }
+            QComboBox QAbstractItemView::item {
+                padding: 3px 6px;
+                min-height: 20px;
             }
         """)
         self.load_active_sites()
@@ -316,6 +328,26 @@ class ExcelImportDialog(QDialog):
             
             # 2. Excel Sütunu (Combo Box)
             combo = QComboBox()
+            combo.setStyleSheet("""
+                QComboBox {
+                    combobox-popup: 0;
+                    border: 1px solid #cbd5e1;
+                    border-radius: 4px;
+                    padding: 2px 4px;
+                    background-color: white;
+                }
+                QComboBox QAbstractItemView {
+                    outline: 0;
+                    padding: 0px;
+                    border: 1px solid #cbd5e1;
+                    background-color: #ffffff;
+                    color: #0f172a;
+                }
+                QComboBox QAbstractItemView::item {
+                    padding: 3px 6px;
+                    min-height: 20px;
+                }
+            """)
             combo.addItem("-- Seçilmedi --", None)
             combo.setProperty("field_name", field_name)
             combo.setProperty("row_index", row_idx)

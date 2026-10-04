@@ -63,14 +63,94 @@ class _DataTree(QTreeWidget):
         return mime
 
 
+#: Belge zinciri (teklif/sipariş/irsaliye/fatura) `TeklifPrintService.build_teklif_data`
+#: ile aynı şekle sahip veri üretir (bkz. `belge_turleri.BELGE_TURLERI`), o yüzden hepsi
+#: aynı alan ağacını paylaşır. Yeni bir modülün kendi baskı formu servisi olduğunda
+#: (ör. kasa/banka fişi, cari ekstre) buraya kendi alan listesiyle yeni bir anahtar eklenir.
+_BELGE_ORTAK_KATEGORILER: list[tuple[str, str, list[tuple[str, str, str]]]] = [
+    ("📁 Şirket Bilgileri", "page_header", [
+        ("Firma Ünvanı", "firma.adi", "text"),
+        ("Firma Logosu", "firma.logo_base64", "image"),
+        ("Firma Adresi", "firma.adres", "text"),
+        ("Vergi Dairesi", "firma.vergi_daire", "text"),
+        ("Vergi No", "firma.vergi_no", "text"),
+        ("Telefon", "firma.tel", "text"),
+        ("E-posta", "firma.email", "text"),
+        ("Web Sitesi", "firma.web", "text"),
+    ]),
+    ("📁 Cari / Müşteri", "header_group", [
+        ("Müşteri Ünvanı", "musteri.adi", "text"),
+        ("İlgili / Yetkili", "musteri.yetkili", "text"),
+        ("Adres Bilgisi", "musteri.adres", "text"),
+        ("Vergi No / Daire", "musteri.vergi_no", "text"),
+        ("Telefon", "musteri.tel", "text"),
+    ]),
+    ("📁 Belge Bilgileri", "page_header", [
+        ("Belge No", "belge.teklif_no", "text"),
+        ("Belge Tarihi", "belge.tarih", "date"),
+        ("Geçerlilik / Vade Tarihi", "belge.vade", "date"),
+        ("Para Birimi", "belge.para_birimi", "text"),
+        ("Ödeme Şartı", "belge.odeme_plani", "text"),
+        ("Belge Durumu", "belge.durum", "text"),
+    ]),
+    ("📁 Kalemler (Detay)", "detail_data", [
+        ("Sıra No", "kalem.sira_no", "integer"),
+        ("Ürün Kodu", "kalem.kod", "text"),
+        ("Ürün Açıklaması", "kalem.aciklama", "text"),
+        ("Miktar", "kalem.miktar", "number"),
+        ("Birim", "kalem.birim", "text"),
+        ("Birim Fiyat", "kalem.birim_fiyat", "currency"),
+        ("İskonto Oranı", "kalem.iskonto", "percent"),
+        ("KDV Oranı", "kalem.kdv", "percent"),
+        ("Satır Tutarı", "kalem.tutar", "currency"),
+    ]),
+    ("📁 Finans & Dip Toplam", "report_summary", [
+        ("Ara Toplam", "toplamlar.ara_toplam", "currency"),
+        ("İskonto Tutarı", "toplamlar.iskonto", "currency"),
+        ("KDV Matrahı", "toplamlar.kdv_matrahi", "currency"),
+        ("KDV Tutarı", "toplamlar.kdv_toplam", "currency"),
+        ("Genel Toplam", "toplamlar.genel_toplam", "currency"),
+        ("Yazıyla Genel Toplam", "[YAZIYLA(toplamlar.genel_toplam, 'TL')]", "expression"),
+    ]),
+    ("📁 Sistem Değişkenleri", "page_footer", [
+        ("Sayfa Numarası", "sistem.sayfa_no", "system_var"),
+        ("Baskı Tarih / Saati", "sistem.baski_tarihi", "system_var"),
+    ]),
+]
+
+#: Modül anahtarı (`belge_turleri.BELGE_TURLERI`) -> o modülün alan ağacı kategorileri.
+#: Bilinmeyen/boş modül `_BELGE_ORTAK_KATEGORILER`'e düşer (bkz. `_kategoriler_for`).
+MODULE_FIELD_SCHEMAS: dict[str, list[tuple[str, str, list[tuple[str, str, str]]]]] = {
+    "teklif": _BELGE_ORTAK_KATEGORILER,
+    "talep": _BELGE_ORTAK_KATEGORILER,
+    "siparis": _BELGE_ORTAK_KATEGORILER,
+    "irsaliye": _BELGE_ORTAK_KATEGORILER,
+    "fatura": _BELGE_ORTAK_KATEGORILER,
+    "iade_fatura": _BELGE_ORTAK_KATEGORILER,
+}
+
+
+def _kategoriler_for(module: str) -> list[tuple[str, str, list[tuple[str, str, str]]]]:
+    return MODULE_FIELD_SCHEMAS.get(module, _BELGE_ORTAK_KATEGORILER)
+
+
 class DataTreeWidget(QWidget):
-    """ERP veri alanları ağacı."""
+    """ERP veri alanları ağacı — seçili modüle göre alan listesi değişir."""
 
     field_requested = pyqtSignal(object, str)  # ItemConfig, target_band_type
 
-    def __init__(self, parent: QWidget | None = None) -> None:
+    def __init__(self, parent: QWidget | None = None, module: str = "") -> None:
         super().__init__(parent)
+        self.module = module
         self._init_ui()
+
+    def set_module(self, module: str) -> None:
+        """Tasarımcıda farklı bir şablon açılınca (farklı modül) ağacı yeniden doldurur."""
+        if module == self.module:
+            return
+        self.module = module
+        self.tree.clear()
+        self._populate_tree()
 
     def _init_ui(self):
         layout = QVBoxLayout(self)
@@ -112,58 +192,7 @@ class DataTreeWidget(QWidget):
         layout.addWidget(grp)
 
     def _populate_tree(self):
-        categories = [
-            ("📁 Şirket Bilgileri", "page_header", [
-                ("Firma Ünvanı", "firma.adi", "text"),
-                ("Firma Logosu", "firma.logo_base64", "image"),
-                ("Firma Adresi", "firma.adres", "text"),
-                ("Vergi Dairesi", "firma.vergi_daire", "text"),
-                ("Vergi No", "firma.vergi_no", "text"),
-                ("Telefon", "firma.tel", "text"),
-                ("E-posta", "firma.email", "text"),
-                ("Web Sitesi", "firma.web", "text"),
-            ]),
-            ("📁 Cari / Müşteri", "header_group", [
-                ("Müşteri Ünvanı", "musteri.adi", "text"),
-                ("İlgili / Yetkili", "musteri.yetkili", "text"),
-                ("Adres Bilgisi", "musteri.adres", "text"),
-                ("Vergi No / Daire", "musteri.vergi_no", "text"),
-                ("Telefon", "musteri.tel", "text"),
-            ]),
-            ("📁 Belge Bilgileri", "page_header", [
-                ("Teklif No", "belge.teklif_no", "text"),
-                ("Teklif Tarihi", "belge.tarih", "date"),
-                ("Geçerlilik Tarihi", "belge.vade", "date"),
-                ("Para Birimi", "belge.para_birimi", "text"),
-                ("Ödeme Şartı", "belge.odeme_plani", "text"),
-                ("Belge Durumu", "belge.durum", "text"),
-            ]),
-            ("📁 Kalemler (Detay)", "detail_data", [
-                ("Sıra No", "kalem.sira_no", "integer"),
-                ("Ürün Kodu", "kalem.kod", "text"),
-                ("Ürün Açıklaması", "kalem.aciklama", "text"),
-                ("Miktar", "kalem.miktar", "number"),
-                ("Birim", "kalem.birim", "text"),
-                ("Birim Fiyat", "kalem.birim_fiyat", "currency"),
-                ("İskonto Oranı", "kalem.iskonto", "percent"),
-                ("KDV Oranı", "kalem.kdv", "percent"),
-                ("Satır Tutarı", "kalem.tutar", "currency"),
-            ]),
-            ("📁 Finans & Dip Toplam", "report_summary", [
-                ("Ara Toplam", "toplamlar.ara_toplam", "currency"),
-                ("İskonto Tutarı", "toplamlar.iskonto", "currency"),
-                ("KDV Matrahı", "toplamlar.kdv_matrahi", "currency"),
-                ("KDV Tutarı", "toplamlar.kdv_toplam", "currency"),
-                ("Genel Toplam", "toplamlar.genel_toplam", "currency"),
-                ("Yazıyla Genel Toplam", "[YAZIYLA(toplamlar.genel_toplam, 'TL')]", "expression"),
-            ]),
-            ("📁 Sistem Değişkenleri", "page_footer", [
-                ("Sayfa Numarası", "sistem.sayfa_no", "system_var"),
-                ("Baskı Tarih / Saati", "sistem.baski_tarihi", "system_var"),
-            ]),
-        ]
-
-        for cat_name, target_band, fields in categories:
+        for cat_name, target_band, fields in _kategoriler_for(self.module):
             cat_item = QTreeWidgetItem(self.tree, [cat_name])
             cat_item.setExpanded(True)
             for f_label, f_field, f_fmt in fields:

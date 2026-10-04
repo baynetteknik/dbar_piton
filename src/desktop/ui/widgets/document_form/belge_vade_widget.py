@@ -4,12 +4,20 @@ Evrak numarası, düzenleme tarihi, vade tarihi, döviz türü, döviz kuru ve
 ödeme/teslimat koşullarını yöneten modüler evrak başlık bileşeni.
 """
 
-from typing import Dict, Any
+from typing import Any, Dict
+
+from PyQt6.QtCore import QDate, pyqtSignal
 from PyQt6.QtWidgets import (
-    QWidget, QVBoxLayout, QGridLayout, QLabel, 
-    QLineEdit, QDateEdit, QComboBox, QDoubleSpinBox, QGroupBox
+    QComboBox,
+    QDateEdit,
+    QDoubleSpinBox,
+    QGridLayout,
+    QGroupBox,
+    QLabel,
+    QLineEdit,
+    QVBoxLayout,
+    QWidget,
 )
-from PyQt6.QtCore import Qt, QDate, pyqtSignal
 
 
 class BelgeVadeDetaylariWidget(QWidget):
@@ -52,6 +60,11 @@ class BelgeVadeDetaylariWidget(QWidget):
         grid.setContentsMargins(10, 8, 10, 8)
 
         input_style = "padding: 5px; border: 1px solid #cbd5e1; border-radius: 4px; font-size: 11px; background: white;"
+        combo_style = (
+            "QComboBox { padding: 5px; border: 1px solid #cbd5e1; border-radius: 4px; font-size: 11px; background: white; combobox-popup: 0; }"
+            " QComboBox QAbstractItemView { outline: 0; border: 1px solid #cbd5e1; background: white; padding: 0px; }"
+            " QComboBox QAbstractItemView::item { padding: 3px 6px; min-height: 20px; }"
+        )
 
         # 1. Evrak No
         grid.addWidget(QLabel("Evrak No:"), 0, 0)
@@ -80,7 +93,7 @@ class BelgeVadeDetaylariWidget(QWidget):
         grid.addWidget(QLabel("Döviz:"), 1, 0)
         self.cmb_currency = QComboBox()
         self.cmb_currency.addItems(["TRY (₺)", "USD ($)", "EUR (€)", "GBP (£)"])
-        self.cmb_currency.setStyleSheet(input_style)
+        self.cmb_currency.setStyleSheet(combo_style)
         grid.addWidget(self.cmb_currency, 1, 1)
 
         grid.addWidget(QLabel("Kur:"), 1, 2)
@@ -95,7 +108,7 @@ class BelgeVadeDetaylariWidget(QWidget):
         grid.addWidget(QLabel("Ödeme Şartı:"), 1, 4)
         self.cmb_payment_term = QComboBox()
         self.cmb_payment_term.addItems(["30 Gün Vade", "Peşin / Nakit", "Havale / EFT", "Kredi Kartı (Tek Çekim)", "60 Gün Vade", "90 Gün Vade"])
-        self.cmb_payment_term.setStyleSheet(input_style)
+        self.cmb_payment_term.setStyleSheet(combo_style)
         grid.addWidget(self.cmb_payment_term, 1, 5)
 
         main_lyt.addWidget(self.grp_box)

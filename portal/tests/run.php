@@ -127,7 +127,33 @@ check('tutarsız karşı teklif reddedilir', $s3->decide($t5, 'counter', 'x', 0)
 check('karşı teklif kaydedilir', $s3->decide($t5, 'counter', 'İndirim', 900.0)['ok']);
 $vv = $s3->view($t5)['data'];
 check('karşı teklif durumu değiştirmez', $vv['status'] === 'published' && $vv['action_taken'] === 'countered');
+check('ikinci karşı teklif (tekrar indirim isteme) engellenir', $s3->decide($t5, 'counter', 'Daha', 800.0)['error'] === 'counter_already_sent');
 check('karşı tekliften sonra kabul edilebilir', $s3->decide($t5, 'accept')['ok']);
+
+echo "geçerlilik tarihi (valid_until) ve yönetici listesi\n";
+$cv = $now;
+$sv = new PortalService(db(), 365, function () use (&$cv) { return $cv; });
+$vu = gmdate('Y-m-d H:i:s', $now + 2 * 86400);
+$tv1 = $sv->publish(payload(['external_ref' => 'V1', 'valid_until' => $vu]))['token'];
+$tv2 = $sv->publish(payload(['external_ref' => 'V2', 'valid_until' => null]))['token'];
+$tv3 = $sv->publish(payload(['external_ref' => 'V3', 'valid_until' => gmdate('Y-m-d', $now + 2 * 86400) . ' 00:00:00']))['token'];
+check('süre dolmadan görüntülenir', $sv->view($tv1)['ok']);
+$cv = $now + 2 * 86400 - 60;
+check('son dakikada hâlâ üç teklif de bekliyor', $sv->counts()['bekleyen'] === 3);
+$cv = $now + 2 * 86400 + 3600;
+check('süre dolunca karar alınamaz (expired)', $sv->decide($tv1, 'accept')['error'] === 'expired');
+check('süre dolunca görüntülenemez', $sv->view($tv1)['error'] === 'expired');
+check('tarihi olmayan teklif dolmaz', $sv->view($tv2)['ok']);
+check('saatsiz tarih o günün sonuna kadar geçerli', $sv->view($tv3)['ok']);
+$cv = $now + 3 * 86400;
+check('saatsiz tarih ertesi gün dolar', $sv->view($tv3)['error'] === 'expired');
+$cnt = $sv->counts();
+check('sekme sayaçları: süresi dolan 2, bekleyen 1', $cnt['suresi'] === 2 && $cnt['bekleyen'] === 1);
+check('liste süresi dolanları verir', count($sv->listPublications('suresi')) === 2);
+check('süre dolumu olayı TOYA’ya iletilir', count(array_filter($sv->decisions(0), fn($e) => $e['event_type'] === 'expire')) === 2);
+check('detay olay geçmişini verir', ($sv->detail((int)$sv->listPublications('suresi')[0]['id'])['events'][0]['event_type'] ?? '') === 'expire');
+$rp = $sv->publish(payload(['external_ref' => 'V1', 'valid_until' => gmdate('Y-m-d H:i:s', $cv + 86400)]));
+check('süresi dolan teklif yeniden yayınlanınca canlanır', $rp['ok'] && $sv->view($rp['token'])['ok']);
 $t6 = $s3->publish(payload(['external_ref' => 'TKL-004', 'allow_counter' => false]))['token'];
 check('karşı teklife izin yoksa reddedilir', $s3->decide($t6, 'counter', null, 100.0)['error'] === 'counter_not_allowed');
 
@@ -488,6 +514,22 @@ $rb = $u->apply($bad);
 check('migrasyon hatasında kurulum başarısız', $rb['ok'] === false && strpos((string)$rb['error'], 'Migrasyon başarısız') !== false);
 check('  → dosyalar yedekten geri yüklendi, yeni dosya silindi', $rb['restored'] === true && file_get_contents($root . '/src/a.php') === '<?php // yeni' && !is_file($root . '/src/added.php'));
 check('  → VERSION değişmedi (1.1.0)', $u->currentVersion() === '1.1.0');
+
+// Masaüstünün FTP'den sonra çağırdığı otomatik kurulum API ucu (bkz. bootstrap.php::portal_route '/update/apply')
+mkdir($root . '/update_inbox', 0777, true);
+buildPkg($root . '/update_inbox/toya-portal-1.4.0.zip', UPD_SECRET, '1.4.0', ['src/a.php' => '<?php // 1.4.0', 'VERSION' => "1.4.0\n"]);
+$svc = new Toya\Portal\PortalService($upd, 30);
+[$code, $out] = portal_route($svc, 'POST', '/update/apply', ['package' => 'toya-portal-1.4.0.zip'], [], true, null, null, null, null, $u);
+check('API: yetkili ajan paketi kurar', $code === 200 && $out['ok'] === true && $out['to'] === '1.4.0');
+check('  → kurulan paket update_inbox/den storage/applied/e taşındı', !is_file($root . '/update_inbox/toya-portal-1.4.0.zip') && is_file($root . '/storage/applied/toya-portal-1.4.0.zip'));
+[$code2] = portal_route($svc, 'POST', '/update/apply', ['package' => 'toya-portal-1.4.0.zip'], [], false, null, null, null, null, $u);
+check('API: agent_api_key olmadan reddedilir', $code2 === 401);
+[$code3, $out3] = portal_route($svc, 'POST', '/update/apply', ['package' => '../../etc/passwd'], [], true, null, null, null, null, $u);
+check('API: geçersiz paket adı reddedilir', $code3 === 400 && $out3['ok'] === false);
+[$code4] = portal_route($svc, 'POST', '/update/apply', ['package' => 'toya-portal-9.9.9.zip'], [], true, null, null, null, null, $u);
+check('API: sunucuda olmayan paket 404', $code4 === 404);
+[$code5] = portal_route($svc, 'POST', '/update/apply', ['package' => 'toya-portal-1.4.0.zip'], [], true, null, null, null, null, null);
+check('API: Updater bağlanmamışsa 500', $code5 === 500);
 rmtree($base);
 
 echo "kurulum sihirbazı\n";

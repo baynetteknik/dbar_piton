@@ -23,12 +23,13 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
+from src.desktop.services import portal_secret_store
 from src.desktop.services.settings_store import get_setting, set_setting
 
 PACKAGE_NAME = "toya-portal"
 FORMAT = 1
 ALLOWED_DIRS = ("src", "public", "migrations", "bin")
-ALLOWED_ROOT_FILES = (".htaccess", "VERSION", "config.sample.php")
+ALLOWED_ROOT_FILES = (".htaccess", "VERSION", "config.sample.php", "index.php")
 _EXCLUDE = re.compile(r"(\.bak$|\.new\.|~$|(^|/)\.DS_Store$|(^|/)Thumbs\.db$|\.sqlite$|\.log$)", re.IGNORECASE)
 _VERSION_RE = re.compile(r"^\d+\.\d+\.\d+$")
 
@@ -47,11 +48,28 @@ def generate_secret() -> str:
 
 def get_or_create_secret(db) -> str:
     """Ayarlarda kayıtlı `update_secret`'ı döner; yoksa üretip kaydeder."""
-    s = get_setting(db, KEY_SECRET, "") or ""
+    s = portal_secret_store.al(db, KEY_SECRET)
     if not s:
         s = generate_secret()
-        set_setting(db, KEY_SECRET, s)
+        portal_secret_store.yaz(db, KEY_SECRET, s)
     return s
+
+
+#: portal/src/Updater.php::MIN_SECRET_LENGTH ile aynı olmalı.
+MIN_SECRET_LENGTH = 32
+
+
+def set_secret(db, value: str) -> str:
+    """`update_secret`'ı ELLE belirler: kurulum sihirbazı sunucuda kendi anahtarını üretip BİR KEZ gösterir
+    (bkz. `install.php`); ilk kurulumda o anahtar burada AYNEN girilmelidir (TOYA kendi anahtarını üretip
+    sunucununkiyle çakışmamalı). @raise ValueError anahtar çok kısa ya da örnek (DEGISTIR...) değerdeyse"""
+    value = value.strip()
+    if len(value) < MIN_SECRET_LENGTH:
+        raise ValueError(f"Anahtar en az {MIN_SECRET_LENGTH} karakter olmalıdır.")
+    if value.upper().startswith("DEGISTIR"):
+        raise ValueError("Bu bir örnek/yer tutucu değer; gerçek anahtarı girin.")
+    portal_secret_store.yaz(db, KEY_SECRET, value)
+    return value
 
 
 def suggest_next_version(db, portal_dir: Path = DEFAULT_PORTAL_DIR) -> str:

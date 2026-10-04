@@ -68,12 +68,24 @@ class ViewProfileBar(QWidget):
                 background-color: #ffffff;
                 color: #0f172a;
                 font-weight: 500;
+                combobox-popup: 0;
             }
             QComboBox:hover {
                 border-color: #3b82f6;
             }
             QComboBox::drop-down {
                 border: none;
+            }
+            QComboBox QAbstractItemView {
+                border: 1px solid #cbd5e1;
+                background-color: #ffffff;
+                color: #0f172a;
+                outline: 0;
+                padding: 0px;
+            }
+            QComboBox QAbstractItemView::item {
+                padding: 3px 6px;
+                min-height: 20px;
             }
         """)
         self.combo_profiles.currentTextChanged.connect(self._on_combo_changed)

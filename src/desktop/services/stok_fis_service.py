@@ -11,7 +11,14 @@ from datetime import date, datetime
 
 from sqlalchemy import func, or_, select
 
-from src.core.models import Product, StockMovement, StokFis, StokHareket, WarehouseDefinition
+from src.core.models import (
+    Product,
+    StockMovement,
+    StokFis,
+    StokHareket,
+    WarehouseDefinition,
+)
+from src.desktop.services import numara_servisi
 
 # tür kodu -> (etiket, işaret). Sayımın etkisi sayılan − mevcut farkıdır; transferin toplam etkisi sıfırdır.
 TURLER: dict[str, tuple[str, int | None]] = {
@@ -90,11 +97,8 @@ class StokFisService:
 
     # ---- yazma -----------------------------------------------------------------
     def sonraki_fis_no(self) -> str:
-        en_buyuk = 0
-        for (no,) in self.db.execute(select(StokFis.fis_no)):
-            if str(no).isdigit():
-                en_buyuk = max(en_buyuk, int(no))
-        return f"{en_buyuk + 1:06d}"
+        """Bir sonraki boş fiş numarası (numara şablonundan; bkz. `numara_servisi`)."""
+        return numara_servisi.fis_onizle(self.db, "stok_fis")
 
     def _etkiyi_geri_al(self, h: StokHareket) -> None:
         p = self.db.get(Product, h.product_id)
@@ -162,6 +166,7 @@ class StokFisService:
             else:
                 fis = StokFis()
             fis.fis_no = (baslik.get("fis_no") or "").strip() or self.sonraki_fis_no()
+            numara_servisi.fis_kullanildi(self.db, "stok_fis", fis.fis_no)
             fis.tarih = baslik.get("tarih") or date.today()
             fis.saat = baslik.get("saat") or datetime.now().strftime("%H:%M:%S")
             for alan in ("belge_no", "ozel_kod", "yetki_kodu", "aciklama1", "aciklama2", "aciklama3"):
@@ -224,6 +229,7 @@ class StokFisService:
             self._etkiyi_geri_al(h)
             h.is_deleted = True
         fis.is_deleted = True
+        numara_servisi.fis_silindi(self.db, "stok_fis", fis.fis_no)          # son numaraysa geri verilir
         self.db.commit()
 
     # ---- okuma -------------------------------------------------------------------

@@ -73,6 +73,58 @@ class ThreePanelBaseWidget(QWidget):
 
         self.init_base_ui()
         register_layout_hint(self, self.module_name, "Ana Kapsayıcı (3-Panelli Düzen)")
+        self._profil_bolumu_ekle()
+        self._bus_bagla()
+
+    #: True ise sol panelin sonuna ortak "GÖRÜNÜM PROFİLLERİ" bölümü eklenir (aktif profil, kaydet, sütunlar).
+    PROFIL_BOLUMU: bool = False
+
+    def _profil_bolumu_ekle(self) -> None:
+        if not self.PROFIL_BOLUMU or not hasattr(self, "left_layout") or not hasattr(self, "filterable_table"):
+            return
+        from PyQt6.QtWidgets import QSpacerItem
+
+        from src.desktop.ui.widgets.gorunum_profilleri_bolumu import GorunumProfilleriBolumu
+        self.sec_profiles = GorunumProfilleriBolumu(self.filterable_table)
+        n = self.left_layout.count()
+        son_bosluk = n and isinstance(self.left_layout.itemAt(n - 1), QSpacerItem)
+        self.left_layout.insertWidget(n - 1 if son_bosluk else n, self.sec_profiles)
+
+    #: Bu ekranın dinlediği veri konuları (bkz. services/veri_bus.KONULAR). Boşsa canlı yenileme yoktur.
+    BUS_KONULARI: tuple[str, ...] = ()
+
+    def _bus_bagla(self) -> None:
+        if not self.BUS_KONULARI:
+            return
+        from PyQt6.QtCore import QTimer
+
+        from src.desktop.services import veri_bus
+        veri_bus.kur()
+        self._bus_bayat = False
+        self._bus_zamanlayici = QTimer(self)
+        self._bus_zamanlayici.setSingleShot(True)
+        self._bus_zamanlayici.setInterval(200)          # art arda gelen yayınlar tek yenilemede birleşir
+        self._bus_zamanlayici.timeout.connect(self._bus_yenile)
+        veri_bus.veri_bus().degisti.connect(self._bus_geldi)
+
+    def _bus_geldi(self, konu: str) -> None:
+        if konu in self.BUS_KONULARI:
+            self._bus_zamanlayici.start()
+
+    def _bus_yenile(self) -> None:
+        if not self.isVisible():                        # görünmeyen (başka sekmedeki) ekran açılınca yenilenir
+            self._bus_bayat = True
+            return
+        self._bus_bayat = False
+        try:
+            self.refresh_table()
+        except Exception:  # noqa: BLE001 — canlı yenileme hatası ekranı bozmasın
+            logger.exception("Canlı yenileme başarısız (%s)", self.module_name)
+
+    def showEvent(self, event) -> None:  # noqa: N802
+        super().showEvent(event)
+        if getattr(self, "_bus_bayat", False):
+            self._bus_yenile()
 
     def setup_headers_dict(self) -> dict[int, tuple[str, str]]:
         """

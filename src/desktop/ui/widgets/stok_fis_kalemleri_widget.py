@@ -16,6 +16,7 @@ from PyQt6.QtGui import QBrush, QColor, QKeySequence, QShortcut
 from sqlalchemy import select
 
 from src.core.models import Product, StokHareket
+from src.desktop.services import sayi_bicimi
 from src.desktop.services.stok_fis_service import TURLER
 from src.desktop.ui.widgets.fis_kalem_grid import FisKalemGrid, KolonTanimi, fmt_num
 from src.desktop.ui.widgets.lookup_cell_delegate import LookupCellDelegate
@@ -28,9 +29,9 @@ KOLONLAR = [
     KolonTanimi("ad", "STOK ADI", 0.21, "L", "lookup", nav_atla=True),
     KolonTanimi("depo", "DEPO", 0.06, "C", "combo"),
     KolonTanimi("hedef", "HEDEF", 0.06, "C", "combo", tam_ad="HEDEF DEPO"),
-    KolonTanimi("miktar", "MİKTAR", 0.08, "R", "para", ondalik=3),
+    KolonTanimi("miktar", "MİKTAR", 0.08, "R", "para", ondalik="miktar"),
     KolonTanimi("birim", "BİRİM", 0.05, "C", "readonly"),
-    KolonTanimi("fiyat", "B.FİYAT", 0.08, "R", "para", ondalik=2, tam_ad="BİRİM FİYAT"),
+    KolonTanimi("fiyat", "B.FİYAT", 0.08, "R", "para", ondalik="fiyat", tam_ad="BİRİM FİYAT"),
     KolonTanimi("tutar", "TUTAR", 0.09, "R", "readonly"),
     KolonTanimi("not", "NOT", 0.15, "L"),
 ]
@@ -41,7 +42,7 @@ _TUR_ANAHTAR = {v: k for k, v in _TUR_ETIKET.items()}
 
 
 def miktar_metni(v: float) -> str:
-    return fmt_num(v, 3)
+    return fmt_num(v, "miktar")
 
 
 class StokFisKalemleriWidget(FisKalemGrid):
@@ -171,7 +172,7 @@ class StokFisKalemleriWidget(FisKalemGrid):
         self.set_text(r, "ad", u["name"])
         self.set_text(r, "birim", u["unit"])
         if not self.sayi(r, "fiyat"):
-            self.set_text(r, "fiyat", fmt_num(u["purchase_price"]) if u["purchase_price"] else "")
+            self.set_text(r, "fiyat", fmt_num(u["purchase_price"], "fiyat") if u["purchase_price"] else "")
 
     def urun_yaz(self, r: int, u: dict) -> None:
         """Seçilen stok kartını satıra yazar ve satırın türevlerini (tutar, boş satır, toplam, özet) günceller."""
@@ -207,7 +208,7 @@ class StokFisKalemleriWidget(FisKalemGrid):
         m, f = self.sayi(r, "miktar"), self.sayi(r, "fiyat")
         if m:
             self.set_text(r, "miktar", miktar_metni(m))
-        self.set_text(r, "tutar", fmt_num(round(m * f, 2)) if m and f else "")
+        self.set_text(r, "tutar", fmt_num(round(m * f, sayi_bicimi.hane("tutar"))) if m and f else "")
 
     def _emit_urun(self, r: int) -> None:
         pid = self.kimlik(r, "kod") if 0 <= r < self.grid.rowCount() else None
@@ -235,7 +236,7 @@ class StokFisKalemleriWidget(FisKalemGrid):
             r = self.add_row({
                 "tur": _TUR_ETIKET[h.tur], "kod": p.sku, "ad": p.name or "", "depo": self._id_kod.get(h.depo_id, ""),
                 "hedef": self._id_kod.get(h.hedef_depo_id, "") if h.hedef_depo_id else "", "miktar": miktar_metni(h.miktar),
-                "birim": h.birim or p.unit or "Adet", "fiyat": fmt_num(h.birim_fiyat) if h.birim_fiyat else "",
+                "birim": h.birim or p.unit or "Adet", "fiyat": fmt_num(h.birim_fiyat, "fiyat") if h.birim_fiyat else "",
                 "tutar": fmt_num(h.tutar) if h.tutar else "", "not": h.aciklama or ""})
             self.set_kimlik(r, "tur", h.id)
             self.set_kimlik(r, "kod", h.product_id)

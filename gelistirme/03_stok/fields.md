@@ -40,3 +40,25 @@
    - `is_ecommerce` (Boolean, Default: False) -> WooCommerce/Trendyol Senkronu
    - `weight` / `desi` (Numeric 8,2) -> Ağırlık / Desi
    - `description` (Textarea)
+6. **Hizmet Tanımları (2026-09-29):** Stok kartıyla aynı `Product` tablosu, `product_type = "Hizmet"` seçildiğinde anlamlı olan ek alanlar — Stok Kartı ekranının "7. Muhasebe & Hizmet" bölümünde ve "3. Stok Takibi" / "5. KDV" bölümlerinde yer alır:
+   - `tracks_stock` (Boolean, Default: True) -> "Stok takibi yapılır" — Hizmet/Masraf kartlarında kapatılır; kapalıyken bu ürünü içeren fiş satırları stok hareketi üretmez ve depo seçimi istemez (bkz. `BelgeHareketService.isle()`)
+   - `sales_account_code` (Text, Max: 20) -> Satış Hesap Kodu (ör. "600 Yurtiçi Satışlar")
+   - `purchase_account_code` (Text, Max: 20) -> Alış/Gider Hesap Kodu (ör. "770 Genel Yönetim Giderleri")
+   - `vat_withholding_rate` (Select/Katalog: "9/10", "7/10", "5/10", "3/10", "2/10", "1/2") -> KDV Tevkifatı (KDVK Md. 9)
+   - `nondeductible_expense` (Boolean, Default: False) -> KKEG (Kanunen Kabul Edilmeyen Gider)
+   - `invoice_description_template` (Text, Max: 255) -> Fatura Açıklama Şablonu (ör. "{ay} dönemi danışmanlık hizmet bedeli")
+7. **Masraf Tanımları (2026-09-30):** `product_type = "Masraf"` kartlarına özel, Stok Kartı ekranının "8. Masraf Tekrarı" bölümünde yer alan alanlar:
+   - `is_recurring_expense` (Boolean, Default: False) -> "Düzenli Ödenen" (ör. kira, abonelik — her ay tekrar eder)
+   - `recurring_due_day` (Integer, 1-31) -> Ödeme Günü (ayın kaçı)
+   - `recurring_reminder_days_before` (Integer, 0-30, Default: 3) -> Kaç gün önce hatırlatılsın
+   - İşaretlendiğinde Görevler modülünde aylık tekrarlı bir hatırlatma görevi otomatik açılır/güncellenir (bkz. `gelistirme/10_gorevler_notlar/fields_and_schema.md` → "Masraf Tanımları Entegrasyonu").
+
+### Ekran ayrımı (2026-09-30)
+Hizmet ve Masraf tanımları artık Stok Kartı ile AYNI tabloyu ve kart editörünü paylaşır ama STOK menüsü altında AYRI, `product_type`'a
+göre önceden filtrelenmiş liste ekranları olarak açılır — mimari tekilleştirilmiş (DRY), ekranlar ayrı:
+- **STOK › Ürün Yönetimi** — `product_type` "Hizmet"/"Masraf" DIŞINDAKİ kartlar (`StokListScreen(kart_modu="stok")`), etiketler "Stok Kodu/Stok Adı"
+- **STOK › Hizmet Tanımları** — yalnız `product_type = "Hizmet"` (`StokListScreen(kart_modu="hizmet")`), etiketler "Ürün Kodu/Ürün Adı"
+- **STOK › Masraf Tanımları** — yalnız `product_type = "Masraf"` (`StokListScreen(kart_modu="masraf")`), etiketler "Ürün Kodu/Ürün Adı"
+
+Uygulama: `src/desktop/ui/stok_list_screen.py::KART_MODU_AYARLARI` (filtre + modül adı + profil anahtarı + sütun başlığı),
+`src/desktop/ui/screens/stok_kart_editor.py::_KART_MODU_AYARLARI` (pencere başlığı + alan etiketleri + yeni kayıtta varsayılan tip).

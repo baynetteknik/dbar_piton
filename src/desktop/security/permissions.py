@@ -23,10 +23,11 @@ PERMISSION_GROUPS: list[tuple[str, str, list[tuple[str, str]]]] = [
     ]),
     ("irsaliye", "İrsaliye", [
         ("view", "Görüntüle"), ("create", "Yeni"), ("edit", "Düzenle"), ("delete", "Sil"),
+        ("print", "Yazdır / PDF"),
     ]),
     ("fatura", "Fatura", [
         ("view", "Görüntüle"), ("create", "Yeni"), ("edit", "Düzenle"),
-        ("delete", "Sil"), ("einvoice", "e-Fatura Gönder"),
+        ("delete", "Sil"), ("print", "Yazdır / PDF"), ("einvoice", "e-Fatura / e-Arşiv Gönder"),
     ]),
     ("cari", "Cari Kart", [
         ("view", "Görüntüle"), ("create", "Yeni"), ("edit", "Düzenle"),
@@ -44,11 +45,47 @@ PERMISSION_GROUPS: list[tuple[str, str, list[tuple[str, str]]]] = [
         ("view", "Görüntüle"), ("create", "Yeni"), ("edit", "Düzenle"),
         ("delete", "Sil"), ("movement", "Banka Hareketi"),
     ]),
+    ("cek_senet", "Çek / Senet", [
+        ("view", "Görüntüle"), ("create", "Yeni"), ("edit", "Düzenle"),
+        ("delete", "Sil"), ("movement", "İşlem / Tahsil"),
+    ]),
+    ("personel", "Personel", [
+        ("view", "Görüntüle"), ("create", "Yeni"), ("edit", "Düzenle"), ("delete", "Sil"),
+    ]),
+    ("gorev", "Görevler", [
+        ("view", "Görüntüle"), ("create", "Yeni"), ("edit", "Düzenle"), ("delete", "Sil"),
+    ]),
+    ("doviz", "Döviz & Kur", [
+        ("view", "Görüntüle"), ("fetch", "Kur Çek (TCMB/SP)"),
+        ("edit_rates", "Kur Gir / Düzenle"), ("settings", "Kaynak Yönetimi"),
+    ]),
+    ("numara", "Belge & Seri Numaralandırma", [
+        ("view", "Görüntüle"), ("create", "Yeni Seri"), ("edit", "Seri Düzenle"),
+        ("delete", "Seri Sil"), ("reset_counter", "Sayaç Düzenle"),
+        ("gaps", "Boşluk Analizi"),
+    ]),
+    ("yedekleme", "Yedekleme Merkezi", [
+        ("view", "Görüntüle"), ("backup", "Yedek Al"), ("restore", "Geri Yükle"),
+        ("settings", "Yedek Ayarları"),
+    ]),
+    ("portal", "Online Teklif Portalı", [
+        ("view", "Görüntüle"), ("deploy", "Portal Dağıtım / FTP"),
+        ("publish", "Teklif Yayınla"),
+    ]),
+    ("tasarimci", "Form / Ekran Tasarımcısı", [
+        ("view", "Görüntüle"), ("create", "Yeni Tasarım"),
+        ("edit", "Tasarım Düzenle"), ("delete", "Tasarım Sil"),
+        ("export", "Şablon Dışa Aktar"),
+    ]),
+    ("belge_kilit", "Belge Kilitleme & İptal", [
+        ("lock", "Belge Kilitle"), ("unlock", "Kilit Aç"), ("cancel", "Belge İptal Et"),
+    ]),
     ("rapor", "Raporlar", [
         ("view", "Görüntüle"), ("export", "Dışa Aktar (Excel/PDF)"),
     ]),
     ("ayarlar", "Genel Ayarlar", [
         ("view", "Görüntüle"), ("firma", "Firma Tanımları"),
+        ("numara", "Numara & Seri Yönetimi"),
         ("kullanici", "Kullanıcı & Yetki"), ("tanimlar", "Tüm Tanımlar"),
         ("sistem", "Sistem / Git"),
     ]),
@@ -72,27 +109,32 @@ DEFAULT_ROLES: dict[str, tuple[str, list[str], bool]] = {
             "teklif.send", "teklif.convert",
             "siparis.view", "siparis.create", "siparis.edit", "siparis.print",
             "cari.view", "cari.create", "cari.edit", "cari.balance",
-            "stok.view", "rapor.view", "rapor.export",
+            "stok.view", "doviz.view", "portal.publish", "rapor.view", "rapor.export",
+            "gorev.view", "gorev.create", "gorev.edit",
         ],
         False,
     ),
     "Muhasebe": (
         "Fatura / cari / rapor işlemleri",
         [
-            "fatura.view", "fatura.create", "fatura.edit", "fatura.einvoice",
-            "irsaliye.view",
+            "fatura.view", "fatura.create", "fatura.edit", "fatura.print", "fatura.einvoice",
+            "irsaliye.view", "irsaliye.print",
             "cari.view", "cari.create", "cari.edit", "cari.delete", "cari.balance",
             "kasa.view", "kasa.create", "kasa.edit", "kasa.delete", "kasa.movement",
             "banka.view", "banka.create", "banka.edit", "banka.delete", "banka.movement",
-            "stok.view", "rapor.view", "rapor.export",
+            "cek_senet.view", "cek_senet.create", "cek_senet.edit", "cek_senet.movement",
+            "stok.view", "doviz.view", "doviz.fetch", "doviz.edit_rates",
+            "numara.view", "rapor.view", "rapor.export",
+            "gorev.view", "gorev.create", "gorev.edit",
         ],
         False,
     ),
     "Depo": (
         "İrsaliye ve stok hareketleri",
         [
-            "irsaliye.view", "irsaliye.create", "irsaliye.edit",
+            "irsaliye.view", "irsaliye.create", "irsaliye.edit", "irsaliye.print",
             "stok.view", "stok.movement", "siparis.view",
+            "gorev.view", "gorev.create", "gorev.edit",
         ],
         False,
     ),
@@ -100,7 +142,8 @@ DEFAULT_ROLES: dict[str, tuple[str, list[str], bool]] = {
         "Yalnızca görüntüleme",
         [
             "teklif.view", "siparis.view", "irsaliye.view", "fatura.view",
-            "cari.view", "stok.view", "rapor.view",
+            "cari.view", "stok.view", "kasa.view", "banka.view",
+            "doviz.view", "rapor.view", "gorev.view",
         ],
         False,
     ),

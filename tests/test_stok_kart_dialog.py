@@ -157,8 +157,74 @@ def test_stok_list_screen_integration(qapp, db_session):
     qapp.processEvents()
 
 
+def test_stok_list_screen_kart_modu_hizmet_ve_masraf_ayri_filtrelenir(qapp, db_session):
+    """Hizmet ve Masraf Tanımları (2026-09-30): aynı Stok Kartı iskeleti + Product tablosu, ama
+    STOK menüsü altında ayrı ekranlar (kart_modu) olarak açılır ve product_type'a göre filtrelenir;
+    Ürün Yönetimi artık Hizmet/Masraf kayıtlarını göstermez."""
+    db_session.add_all([
+        Product(sku="STK-9", name="Fiziksel Ürün", product_type="Ticari Mal"),
+        Product(sku="HZ-9", name="Danışmanlık", product_type="Hizmet"),
+        Product(sku="MSR-9", name="Ofis Kirası", product_type="Masraf"),
+    ])
+    db_session.commit()
+
+    stok = StokListScreen(db_session=db_session, company_id=1, kart_modu="stok")
+    stok.refresh_table()
+    stok_isimler = [stok.table_model.item(r, 3).text() for r in range(stok.table_model.rowCount())]
+    assert "Fiziksel Ürün" in stok_isimler
+    assert "Danışmanlık" not in stok_isimler
+    assert "Ofis Kirası" not in stok_isimler
+    assert stok.headers_dict[1][0] == "Stok Kodu"
+
+    hizmet = StokListScreen(db_session=db_session, company_id=1, kart_modu="hizmet")
+    hizmet.refresh_table()
+    hizmet_isimler = [hizmet.table_model.item(r, 3).text() for r in range(hizmet.table_model.rowCount())]
+    assert hizmet_isimler == ["Danışmanlık"]
+    assert hizmet.headers_dict[1][0] == "Ürün Kodu"
+
+    masraf = StokListScreen(db_session=db_session, company_id=1, kart_modu="masraf")
+    masraf.refresh_table()
+    masraf_isimler = [masraf.table_model.item(r, 3).text() for r in range(masraf.table_model.rowCount())]
+    assert masraf_isimler == ["Ofis Kirası"]
+    assert masraf.headers_dict[1][0] == "Ürün Kodu"
+
+    for w in (stok, hizmet, masraf):
+        w.close()
+        w.deleteLater()
+    qapp.processEvents()
+
+
+def test_main_window_hizmet_ve_masraf_tanimlari_menuden_acilir(qapp, db_session):
+    from src.desktop.services.company_service import CompanyService
+    firma_svc = CompanyService(db_session)
+    firma_id = firma_svc.save({**CompanyService.blank_company(), "code": "TST", "short_name": "Test A.Ş."}).company_id
+    firma_svc.aktif_firma_sec(firma_id)  # 2026-09-30: modüller aktif firma gerektiriyor
+
+    window = MainWindow(db_session=db_session)
+    window.show()
+
+    window.open_module_in_tab("Hizmet Tanımları")
+    w1 = window.tab_widget.currentWidget()
+    assert isinstance(w1, StokListScreen)
+    assert w1.kart_modu == "hizmet"
+
+    window.open_module_in_tab("Masraf Tanımları")
+    w2 = window.tab_widget.currentWidget()
+    assert isinstance(w2, StokListScreen)
+    assert w2.kart_modu == "masraf"
+
+    window.close()
+    window.deleteLater()
+    qapp.processEvents()
+
+
 def test_main_window_stok_and_cari_tabs(qapp, db_session):
     """Test opening Stok and Cari tabs from MainWindow."""
+    from src.desktop.services.company_service import CompanyService
+    firma_svc = CompanyService(db_session)
+    firma_id = firma_svc.save({**CompanyService.blank_company(), "code": "TST", "short_name": "Test A.Ş."}).company_id
+    firma_svc.aktif_firma_sec(firma_id)  # 2026-09-30: modüller aktif firma gerektiriyor
+
     window = MainWindow(db_session=db_session)
     window.show()
 

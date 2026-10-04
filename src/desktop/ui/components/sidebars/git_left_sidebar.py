@@ -3,10 +3,18 @@ TOYA ERP - Git Takibi Modüler Sol Sidebar Bileşeni (leftsidebar_git)
 Git operasyonları (Commit & Push, Fetch, Pull, Stash), dal seçimi, görünüm modu ve görev ekleme butonlarını barındırır.
 """
 
-from typing import List, Optional
+from typing import List
+
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtWidgets import (
-    QComboBox, QFrame, QLabel, QPushButton, QVBoxLayout, QHBoxLayout, QWidget, QRadioButton, QButtonGroup
+    QButtonGroup,
+    QComboBox,
+    QFrame,
+    QHBoxLayout,
+    QLabel,
+    QPushButton,
+    QRadioButton,
+    QVBoxLayout,
 )
 
 from src.desktop.managers.theme_manager import ThemeManager
@@ -104,12 +112,24 @@ class GitLeftSidebar(QFrame):
         self.cmb_branch = QComboBox()
         self.cmb_branch.setStyleSheet("""
             QComboBox {
+                combobox-popup: 0;
                 border: 1px solid #cbd5e1;
                 border-radius: 4px;
                 padding: 4px 6px;
                 background-color: #f8fafc;
                 font-size: 11px;
                 font-weight: 600;
+            }
+            QComboBox QAbstractItemView {
+                outline: 0;
+                padding: 0px;
+                border: 1px solid #cbd5e1;
+                background-color: #ffffff;
+                color: #0f172a;
+            }
+            QComboBox QAbstractItemView::item {
+                padding: 3px 6px;
+                min-height: 20px;
             }
         """)
         self.cmb_branch.currentTextChanged.connect(self._on_branch_changed)

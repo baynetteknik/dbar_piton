@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import logging
 
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QAction, QStandardItem
 from PyQt6.QtWidgets import (
     QLabel,
@@ -25,6 +25,7 @@ from PyQt6.QtWidgets import (
 from src.desktop.services.company_service import CompanyService
 from src.desktop.ui.components.collapsible_section import CollapsibleSection
 from src.desktop.ui.components.three_panel_base import ThreePanelBaseWidget
+from src.desktop.ui.dialogs.firma_sihirbazi_dialog import FirmaSihirbaziDialog
 from src.desktop.ui.screens.firma_editor import FirmaEditorDialog
 
 logger = logging.getLogger(__name__)
@@ -32,6 +33,8 @@ logger = logging.getLogger(__name__)
 
 class FirmaListWidget(ThreePanelBaseWidget):
     """Firma tanımları yönetim listesi."""
+
+    companies_updated = pyqtSignal()
 
     def __init__(self, db_session=None, parent=None, embedded: bool = False):
         self.service = CompanyService(db_session=db_session)
@@ -75,8 +78,9 @@ class FirmaListWidget(ThreePanelBaseWidget):
     def setup_right_panel_content(self, container, layout) -> None:
         sec = CollapsibleSection("FİRMA İŞLEMLERİ", is_expanded=True)
         for text, slot, style in (
-            ("➕ Yeni Firma", self.add_new, "#16a34a"),
-            ("✏️ Düzenle", self.edit_selected, "#2563eb"),
+            ("🧙 Şirket Sihirbazı", self.add_wizard, "#059669"),
+            ("➕ Yeni Firma (Manuel)", self.add_new, "#2563eb"),
+            ("✏️ Düzenle", self.edit_selected, "#3b82f6"),
             ("🗑️ Sil", self.delete_selected, "#ef4444"),
             ("🔄 Yenile", self.load_data, "#64748b"),
         ):
@@ -138,10 +142,17 @@ class FirmaListWidget(ThreePanelBaseWidget):
         return int(it.text()) if it and it.text().isdigit() else None
 
     # ------------------------------------------------------------------
+    def add_wizard(self):
+        dlg = FirmaSihirbaziDialog(db_session=self.db, parent=self)
+        dlg.exec()
+        self.load_data()
+        self.companies_updated.emit()
+
     def add_new(self):
         dlg = FirmaEditorDialog(db_session=self.db, company_id=None, parent=self)
-        if dlg.exec():
-            self.load_data()
+        dlg.exec()
+        self.load_data()
+        self.companies_updated.emit()
 
     def edit_selected(self):
         cid = self._selected_id()
@@ -149,8 +160,9 @@ class FirmaListWidget(ThreePanelBaseWidget):
             QMessageBox.information(self, "Uyarı", "Düzenlenecek firmayı seçin.")
             return
         dlg = FirmaEditorDialog(db_session=self.db, company_id=cid, parent=self)
-        if dlg.exec():
-            self.load_data()
+        dlg.exec()
+        self.load_data()
+        self.companies_updated.emit()
 
     def delete_selected(self):
         cid = self._selected_id()
@@ -165,17 +177,21 @@ class FirmaListWidget(ThreePanelBaseWidget):
             return
         if self.service.delete(cid):
             self.load_data()
+            self.companies_updated.emit()
         else:
             QMessageBox.critical(self, "Hata", "Firma silinemedi.")
 
     def _context_menu(self, pos):
         menu = QMenu(self)
-        a_new = QAction("➕ Yeni Firma", self)
+        a_wiz = QAction("🧙 Şirket Sihirbazı", self)
+        a_wiz.triggered.connect(self.add_wizard)
+        a_new = QAction("➕ Yeni Firma (Manuel)", self)
         a_new.triggered.connect(self.add_new)
         a_edit = QAction("✏️ Düzenle", self)
         a_edit.triggered.connect(self.edit_selected)
         a_del = QAction("🗑️ Sil", self)
         a_del.triggered.connect(self.delete_selected)
+        menu.addAction(a_wiz)
         menu.addAction(a_new)
         if self.table_view.indexAt(pos).isValid():
             menu.addAction(a_edit)

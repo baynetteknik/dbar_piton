@@ -35,3 +35,14 @@
 - [x] Kasa Kartı editörü ve liste ekranı (`FinansHesapEditorDialog`, `FinansHesapListScreen`, KASA & BANKA menüsü). Veri `finans_hesap` tablosunda (tur=kasa): kod, ad, döviz, sorumlu, açılış bakiyesi, açıklama, durum. Ayrı `cashboxes` tablosu yerine ortak `FinansHesap` kullanıldı.
 - [ ] Kasa hareketleri (`KASATAH001` / `KASATED001`) ve anlık bakiye — kasa hareket ekranı ile birlikte
 - [ ] Cari fişindeki Araç=Kasa satırlarından otomatik kasa hareketi üretimi
+
+## ✅ KASA HAREKETLERİ (uygulanan) — 07.02–07.04
+- [x] `FinansFis` + `FinansHareket` modelleri (kasa ve banka ortak). Tek satır = tek hesap hareketi; virman `hesap`tan çıkar, `karşı hesap`a girer.
+- [x] `finans_fis_service.py`: fiş kaydı (satır bazlı tür/hesap/cari/döviz/kur), yön türden belli, döviz kısıtı kontrolü, kilitli fiş, gizleme (fiziksel silme yok), liste/özet.
+- [x] Kasa fiş türleri: Tahsilat (F2), Tediye (F3), Açılış, Virman. Açılış bakiyesi kartta değil "Kasa Açılış" satırında girilir.
+- [x] Carili satır (tahsilat/tediye) cari defterinde `CariHareket` (kaynak='finans') karşılığını üretir; satır değişince/silinince/fiş gizlenince karşılık da izler. Hesap bakiyesi `FinansHareket`'ten gelir (`fin_hesap_id` boş bırakılır) → çift sayım yok.
+- [x] Ekranlar: KASA & BANKA › **Kasa Hareketleri** (3 panelli liste, filtre, toplam, fişi aç/gizle, Excel), fiş penceresi `FinansFisDialog` (FisDialogBase + FisKalemGrid iskeleti; yazdır/PDF/Excel).
+- [x] Kasa Kartları listesi sol paneli "HAREKET GİRİŞİ": seçili kasayla fiş açar; bakiye ve alt panel yenilenir.
+- [x] `hesap_hareketleri`: cari fişindeki "Araç=Kasa" satırları + kasa/banka fişleri birleşik, döviz bazlı yürüyen bakiye.
+- [ ] Cari fişindeki Araç=Kasa/Banka satırlarının otomatik `FinansHareket` üretmesi (şimdilik hesap hareketleri cari satırı doğrudan okur; birleştirme bir sonraki adım).
+- [ ] Geri alma / tam denetim günlüğü (kullanıcı ileriye aldı).

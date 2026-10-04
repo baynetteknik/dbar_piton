@@ -266,11 +266,15 @@ class HareketKalemleriWidget(QWidget):
         QComboBox {
             border:1px solid #cbd5e1; border-radius:3px;
             padding:0 3px; font-size:9px; background:#fff;
-            min-height:0px;
+            min-height:0px; combobox-popup: 0;
         }
         QComboBox QAbstractItemView {
-            background:#1e293b; color:#ffffff;
-            selection-background-color:#3b82f6;
+            background:#ffffff; color:#1e293b;
+            selection-background-color:#dbeafe; selection-color:#1e3a8a;
+            outline: 0; padding: 0px; border: 1px solid #cbd5e1;
+        }
+        QComboBox QAbstractItemView::item {
+            padding: 3px 6px; min-height: 18px;
         }
     """
     FIELD_STYLE = """
@@ -317,6 +321,7 @@ class HareketKalemleriWidget(QWidget):
         """DB'den stok kartlarını yükle."""
         try:
             from sqlalchemy import select
+
             from src.core.models import Product
             rows = self.db.scalars(
                 select(Product).where(Product.is_deleted == False)
@@ -758,6 +763,7 @@ class HareketKalemleriWidget(QWidget):
         if not p and self.db:
             try:
                 from sqlalchemy import select
+
                 from src.core.models import Product
                 prod = self.db.scalar(
                     select(Product).where(
@@ -800,6 +806,7 @@ class HareketKalemleriWidget(QWidget):
         if not p and self.db:
             try:
                 from sqlalchemy import select
+
                 from src.core.models import Product
                 prod = self.db.scalar(
                     select(Product).where(
@@ -1281,7 +1288,8 @@ class HareketKalemleriWidget(QWidget):
     # ─────────────────────────────────────────────
 
     def _save_profile(self):
-        import json, os
+        import json
+        import os
         profile = {
             str(c): {
                 "width":  self.table.columnWidth(c),

@@ -13,6 +13,7 @@ require_once __DIR__ . '/BackupService.php';
 use Toya\Portal\BackupService;
 use Toya\Portal\MirrorService;
 use Toya\Portal\PortalService;
+use Toya\Portal\Updater;
 
 /**
  * config.local.php (repoya girmez) şu anahtarları döndürür:
@@ -74,6 +75,13 @@ function portal_mirror(?PDO $pdo = null): MirrorService
     return new MirrorService($pdo ?? portal_pdo());
 }
 
+function portal_updater(?PDO $pdo = null): Updater
+{
+    $root = dirname(__DIR__);
+    $secret = (string)(portal_config()['update_secret'] ?? '');
+    return new Updater($pdo ?? portal_pdo(), $root, $secret);
+}
+
 function json_out(array $payload, int $code = 200): void
 {
     http_response_code($code);
@@ -101,12 +109,13 @@ function json_body(): array
  */
 function portal_route(
     PortalService $svc, string $method, string $path, array $body, array $query,
-    bool $isAgent, ?string $ip, ?string $ua, ?MirrorService $mirror = null, ?BackupService $backup = null
+    bool $isAgent, ?string $ip, ?string $ua, ?MirrorService $mirror = null, ?BackupService $backup = null,
+    ?Updater $updater = null
 ): array {
     $errCode = static fn(string $e): int => match ($e) {
         'not_found' => 404,
         'expired', 'revoked' => 410,
-        'already_decided' => 409,
+        'already_decided', 'counter_already_sent' => 409,
         default => 422,
     };
 
@@ -192,6 +201,39 @@ function portal_route(
             return [401, ['ok' => false, 'error' => 'unauthorized']];
         }
         return [200, ['ok' => true, 'decisions' => $svc->decisions((int)($query['after'] ?? 0))]];
+    }
+    // TOYA masaüstü, FTP ile update_inbox/'a paket bıraktıktan SONRA bunu çağırır — yöneticinin ayrıca
+    // update.php'ye girip elle "Kur"a basmasına gerek kalmadan otomatik kurulum. Aynı `agent_api_key`
+    // ile korunur (update_secret paket imzası için ayrı bir amaca hizmet ediyor, burada karıştırılmadı).
+    if ($path === '/update/apply' && $method === 'POST') {
+        if (!$isAgent) {
+            return [401, ['ok' => false, 'error' => 'unauthorized']];
+        }
+        if ($updater === null) {
+            return [500, ['ok' => false, 'error' => 'not_configured']];
+        }
+        $pkgName = basename((string)($body['package'] ?? ''));
+        if (!preg_match('/^toya-portal-\d+\.\d+\.\d+\.zip$/', $pkgName)) {
+            return [400, ['ok' => false, 'error' => 'invalid_package_name']];
+        }
+        $root = $updater->root();
+        $pkgPath = $root . '/update_inbox/' . $pkgName;
+        if (!is_file($pkgPath)) {
+            return [404, ['ok' => false, 'error' => 'package_not_found']];
+        }
+        try {
+            $result = $updater->apply($pkgPath, !empty($body['reinstall']));
+        } catch (\Throwable $e) {
+            return [500, ['ok' => false, 'error' => $e->getMessage()]];
+        }
+        if (!empty($result['ok'])) {
+            $done = $root . '/storage/applied';
+            if (!is_dir($done)) {
+                @mkdir($done, 0755, true);
+            }
+            @rename($pkgPath, $done . '/' . $pkgName);
+        }
+        return [!empty($result['ok']) ? 200 : 500, ['ok' => !empty($result['ok'])] + $result];
     }
 
     // ---- Müşteri (herkese açık, token ile) uçları ----

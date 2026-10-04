@@ -4,6 +4,7 @@ Bu dosya yeni mimariyi TOYA ERP içinde test etmek için hazırlanmış örnek e
 """
 
 from PyQt6.QtWidgets import QMessageBox
+
 from src.desktop.ui.components.base_list_screen import BaseListScreen
 
 

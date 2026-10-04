@@ -17,10 +17,21 @@ from PyQt6.QtGui import QBrush, QColor, QKeySequence, QShortcut
 from sqlalchemy import select
 
 from src.core.models import CariHareket, Currency, Customer
-from src.desktop.services import money_service
-from src.desktop.services.cari_hareket_service import FIS_SATIR_TURLERI, ODEME_ARACLARI, TURLER, arac_etiket
+from src.desktop.services import money_service, sayi_bicimi
+from src.desktop.services.cari_hareket_service import (
+    FIS_SATIR_TURLERI,
+    ODEME_ARACLARI,
+    TURLER,
+    arac_etiket,
+)
 from src.desktop.ui.widgets.cari_cell_delegate import CariCellDelegate
-from src.desktop.ui.widgets.fis_kalem_grid import FisKalemGrid, KolonTanimi, fmt_num, parse_date, parse_num  # noqa: F401
+from src.desktop.ui.widgets.fis_kalem_grid import (  # noqa: F401
+    FisKalemGrid,
+    KolonTanimi,
+    fmt_num,
+    parse_date,
+    parse_num,
+)
 
 PRESET_ID = "dbgrid_cari_fis_kalem"
 ARAC_YOK = "----"                       # kasa/banka etkilenmez; yalnızca cari hareketi
@@ -31,9 +42,9 @@ KOLONLAR = [
     KolonTanimi("kod", "CARİ KODU", 0.09, "L", "lookup"),
     KolonTanimi("unvan", "ÜNVAN", 0.14, "L", "lookup", nav_atla=True),
     KolonTanimi("not", "NOT", 0.11, "L"),
-    KolonTanimi("tutar", "TUTAR", 0.08, "R", "para", ondalik=2),
+    KolonTanimi("tutar", "TUTAR", 0.08, "R", "para", ondalik="tutar"),
     KolonTanimi("doviz", "DVZ", 0.05, "C", "combo", tam_ad="DÖVİZ"),
-    KolonTanimi("kur", "KUR", 0.06, "R", "para", ondalik=4),
+    KolonTanimi("kur", "KUR", 0.06, "R", "para", ondalik="kur"),
     KolonTanimi("yerel", "YEREL TUTAR", 0.09, "R", "readonly"),
     KolonTanimi("vade", "VADE", 0.07, "C", "tarih"),
     KolonTanimi("makbuz", "MAKBUZ", 0.06, "L"),
@@ -78,7 +89,7 @@ class CariFisKalemleriWidget(FisKalemGrid):
         return [ARAC_YOK] + list(ODEME_ARACLARI.values())
 
     def varsayilan_degerler(self) -> dict[str, str]:
-        return {"tur": _TUR_ETIKET[self._varsayilan_tur], "doviz": "TRY", "kur": fmt_num(1.0, 4),
+        return {"tur": _TUR_ETIKET[self._varsayilan_tur], "doviz": self.yerel_para(), "kur": fmt_num(1.0, "kur"),
                 "vade": self._tarih.strftime("%d.%m.%Y"), "arac": ARAC_YOK}
 
     def bos_mu(self, r: int) -> bool:
@@ -127,9 +138,16 @@ class CariFisKalemleriWidget(FisKalemGrid):
             QTimer.singleShot(0, lambda: self.hesap_sec(r, arac_iptalinde_sifirla=True))
 
     # ---- katalog / seçenekler ---------------------------------------------
+    def yerel_para(self) -> str:
+        """Şirketin çalışma (yerel) para birimi; ilk kullanımda okunur (bkz. `money_service.yerel_para`)."""
+        k = getattr(self, "_yerel_kod", None)
+        if k is None:
+            k = self._yerel_kod = money_service.yerel_para(self.db) if self.db is not None else "TRY"
+        return k
+
     def para_kodlari(self) -> list[str]:
         if self._para_kodlari is None:
-            kodlar = ["TRY"]
+            kodlar = [self.yerel_para()]
             if self.db is not None:
                 for c in self.db.scalars(select(Currency).where(Currency.is_deleted == False, Currency.is_active == True)):  # noqa: E712
                     if c.code.upper() not in kodlar:
@@ -250,22 +268,22 @@ class CariFisKalemleriWidget(FisKalemGrid):
 
     # ---- kur / tutar ---------------------------------------------------------
     def _kur_getir(self, r: int) -> None:
-        para = self.text(r, "doviz") or "TRY"
+        para = self.text(r, "doviz") or self.yerel_para()
         try:
-            kur = money_service.get_rate(self.db, para) if self.db is not None else 1.0
+            kur = money_service.kur_bul(self.db, para, self._tarih) if self.db is not None else 1.0          # fiş tarihinin kuru
         except money_service.UnknownCurrencyError:
             kur = 0.0
             self.message.emit(f"{para} için kur tanımlı değil; kuru elle girin.")
-        self.set_text(r, "kur", fmt_num(kur, 4))
+        self.set_text(r, "kur", fmt_num(kur, "kur"))
 
     def _hesapla(self, r: int) -> None:
         tutar, kur = self.sayi(r, "tutar"), self.sayi(r, "kur")
-        if self.text(r, "doviz") in ("", "TRY"):
+        if self.text(r, "doviz") in ("", self.yerel_para()):
             kur = 1.0
-        self.set_text(r, "kur", fmt_num(kur, 4))
+        self.set_text(r, "kur", fmt_num(kur, "kur"))
         if tutar:
             self.set_text(r, "tutar", fmt_num(tutar))
-        self.set_text(r, "yerel", fmt_num(round(tutar * kur, 2)) if tutar else "")
+        self.set_text(r, "yerel", fmt_num(round(tutar * kur, sayi_bicimi.hane("tutar"))) if tutar else "")
 
     def _emit_cari(self, r: int) -> None:
         cid = self.kimlik(r, "kod") if 0 <= r < self.grid.rowCount() else None
@@ -302,14 +320,14 @@ class CariFisKalemleriWidget(FisKalemGrid):
             c = h.customer
             r = self.add_row({
                 "tur": _TUR_ETIKET[h.tur], "kod": c.customer_code or f"CAR-{c.id}", "unvan": c.fullname,
-                "not": h.aciklama or "", "tutar": fmt_num(h.tutar), "doviz": h.para_birimi, "kur": fmt_num(h.kur, 4),
+                "not": h.aciklama or "", "tutar": fmt_num(h.tutar), "doviz": h.para_birimi, "kur": fmt_num(h.kur, "kur"),
                 "yerel": fmt_num(h.tutar_tl), "vade": h.vade.strftime("%d.%m.%Y") if h.vade else "",
                 "makbuz": h.belge_no or "", "arac": arac_etiket(h.odeme_araci) or ARAC_YOK, "hesap": h.hesap or ""})
             self.set_kimlik(r, "tur", h.id)
             self.set_kimlik(r, "kod", h.customer_id)
             if TURLER[h.tur][1] is None:
                 self._busy = True
-                self.item(r, "tur").setData(_YON_ROLE, h.yon)      # yalnız eski döviz cinsli kayıtlar
+                self.item(r, "tur").setData(h.yon, _YON_ROLE)      # yalnız eski döviz cinsli kayıtlar
                 self._busy = False
             if h.fin_hesap_id:
                 self.set_kimlik(r, "hesap", h.fin_hesap_id)
@@ -325,7 +343,7 @@ class CariFisKalemleriWidget(FisKalemGrid):
             tur = _TUR_ANAHTAR.get(self.text(r, "tur"), "tahsilat")
             d = {
                 "_satir": r + 1, "id": self.kimlik(r, "tur"), "customer_id": self.kimlik(r, "kod"), "tur": tur,
-                "tutar": self.sayi(r, "tutar"), "para_birimi": self.text(r, "doviz") or "TRY",
+                "tutar": self.sayi(r, "tutar"), "para_birimi": self.text(r, "doviz") or self.yerel_para(),
                 "kur": self.sayi(r, "kur") or 1.0, "aciklama": self.text(r, "not"),
                 "vade": parse_date(self.text(r, "vade")), "belge_no": self.text(r, "makbuz"),
                 "odeme_araci": _ARAC_ANAHTAR.get(self.text(r, "arac")), "fin_hesap_id": self.kimlik(r, "hesap"),
@@ -344,7 +362,7 @@ class CariFisKalemleriWidget(FisKalemGrid):
                 continue
             tur = _TUR_ANAHTAR.get(self.text(r, "tur"), "tahsilat")
             yon = TURLER[tur][1] or self.item(r, "tur").data(_YON_ROLE) or "borc"
-            t = out.setdefault(self.text(r, "doviz") or "TRY", [0.0, 0.0, 0.0, 0.0])
+            t = out.setdefault(self.text(r, "doviz") or self.yerel_para(), [0.0, 0.0, 0.0, 0.0])
             i = 0 if yon == "borc" else 1
             t[i] += tutar
             t[i + 2] += self.sayi(r, "yerel")

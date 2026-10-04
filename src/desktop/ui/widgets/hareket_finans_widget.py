@@ -83,6 +83,12 @@ class HareketFinansWidget(QFrame):
         "font-size:10px; padding:1px 4px; border:1px solid #cbd5e1; "
         "border-radius:3px; background:#ffffff; color:#0f172a;"
     )
+    COMBO_STYLE = (
+        "QComboBox { font-size:10px; padding:1px 4px; border:1px solid #cbd5e1; "
+        "border-radius:3px; background:#ffffff; color:#0f172a; combobox-popup: 0; }"
+        " QComboBox QAbstractItemView { outline: 0; border: 1px solid #cbd5e1; background: #ffffff; padding: 0px; }"
+        " QComboBox QAbstractItemView::item { padding: 3px 6px; min-height: 18px; }"
+    )
     CHK_STYLE = "font-size:10px; font-weight:600; color:#1e3a8a;"
 
     def __init__(
@@ -96,6 +102,8 @@ class HareketFinansWidget(QFrame):
         self.currencies = currencies or DEFAULT_CURRENCIES
         self.kasalar    = kasalar or DEFAULT_KASALAR
         self.db         = db_session
+        self._tarih     = None                      # belge tarihi: kur o günün kurundan gelir (bkz. `set_tarih`)
+        self._yerel     = self._yerel_bul()
 
         self.setFrameShape(QFrame.Shape.StyledPanel)
         self.setStyleSheet("""
@@ -155,7 +163,7 @@ class HareketFinansWidget(QFrame):
             QSizePolicy.Policy.Expanding,
             QSizePolicy.Policy.Fixed,
         )
-        self.cmb_doviz.setStyleSheet(self.FIELD_STYLE)
+        self.cmb_doviz.setStyleSheet(self.COMBO_STYLE)
         for c in self.currencies:
             self.cmb_doviz.addItem(
                 f"{c['kod']} ({c['sembol']})", c,
@@ -192,7 +200,7 @@ class HareketFinansWidget(QFrame):
             QSizePolicy.Policy.Expanding,
             QSizePolicy.Policy.Fixed,
         )
-        self.cmb_kdv.setStyleSheet(self.FIELD_STYLE)
+        self.cmb_kdv.setStyleSheet(self.COMBO_STYLE)
         self.cmb_kdv.addItems(DEFAULT_KDV_DURUMLARI)
         self.cmb_kdv.currentTextChanged.connect(
             lambda t: (self.kdv_changed.emit(t), self.data_changed.emit()),
@@ -220,7 +228,7 @@ class HareketFinansWidget(QFrame):
             QSizePolicy.Policy.Expanding,
             QSizePolicy.Policy.Fixed,
         )
-        self.cmb_sekil.setStyleSheet(self.FIELD_STYLE)
+        self.cmb_sekil.setStyleSheet(self.COMBO_STYLE)
         self.cmb_sekil.addItems(DEFAULT_SEKLILER)
         self.cmb_sekil.currentIndexChanged.connect(
             lambda: self.data_changed.emit(),
@@ -233,7 +241,7 @@ class HareketFinansWidget(QFrame):
             QSizePolicy.Policy.Expanding,
             QSizePolicy.Policy.Fixed,
         )
-        self.cmb_kasa.setStyleSheet(self.FIELD_STYLE)
+        self.cmb_kasa.setStyleSheet(self.COMBO_STYLE)
         for k in self.kasalar:
             self.cmb_kasa.addItem(k)
         self.cmb_kasa.currentIndexChanged.connect(
@@ -311,11 +319,14 @@ class HareketFinansWidget(QFrame):
                 if rows:
                     self.cmb_doviz.blockSignals(True)
                     self.cmb_doviz.clear()
-                    for r in rows:
+                    kodlar = {r.code.upper(): r for r in rows}
+                    sirali = [self._yerel] + sorted(k for k in kodlar if k != self._yerel)         # yerel para her zaman ilk
+                    for kod in sirali:
+                        r = kodlar.get(kod)
                         c = {
-                            "kod": r.code, "sembol": r.symbol or "",
-                            "kur": float(r.rate or 1),
-                            "aciklama": r.name or "",
+                            "kod": kod, "sembol": (r.symbol if r is not None else ("₺" if kod == "TRY" else kod)) or "",
+                            "kur": self._kur_bul(kod, float(r.rate or 1) if r is not None else 1.0),
+                            "aciklama": (r.name if r is not None else "") or "",
                         }
                         self.cmb_doviz.addItem(
                             f"{c['kod']} ({c['sembol']})", c,
@@ -335,11 +346,11 @@ class HareketFinansWidget(QFrame):
         currency = self.cmb_doviz.currentData()
         if not currency:
             return
-        kur = float(currency.get("kur", 1.0))
-        kod = currency.get("kod", "TRY")
+        kod = currency.get("kod", self._yerel)
+        kur = self._kur_bul(kod, float(currency.get("kur", 1.0)))
 
-        # TRY seçilince kur 1 olur ve readonly
-        if kod == "TRY":
+        # yerel para seçilince kur 1 olur ve readonly
+        if kod == self._yerel:
             self.txt_kur.setText("1.0000")
             self.txt_kur.setReadOnly(True)
             self.txt_kur.setStyleSheet(
@@ -357,6 +368,34 @@ class HareketFinansWidget(QFrame):
     # ─────────────────────────────────────────────
     # YARDIMCI
     # ─────────────────────────────────────────────
+
+    def _yerel_bul(self) -> str:
+        if self.db is None:
+            return "TRY"
+        from src.desktop.services import money_service
+        return money_service.yerel_para(self.db)
+
+    def _kur_bul(self, kod: str, yedek: float) -> float:
+        """Kod'un yerel para cinsinden kuru (belge tarihine göre); hesaplanamazsa `yedek`."""
+        if kod == self._yerel:
+            return 1.0
+        if self.db is None:
+            return yedek
+        from src.desktop.services import money_service
+        try:
+            return money_service.kur_bul(self.db, kod, self._tarih)
+        except money_service.UnknownCurrencyError:
+            return yedek
+
+    def set_tarih(self, tarih) -> None:
+        """Belge tarihi değişti: seçili dövizin kuru o günün kurundan yeniden alınır (yerel parada değişmez)."""
+        self._tarih = tarih
+        c = self.cmb_doviz.currentData()
+        if c and c.get("kod") != self._yerel:
+            c["kur"] = self._kur_bul(c["kod"], float(c.get("kur", 1.0)))
+            self.txt_kur.setText(f"{c['kur']:.4f}")
+            self.doviz_changed.emit(c["kod"], c["kur"])
+            self.data_changed.emit()
 
     def get_currency_symbol(self) -> str:
         """Seçili dövizin sembolünü döndürür."""
@@ -408,7 +447,7 @@ class HareketFinansWidget(QFrame):
         """Tüm alan değerlerini dict olarak döndürür."""
         c = self.cmb_doviz.currentData() or {}
         return {
-            "doviz_kod":    c.get("kod", "TRY"),
+            "doviz_kod":    c.get("kod", self._yerel),
             "doviz_sembol": c.get("sembol", "₺"),
             "doviz_kur":    self.get_exchange_rate(),
             "kdv_durumu":   self.cmb_kdv.currentText(),
@@ -421,7 +460,7 @@ class HareketFinansWidget(QFrame):
     def set_data(self, data: dict):
         """Dict'ten alan değerlerini yazar."""
         # Döviz
-        doviz = data.get("doviz_kod", "TRY")
+        doviz = data.get("doviz_kod", self._yerel)
         for i in range(self.cmb_doviz.count()):
             c = self.cmb_doviz.itemData(i)
             if c and c.get("kod") == doviz:

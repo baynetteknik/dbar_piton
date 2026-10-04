@@ -67,7 +67,7 @@ def test_doc_no_readonly_and_placeholder(qapp, db_session):
     """21.2: Belge no alanı salt okunur ve placeholder içermeli."""
     dlg = TransactionDocumentDialog(db_session=db_session, company_id=1)
     assert dlg.txt_top_doc_no.isReadOnly() is True
-    assert "otomatik" in dlg.txt_top_doc_no.placeholderText().lower()
+    assert dlg.txt_top_doc_no.placeholderText() == "Kaydedilince atanır"
     assert dlg.txt_top_doc_no.text() == ""
 
 
@@ -113,7 +113,7 @@ def test_save_assigns_automatic_doc_number(qapp, db_session):
     result = svc.save_from_dialog(dlg)
     assert result.success is True
     assert result.quotation_number is not None
-    assert result.quotation_number.startswith("TEK-")
+    assert result.quotation_number.startswith("FAT")          # numara belge türünün şablonundan gelir (diyalog varsayılan türü: fatura)
 
     dlg.txt_top_doc_no.setText(result.quotation_number)
     assert dlg.txt_top_doc_no.text() == result.quotation_number

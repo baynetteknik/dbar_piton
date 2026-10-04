@@ -15,6 +15,7 @@ final class PortalService
     public const STATUS_ACCEPTED = 'accepted';
     public const STATUS_REJECTED = 'rejected';
     public const STATUS_REVOKED = 'revoked';
+    public const STATUS_EXPIRED = 'expired';
 
     /** Aynı ip+tarayıcı bu süre içinde tekrar açarsa görüntüleme sayacı artmaz. */
     private const VIEW_DEDUPE_SECONDS = 1800;
@@ -113,7 +114,8 @@ final class PortalService
             }
             $up = $this->pdo->prepare(
                 'UPDATE portal_publications SET title=?, customer_name=?, customer_email=?, currency=?,
-                 grand_total=?, valid_until=?, allow_counter=?, snapshot_json=?, status=?, token_expires=?, updated_at=?
+                 grand_total=?, valid_until=?, allow_counter=?, snapshot_json=?, status=?, token_expires=?, updated_at=?,
+                 action_taken=NULL, action_date=NULL, counter_amount=NULL, counter_note=NULL
                  WHERE id=?'
             );
             $up->execute([
@@ -161,6 +163,109 @@ final class PortalService
         return $exp !== null && $exp < $this->now();
     }
 
+    /** Teklifin son geçerlilik anı: saat verilmemişse (00:00:00) o günün sonu. */
+    private function deadline(array $row): ?int
+    {
+        $t = $this->parse($row['valid_until'] ?? null);
+        if ($t === null) {
+            return null;
+        }
+        return gmdate('H:i:s', $t) === '00:00:00' ? $t + 86399 : $t;
+    }
+
+    /** Yayında bekleyen bir teklifin geçerlilik süresi dolduysa 'expired' yapar ve olay yazar. */
+    private function expireIfDue(array &$row): bool
+    {
+        if ($row['status'] !== self::STATUS_PUBLISHED) {
+            return false;
+        }
+        $dl = $this->deadline($row);
+        if ($dl === null || $dl >= $this->now()) {
+            return false;
+        }
+        $this->pdo->prepare('UPDATE portal_publications SET status=?, updated_at=? WHERE id=? AND status=?')
+            ->execute([self::STATUS_EXPIRED, $this->fmt($this->now()), $row['id'], self::STATUS_PUBLISHED]);
+        $this->logEvent((int)$row['id'], 'expire', null, null, (string)$row['valid_until']);
+        $row['status'] = self::STATUS_EXPIRED;
+        return true;
+    }
+
+    /** Süresi dolan tüm bekleyen teklifleri kapatır. @return int kapatılan adet */
+    public function expireDue(): int
+    {
+        $rows = $this->pdo->query("SELECT * FROM portal_publications WHERE status = 'published' AND valid_until IS NOT NULL")
+            ->fetchAll(PDO::FETCH_ASSOC);
+        $n = 0;
+        foreach ($rows as $row) {
+            if ($this->expireIfDue($row)) {
+                $n++;
+            }
+        }
+        return $n;
+    }
+
+    /**
+     * Yönetici listesi. $filter: bekleyen (yayında, karar yok) | karsi (karşı teklif geldi) | kabul | red | suresi | iptal | tumu
+     *
+     * @return array<int,array<string,mixed>>
+     */
+    public function listPublications(string $filter = 'tumu', int $limit = 200): array
+    {
+        $this->expireDue();
+        $where = match ($filter) {
+            'bekleyen' => "status = 'published' AND action_taken IS NULL",
+            'karsi' => "status = 'published' AND action_taken = 'countered'",
+            'kabul' => "status = 'accepted'",
+            'red' => "status = 'rejected'",
+            'suresi' => "status = 'expired'",
+            'iptal' => "status = 'revoked'",
+            default => '1=1',
+        };
+        $st = $this->pdo->query(
+            "SELECT id, source, external_ref, title, customer_name, currency, grand_total, valid_until, status,
+                    action_taken, action_date, counter_amount, view_count, last_view, created_at, updated_at
+             FROM portal_publications WHERE $where ORDER BY updated_at DESC, id DESC LIMIT " . max(1, min(500, $limit))
+        );
+        return $st->fetchAll(PDO::FETCH_ASSOC);
+    }
+
+    /** @return array<string,int> sekme sayaçları */
+    public function counts(): array
+    {
+        $this->expireDue();
+        $c = ['tumu' => 0, 'bekleyen' => 0, 'karsi' => 0, 'kabul' => 0, 'red' => 0, 'suresi' => 0, 'iptal' => 0];
+        $rows = $this->pdo->query('SELECT status, action_taken, COUNT(*) AS n FROM portal_publications GROUP BY status, action_taken')
+            ->fetchAll(PDO::FETCH_ASSOC);
+        foreach ($rows as $r) {
+            $n = (int)$r['n'];
+            $c['tumu'] += $n;
+            if ($r['status'] === 'published') {
+                $c[$r['action_taken'] === 'countered' ? 'karsi' : 'bekleyen'] += $n;
+            } else {
+                $key = ['accepted' => 'kabul', 'rejected' => 'red', 'expired' => 'suresi', 'revoked' => 'iptal'][$r['status']] ?? null;
+                if ($key !== null) {
+                    $c[$key] += $n;
+                }
+            }
+        }
+        return $c;
+    }
+
+    /** @return array{pub:array<string,mixed>, events:array<int,array<string,mixed>>}|null */
+    public function detail(int $id): ?array
+    {
+        $st = $this->pdo->prepare('SELECT * FROM portal_publications WHERE id = ?');
+        $st->execute([$id]);
+        $row = $st->fetch(PDO::FETCH_ASSOC);
+        if (!$row) {
+            return null;
+        }
+        $this->expireIfDue($row);
+        $ev = $this->pdo->prepare('SELECT event_type, ip_address, details, created_at FROM portal_events WHERE publication_id = ? ORDER BY id DESC LIMIT 100');
+        $ev->execute([$id]);
+        return ['pub' => $row, 'events' => $ev->fetchAll(PDO::FETCH_ASSOC)];
+    }
+
     /**
      * Müşterinin gördüğü veri. Geçersiz/süresi dolmuş/iptal edilmiş token için hata döner.
      *
@@ -175,7 +280,7 @@ final class PortalService
         if ($row['status'] === self::STATUS_REVOKED) {
             return ['ok' => false, 'error' => 'revoked'];
         }
-        if ($this->isExpired($row)) {
+        if ($this->isExpired($row) || $this->expireIfDue($row) || $row['status'] === self::STATUS_EXPIRED) {
             return ['ok' => false, 'error' => 'expired'];
         }
 
@@ -211,6 +316,8 @@ final class PortalService
             'allow_counter' => (bool)$row['allow_counter'],
             'action_taken' => $row['action_taken'],
             'action_date' => $row['action_date'],
+            'counter_amount' => $row['counter_amount'] !== null ? (float)$row['counter_amount'] : null,
+            'counter_note' => $row['counter_note'],
             'snapshot' => $snapshot,
         ]];
     }
@@ -235,7 +342,7 @@ final class PortalService
         if ($row['status'] === self::STATUS_REVOKED) {
             return ['ok' => false, 'error' => 'revoked'];
         }
-        if ($this->isExpired($row)) {
+        if ($this->isExpired($row) || $this->expireIfDue($row) || $row['status'] === self::STATUS_EXPIRED) {
             return ['ok' => false, 'error' => 'expired'];
         }
         if ($row['status'] !== self::STATUS_PUBLISHED) {
@@ -247,6 +354,9 @@ final class PortalService
         if ($action === 'counter') {
             if (!(int)$row['allow_counter']) {
                 return ['ok' => false, 'error' => 'counter_not_allowed'];
+            }
+            if ($row['action_taken'] === 'countered') {
+                return ['ok' => false, 'error' => 'counter_already_sent'];
             }
             if ($amount === null || $amount <= 0) {
                 return ['ok' => false, 'error' => 'invalid_amount'];
@@ -368,11 +478,12 @@ final class PortalService
      */
     public function decisions(int $afterId = 0, int $limit = 200): array
     {
+        $this->expireDue();
         $st = $this->pdo->prepare(
             "SELECT e.id AS event_id, e.event_type, e.details, e.created_at,
                     p.source, p.external_ref, p.counter_amount, p.counter_note, p.decision_note
              FROM portal_events e JOIN portal_publications p ON p.id = e.publication_id
-             WHERE e.id > ? AND e.event_type IN ('accept','reject','counter')
+             WHERE e.id > ? AND e.event_type IN ('accept','reject','counter','expire')
              ORDER BY e.id ASC LIMIT " . max(1, min(1000, $limit))
         );
         $st->execute([$afterId]);

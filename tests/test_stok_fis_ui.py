@@ -31,9 +31,9 @@ def _yaz(k, r, key, text):
 def test_stok_kodu_yazilinca_ad_birim_ve_maliyet_gelir_miktar_tutari_hesaplar(qapp, db):
     k = _k(db)
     _yaz(k, 0, "kod", "p1")                                        # büyük/küçük harf duyarsız
-    assert (k.text(0, "ad"), k.text(0, "birim"), k.text(0, "fiyat")) == ("Vida", "Adet", "5,50")
+    assert (k.text(0, "ad"), k.text(0, "birim"), k.text(0, "fiyat")) == ("Vida", "Adet", "5,5000")
     _yaz(k, 0, "miktar", "3")
-    assert k.text(0, "miktar") == "3,000" and k.text(0, "tutar") == "16,50"
+    assert k.text(0, "miktar") == "3,00" and k.text(0, "tutar") == "16,50"
     assert k.grid.rowCount() == 2 and k.text(1, "depo") == "A"    # boş satır eklendi, depo başlıktan
     k.close()
 
@@ -105,7 +105,7 @@ def test_pencere_yetersiz_stok_uyarir_stogu_bozmaz_duzenlemede_etki_iki_kez_sayi
     d._kaydet(yeni=False)
     assert db.query(Product).filter_by(sku="P1").one().stock == 6
     d2 = StokFisDialog(db, fis_id=d.fis_id)                         # düzenleme: 4 -> 7
-    assert d2.kalemler.text(0, "miktar") == "4,000"
+    assert d2.kalemler.text(0, "miktar") == "4,00"
     _yaz(d2.kalemler, 0, "miktar", "7")
     d2._kaydet(yeni=False)
     assert db.query(Product).filter_by(sku="P1").one().stock == 3
@@ -151,14 +151,24 @@ def test_cikti_pdf(qapp, db, tmp_path, monkeypatch):
     d.close()
 
 
-def test_stok_grid_sutun_yerlesimi_kaydedilir(qapp, db):
+def test_stok_grid_sutun_yerlesimi_profilde_kaydedilir(qapp, db):
+    from PyQt6.QtTest import QTest
+
+    from src.desktop.managers.profile_manager import ProfileManager
     k = _k(db)
     h = k.grid.horizontalHeader()
     h.moveSection(h.visualIndex(sk.S_NOT), 1)
-    k.grid._save_layout()
-    k2 = _k(db)
-    assert k2.grid.horizontalHeader().logicalIndex(1) == sk.S_NOT
-    k.close(); k2.close()
+    k.entry.save_column_profile("Stok Test")
+    k.close()
+    try:
+        k2 = _k(db)
+        QTest.qWait(80)
+        assert k2.grid.horizontalHeader().logicalIndex(1) == sk.S_NOT
+        k2.close()
+    finally:
+        pm = ProfileManager(profile_key=type(k).PRESET_ID)
+        pm.delete_profile("Stok Test")
+        pm.set_active_profile_name("Varsayılan")
 
 
 # ---------------------------------------------------------------- LİSTE EKRANI

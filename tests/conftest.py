@@ -4,7 +4,31 @@ from PyQt6.QtWidgets import QApplication, QMessageBox
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 
-from src.core.models import Base
+# Testler kullanıcının GERÇEK QSettings kayıtlarına (Windows kayıt defteri: görünüm profilleri, sütun düzenleri, panel boyutları)
+# dokunmasın: test_view_settings_ui "tüm profilleri sıfırla" akışını (onay kutusu 'Evet' döner) çalıştırıyor ve her test koşusunda
+# kullanıcının kaydettiği profilleri siliyordu; diğer testler de gerçek kayıtlara profil yazıyordu.
+# QSettings(organization, application) her zaman NativeFormat (kayıt defteri) kullanır, setDefaultFormat onu etkilemez; bu yüzden
+# uygulama modülleri içe aktarılmadan ÖNCE sınıf, (org, app) çağrılarını geçici bir INI dosyasına yönlendiren bir alt sınıfla değiştirilir.
+import tempfile as _tempfile
+
+import PyQt6.QtCore as _QtCore
+
+_QSETTINGS_TMP = _tempfile.mkdtemp(prefix="toya_test_qsettings_")
+_RealQSettings = _QtCore.QSettings
+_RealQSettings.setPath(_RealQSettings.Format.IniFormat, _RealQSettings.Scope.UserScope, _QSETTINGS_TMP)
+
+
+class _IsolatedQSettings(_RealQSettings):
+    def __init__(self, *args, **kwargs):
+        if len(args) >= 2 and isinstance(args[0], str) and isinstance(args[1], str):
+            super().__init__(_RealQSettings.Format.IniFormat, _RealQSettings.Scope.UserScope, *args, **kwargs)
+        else:
+            super().__init__(*args, **kwargs)
+
+
+_QtCore.QSettings = _IsolatedQSettings
+
+from src.core.models import Base  # noqa: E402
 
 
 @pytest.fixture(scope="session")
@@ -31,6 +55,10 @@ def _no_blocking_message_boxes(monkeypatch):
     monkeypatch.setattr(QMessageBox, "warning", staticmethod(lambda *a, **k: ok))
     monkeypatch.setattr(QMessageBox, "critical", staticmethod(lambda *a, **k: ok))
     monkeypatch.setattr(QMessageBox, "question", staticmethod(lambda *a, **k: yes))
+    # dialog_style yardımcıları (bilgi/uyari/onay/ad_sor) diyalogu örnekleyip exec() eder: testte bloklamasın
+    from PyQt6.QtWidgets import QInputDialog
+    monkeypatch.setattr(QMessageBox, "exec", lambda self, *a: yes)
+    monkeypatch.setattr(QInputDialog, "exec", lambda self, *a: 0)
 
 
 @pytest.fixture(autouse=True)
@@ -83,3 +111,13 @@ def db_session() -> Generator[Session, None, None]:
     finally:
         session.close()
         Base.metadata.drop_all(bind=engine)
+
+
+@pytest.fixture(autouse=True)
+def _kimlik_deposu_yalitimi(monkeypatch):
+    """Testler kullanıcının GERÇEK Windows kimlik deposuna (FTP/portal/yedek parolaları) dokunmaz: her test kendi bellek içi deposunu kullanır."""
+    import keyring
+    depo: dict = {}
+    monkeypatch.setattr(keyring, "set_password", lambda s, n, v: depo.__setitem__((s, n), v))
+    monkeypatch.setattr(keyring, "get_password", lambda s, n: depo.get((s, n)))
+    monkeypatch.setattr(keyring, "delete_password", lambda s, n: depo.pop((s, n), None))

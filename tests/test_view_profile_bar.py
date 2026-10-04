@@ -46,6 +46,11 @@ def test_view_profile_bar_initialization(qapp):
         0: ("ID", "id"),
         1: ("Cari Kodu", "cari_kodu"),
     }
+    from src.desktop.managers.profile_manager import ProfileManager
+    pm = ProfileManager(profile_key="test_bar")
+    ikinci = pm.create_default_profile()
+    ikinci.profile.name = "Ikinci"
+    pm.save_profile(ikinci)                       # yalıtılmış (geçici) ayarlarda en az iki profil hazır olsun
     table = FilterableTableView(
         headers_dict=headers, profile_key="test_bar", enable_profile_bar=True,
     )

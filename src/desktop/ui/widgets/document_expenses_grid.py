@@ -71,12 +71,26 @@ _READONLY = {COL_SEQ, COL_NET}
 
 
 class _ComboDelegate(QStyledItemDelegate):
+    _QSS = (
+        "QComboBox { combobox-popup: 0; padding: 0px 4px; border: 1px solid #2563eb; background: #ffffff; color: #0f172a; }"
+        " QComboBox QAbstractItemView { padding: 0px; outline: 0; background-color: #ffffff; color: #1e293b; }"
+        " QComboBox QAbstractItemView::item { padding: 2px 4px; margin: 0px; min-height: 20px; }"
+    )
+    _VIEW_QSS = (
+        "QListView { background-color: #ffffff; color: #1e293b; outline: 0; padding: 0px; }"
+        " QListView::item { padding: 3px 4px; min-height: 20px; }"
+        " QListView::item:selected { background-color: #dbeafe; color: #1e3a8a; }"
+    )
+
     def __init__(self, options, parent=None):
         super().__init__(parent)
         self.options = options
 
     def createEditor(self, parent, option, index):  # noqa: N802
         cb = QComboBox(parent)
+        cb.setStyleSheet(self._QSS)
+        cb.setItemDelegate(QStyledItemDelegate(cb))
+        cb.view().setStyleSheet(self._VIEW_QSS)
         cb.addItems(self.options)
         return cb
 
@@ -116,7 +130,7 @@ class DocumentExpensesGrid(QWidget):
         bar = QHBoxLayout()
         bar.setContentsMargins(2, 0, 2, 0)
         info = QLabel("Sağ tık → Satır Ekle / Sil. Yüzde satırları ara toplam üzerinden hesaplanır.")
-        info.setStyleSheet("font-size:10px;color:#94a3b8;")
+        info.setStyleSheet("font-size:11px;color:#475569;")
         bar.addWidget(info)
         bar.addStretch()
         self.lbl = QLabel("İndirim: 0,00  ·  Masraf: 0,00")

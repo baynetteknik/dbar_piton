@@ -255,6 +255,19 @@ class StokKartDialog(QDialog):
                 background-color: white;
                 color: #0f172a;
             }
+            QComboBox {
+                combobox-popup: 0;
+            }
+            QComboBox QAbstractItemView {
+                outline: 0;
+                padding: 0px;
+                border: 1px solid #cbd5e1;
+                background-color: white;
+            }
+            QComboBox QAbstractItemView::item {
+                padding: 3px 6px;
+                min-height: 20px;
+            }
             QLineEdit:focus, QTextEdit:focus { border-color: #3b82f6; }
         """
         for tab in [tab_general, tab_price, tab_stock, tab_extra]:

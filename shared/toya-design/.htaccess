@@ -1,0 +1,3 @@
+Options -Indexes
+RewriteEngine On
+RewriteRule ^(views|lib)(/|$) - [F,L]

@@ -32,6 +32,29 @@ from src.desktop.services.auth_service import AuthService
 from src.desktop.services.user_service import UserService
 
 
+_COMBO_STYLE = """
+    QComboBox {
+        combobox-popup: 0;
+        border: 1px solid #cbd5e1;
+        border-radius: 4px;
+        padding: 4px 6px;
+        background-color: white;
+        color: #0f172a;
+        font-size: 11px;
+    }
+    QComboBox QAbstractItemView {
+        outline: 0;
+        padding: 0px;
+        border: 1px solid #cbd5e1;
+        background-color: #ffffff;
+        color: #0f172a;
+    }
+    QComboBox QAbstractItemView::item {
+        padding: 3px 6px;
+        min-height: 20px;
+    }
+"""
+
 class PasswordRecoveryDialog(QDialog):
     reset_done = pyqtSignal(str)
 
@@ -89,6 +112,7 @@ class PasswordRecoveryDialog(QDialog):
         lyt = QVBoxLayout(w)
         lyt.addWidget(QLabel("Parolasını sıfırlamak istediğiniz kullanıcıyı seçin:"))
         self.cmb_user = QComboBox()
+        self.cmb_user.setStyleSheet(_COMBO_STYLE)
         try:
             for u in self.users.list_users(active=True):
                 self.cmb_user.addItem(u.username)

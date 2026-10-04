@@ -4,13 +4,16 @@ Evrak detayındaki satır toplamı, iskonto, KDV dağılımı, tevkifat ve
 büyük vurgulu Genel Toplam kartını canlı hesaplayan ve sunan modüler bileşen.
 """
 
-from typing import Dict, Any
-from PyQt6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, 
-    QLabel, QGroupBox, QFrame
-)
 from PyQt6.QtCore import Qt
-from PyQt6.QtGui import QFont, QColor
+from PyQt6.QtWidgets import (
+    QFrame,
+    QGridLayout,
+    QGroupBox,
+    QHBoxLayout,
+    QLabel,
+    QVBoxLayout,
+    QWidget,
+)
 
 
 class FinansWidget(QWidget):

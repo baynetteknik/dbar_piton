@@ -9,7 +9,14 @@ from __future__ import annotations
 
 from PyQt6.QtCore import QDate, QEvent, QSize, Qt, QTimer
 from PyQt6.QtGui import QColor, QTextCharFormat
-from PyQt6.QtWidgets import QAbstractItemDelegate, QCalendarWidget, QComboBox, QDateEdit, QLineEdit, QStyledItemDelegate
+from PyQt6.QtWidgets import (
+    QAbstractItemDelegate,
+    QCalendarWidget,
+    QComboBox,
+    QDateEdit,
+    QLineEdit,
+    QStyledItemDelegate,
+)
 
 #: Takvim açılır penceresi: uygulama teması koyu/turkuaz olsa da beyaz zemin, koyu yazı, mavi gezinme çubuğu.
 CALENDAR_QSS = """

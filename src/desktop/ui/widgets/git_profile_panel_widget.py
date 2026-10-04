@@ -10,10 +10,19 @@ burada eşzamanlı yapılır.
 from __future__ import annotations
 
 from PyQt6.QtCore import pyqtSignal
-from PyQt6.QtWidgets import QComboBox, QDialog, QHBoxLayout, QLabel, QMessageBox, QPushButton, QVBoxLayout, QWidget
+from PyQt6.QtWidgets import (
+    QComboBox,
+    QDialog,
+    QHBoxLayout,
+    QLabel,
+    QMessageBox,
+    QPushButton,
+    QVBoxLayout,
+    QWidget,
+)
 
 from src.desktop.services import git_profile_store as store
-from src.desktop.services.git_service import AUTH_GCM, AUTH_TOKEN, GitService
+from src.desktop.services.git_service import AUTH_GCM, GitService
 from src.desktop.ui.components.tooltip_style import with_tooltip
 from src.desktop.ui.widgets.git_profile_dialog import GitProfileDialog
 
@@ -42,13 +51,32 @@ class GitProfilePanelWidget(QWidget):
         lay.setContentsMargins(0, 0, 0, 0)
         lay.setSpacing(4)
         self.cmb = QComboBox()
-        self.cmb.setStyleSheet("QComboBox{border:1px solid #cbd5e1; border-radius:6px; padding:5px 8px; background:#fff;"
-                               " font-size:11px;}")
+        self.cmb.setStyleSheet("""
+            QComboBox {
+                combobox-popup: 0;
+                border: 1px solid #cbd5e1;
+                border-radius: 6px;
+                padding: 5px 8px;
+                background: #fff;
+                color: #0f172a;
+                font-size: 11px;
+            }
+            QComboBox QAbstractItemView {
+                outline: 0;
+                padding: 0px;
+                border: 1px solid #cbd5e1;
+                background-color: #ffffff;
+                color: #0f172a;
+            }
+            QComboBox QAbstractItemView::item {
+                padding: 3px 6px;
+                min-height: 20px;
+            }
+        """)
+        lay.addWidget(self.cmb)
         self.lbl_info = QLabel()
         self.lbl_info.setWordWrap(True)
-        self.lbl_info.setStyleSheet("font-size:10px; color:#64748b;")
-        lay.addWidget(QLabel("🌐 Aktif bağlantı profili:"))
-        lay.addWidget(self.cmb)
+        self.lbl_info.setStyleSheet("font-size:9px; color:#475569;")
         lay.addWidget(self.lbl_info)
 
         r1 = QHBoxLayout()

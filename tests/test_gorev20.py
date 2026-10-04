@@ -178,15 +178,15 @@ def test_get_current_teklif_data(qapp, db_session):
 
 
 def test_toggle_info_panel_f7(qapp, db_session):
-    """Test toggle_info_panel toggles visibility of the top 3-widget panel."""
+    """Test toggle_info_panel toggles visibility of the current header tabs."""
     dlg = TransactionDocumentDialog(db_session=db_session)
     assert dlg._info_visible is True
-    assert not dlg.info_panels_widget.isHidden()
+    assert not dlg.header_tabs.isHidden()
 
     dlg.toggle_info_panel()
     assert dlg._info_visible is False
-    assert dlg.info_panels_widget.isHidden()
+    assert dlg.header_tabs.isHidden()
 
     dlg.toggle_info_panel()
     assert dlg._info_visible is True
-    assert not dlg.info_panels_widget.isHidden()
+    assert not dlg.header_tabs.isHidden()

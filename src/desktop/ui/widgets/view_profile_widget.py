@@ -4,12 +4,17 @@ Görünüm profili seçici, aktif profili kaydetme ve sütun yöneticisi butonla
 ProfileManager ile doğrudan entegre çalışan bağımsız bileşen.
 """
 
-from typing import Optional
-from PyQt6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QLabel, 
-    QComboBox, QPushButton, QGroupBox, QMessageBox
-)
 from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtWidgets import (
+    QComboBox,
+    QGroupBox,
+    QHBoxLayout,
+    QLabel,
+    QPushButton,
+    QVBoxLayout,
+    QWidget,
+)
+
 from src.desktop.managers.profile_manager import ProfileManager
 
 
@@ -69,6 +74,17 @@ class ViewProfileWidget(QWidget):
                 color: #0f172a;
                 font-size: 11px;
                 font-weight: 600;
+                combobox-popup: 0;
+            }
+            QComboBox QAbstractItemView {
+                outline: 0;
+                padding: 0px;
+                border: 1px solid #cbd5e1;
+                background: white;
+            }
+            QComboBox QAbstractItemView::item {
+                padding: 3px 6px;
+                min-height: 20px;
             }
         """)
         self.combo_profiles.currentTextChanged.connect(self._on_combo_changed)

@@ -401,3 +401,41 @@ def test_local_folder_provider_is_safe(tmp_path):
     assert (tmp_path / "geri.zip").read_bytes() == b"1234"
     p.delete("x.zip")
     assert p.size("x.zip") is None
+
+
+def test_retention_victims_is_shared_pure_rule_and_cloud_targets_are_pruned_after_upload(tmp_path):
+    adlar = ["belgeler-full-20260101-000000.zip", "belgeler-inc-20260102-000000.zip", "belgeler-full-20260103-000000.zip",
+             "belgeler-full-20260104-000000.zip.enc", "baska-full-20260101-000000.zip", "notlar.txt"]
+    assert sorted(file_job.retention_victims(adlar, "belgeler", keep=2)) == ["belgeler-full-20260101-000000.zip", "belgeler-inc-20260102-000000.zip"]
+    assert file_job.retention_victims(adlar, "belgeler", keep=10) == []
+    # Uzak hedef (ör. Google Drive): yükleme başarılı olunca eski kümeler uzaktan da silinir, başka işin dosyasına dokunulmaz
+    bulut = tmp_path / "bulut"
+    bulut.mkdir()
+    for n in ("belgeler-full-20200101-000000.zip", "belgeler-full-20200102-000000.zip", "baska-full-20200101-000000.zip"):
+        (bulut / n).write_text("x")
+    prov = LocalFolderProvider(str(bulut), "Drive")
+    r = run_job(_job(tmp_path, keep=2), RunContext(providers=[prov]))
+    kalan = sorted(p.name for p in bulut.iterdir())
+    assert r.uploads == [("Drive", True, "Yüklendi · 1 eski yedek temizlendi")]
+    assert "belgeler-full-20200101-000000.zip" not in kalan and "belgeler-full-20200102-000000.zip" in kalan
+    assert "baska-full-20200101-000000.zip" in kalan and r.path.name in kalan
+
+
+def test_failed_upload_never_prunes_remote_and_remote_pruning_errors_do_not_fail_the_run(tmp_path):
+    class Hatali:
+        label = "Drive"
+
+        def upload(self, *a, **k):
+            return None
+
+        def size(self, n):
+            return None
+
+        def list(self):
+            raise ConnectionError("liste alınamadı")
+
+        def delete(self, n):
+            raise AssertionError("silinmemeliydi")
+
+    r = run_job(_job(tmp_path), RunContext(providers=[Hatali()]))
+    assert r.status == "ok" and r.uploads == [("Drive", True, "Yüklendi")]              # temizlik hatası yüklemeyi bozmaz

@@ -113,6 +113,22 @@ class Product(BaseModel):
     extra_codes_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     extra_prices_json: Mapped[str | None] = mapped_column(Text, nullable=True)
 
+    # --- Hizmet Tanımları (2026-09-29): stok takibi bayrağı `product_type=="Hizmet"` string
+    # karşılaştırmasından bağımsız, sağlam bir alan olsun diye eklendi — bkz.
+    # `BelgeHareketService.isle()` (hizmet satırı stok hareketi/depo zorunluluğu üretmesin).
+    tracks_stock: Mapped[bool | None] = mapped_column(Boolean, nullable=True, default=True)
+    sales_account_code: Mapped[str | None] = mapped_column(String(20), nullable=True)      # ör. "600 Yurtiçi Satışlar"
+    purchase_account_code: Mapped[str | None] = mapped_column(String(20), nullable=True)   # ör. "770 Genel Yönetim Giderleri"
+    vat_withholding_rate: Mapped[str | None] = mapped_column(String(10), nullable=True)    # KDV tevkifatı, ör. "9/10" (KDVK Md. 9)
+    nondeductible_expense: Mapped[bool | None] = mapped_column(Boolean, nullable=True, default=False)  # KKEG (VUK/KVK)
+    invoice_description_template: Mapped[str | None] = mapped_column(String(255), nullable=True)
+
+    # Masraf Tanımları (2026-09-30): düzenli ödenen (ör. aylık) masraflar için hatırlatma — bkz.
+    # `ProductService._senkron_masraf_hatirlatma()` (ilgili_tur="masraf" ile Gorev üretir/günceller).
+    is_recurring_expense: Mapped[bool | None] = mapped_column(Boolean, nullable=True, default=False)
+    recurring_due_day: Mapped[int | None] = mapped_column(Integer, nullable=True)             # ayın kaçı (1-31)
+    recurring_reminder_days_before: Mapped[int | None] = mapped_column(Integer, nullable=True)  # kaç gün önce hatırlatılsın
+
     # Properties for aliases
     @property
     def sale_price(self) -> float:
@@ -325,6 +341,7 @@ class Quotation(BaseModel):
     currency: Mapped[str] = mapped_column(String(10), default="TRY")
     exchange_rate: Mapped[float] = mapped_column(Float, default=1.0)
     payment_plan: Mapped[str | None] = mapped_column(String(150), nullable=True)
+    payment_plan_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("payment_plans.id"), nullable=True)
     valid_until: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     issue_date: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     date: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
@@ -339,9 +356,19 @@ class Quotation(BaseModel):
     grand_total: Mapped[float] = mapped_column(Float, default=0.0)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
 
+    # --- Belge zinciri (teklif → sipariş → irsaliye → fatura); bkz. gelistirme/06_fatura_irsaliye/belge_zinciri_tasarim.md ---
+    belge_turu: Mapped[str | None] = mapped_column(String(15), nullable=True, index=True)   # teklif|talep|siparis|irsaliye|fatura|iade_fatura
+    yon: Mapped[str | None] = mapped_column(String(6), nullable=True)                       # satis | alis
+    depo_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("warehouse_definitions.id"), nullable=True)   # varsayılan depo (satır ezebilir)
+    kaynak_belge_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("quotations.id"), nullable=True)      # iade/dönüşümde bağlı belge
+    hareket_durumu: Mapped[str] = mapped_column(String(12), default="islenmedi")            # islenmedi | islendi | geri_alindi
+    resmi_gonderildi: Mapped[bool] = mapped_column(Boolean, default=False)                  # e-Devlete gönderildi (elle işaret)
+    resmi_tarih: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
     customer: Mapped["Customer | None"] = relationship("Customer")
     lines: Mapped[list["QuotationLine"]] = relationship("QuotationLine", back_populates="quotation", cascade="all, delete-orphan")
     items: Mapped[list["QuotationLine"]] = relationship("QuotationLine", viewonly=True)
+    payment_plan_ref: Mapped["PaymentPlan | None"] = relationship("PaymentPlan")
 
 
 class QuotationLine(Base):
@@ -372,6 +399,16 @@ class QuotationLine(Base):
     currency: Mapped[str] = mapped_column(String(10), default="TRY")
     total_amount: Mapped[float] = mapped_column(Float, default=0.0)
     total_price: Mapped[float] = mapped_column(Float, default=0.0)
+    # Satırın kendi para birimi ve TL'ye çevirme kuru: `unit_price` / `total_amount` bu para birimindedir; belge toplamları TL karşılığıdır.
+    # (`currency` eski alandır ve belge para birimini taşır; satır dövizi için bu alanlar kullanılır.)
+    doviz: Mapped[str] = mapped_column(String(10), default="TRY")
+    kur: Mapped[float] = mapped_column(Float, default=1.0)
+
+    # --- Belge zinciri ---
+    depo_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("warehouse_definitions.id"), nullable=True)   # satır deposu (boşsa belge deposu)
+    stok_etkisi: Mapped[str] = mapped_column(String(10), default="kendi")                  # kendi | kaynaktan (irsaliyeden gelen: stok tekrar düşmez) | yok
+    sevk_edilen: Mapped[float] = mapped_column(Float, default=0.0)                         # bu satırdan irsaliyeyle sevk edilen miktar (önbellek)
+    faturalanan: Mapped[float] = mapped_column(Float, default=0.0)                         # bu satırdan faturalanan miktar (önbellek)
 
     quotation: Mapped["Quotation"] = relationship("Quotation", back_populates="lines")
     product: Mapped["Product | None"] = relationship("Product")
@@ -379,6 +416,51 @@ class QuotationLine(Base):
 
 # Alias for backwards compatibility
 QuotationItem = QuotationLine
+
+
+class BelgeBag(BaseModel):
+    """Belge satırları arasındaki bağ: kaynak satır (ör. irsaliye satırı) → hedef satır (ör. fatura satırı), miktar bazında.
+
+    Birden çok irsaliye tek faturada birleştirilebilir, bir irsaliye kısmen faturalanabilir. `tur` bağın anlamı:
+    sevk (sipariş→irsaliye) | fatura (irsaliye/sipariş→fatura) | iade (fatura→iade faturası) | donusum (teklif→sipariş…)."""
+    __tablename__ = "belge_bag"
+
+    kaynak_satir_id: Mapped[int] = mapped_column(Integer, ForeignKey("quotation_items.id"), index=True, nullable=False)
+    hedef_satir_id: Mapped[int] = mapped_column(Integer, ForeignKey("quotation_items.id"), index=True, nullable=False)
+    miktar: Mapped[float] = mapped_column(Float, default=0.0)
+    tur: Mapped[str] = mapped_column(String(10), default="fatura")
+
+
+class BelgeIslemLogu(Base):
+    """Belge zinciri işlem günlüğü: silme, bağ koparma, kilit aşma, kural uyarıları ve kararları. Müşteri/karşı taraf itiraz ederse gösterilir.
+    Kayıtlar değiştirilmez/silinmez; `karar`: engellendi | uyarildi_devam | serbest | onay_evet | onay_hayir | yapildi."""
+    __tablename__ = "belge_islem_logu"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    zaman: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
+    belge_id: Mapped[int | None] = mapped_column(Integer, index=True, nullable=True)
+    belge_no: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    islem: Mapped[str] = mapped_column(String(40), nullable=False)
+    kural: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    karar: Mapped[str] = mapped_column(String(20), default="yapildi")
+    kullanici: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    ayrinti: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
+class StokRezerv(BaseModel):
+    """Sipariş satırı için stok rezervi. `bitis` boşsa süresizdir; `musteri_donus_bekle` müşteri dönene kadar tutulduğunu gösterir.
+    Kullanılabilir stok = eldeki − aktif rezervler. Sevk irsaliyesi kesilince `kullanildi`, elle bırakılınca `serbest` olur."""
+    __tablename__ = "stok_rezerv"
+
+    siparis_id: Mapped[int] = mapped_column(Integer, ForeignKey("quotations.id"), index=True, nullable=False)
+    siparis_satir_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("quotation_items.id"), index=True, nullable=True)
+    product_id: Mapped[int] = mapped_column(Integer, ForeignKey("products.id"), index=True, nullable=False)
+    depo_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("warehouse_definitions.id"), nullable=True)
+    miktar: Mapped[float] = mapped_column(Float, default=0.0)
+    bitis: Mapped[date | None] = mapped_column(Date, nullable=True)
+    musteri_donus_bekle: Mapped[bool] = mapped_column(Boolean, default=False)
+    durum: Mapped[str] = mapped_column(String(15), default="aktif", index=True)             # aktif | kullanildi | serbest | suresi_doldu
+    aciklama: Mapped[str | None] = mapped_column(String(300), nullable=True)
 
 
 class CategoryMapping(Base):
@@ -703,18 +785,25 @@ class CurrencyRateHistory(BaseModel):
 
 
 class UnitDefinition(BaseModel):
-    """Birim tanımları."""
+    """Birim tanımları. `company_id` nullable (2026-09-30 öncesi kayıtlar firmasız kalabilir); yeni kayıtlar
+    aktif firmaya bağlanır (bkz. `settings.py::_save_birimler`)."""
     __tablename__ = "unit_definitions"
 
+    company_id: Mapped[int | None] = mapped_column(ForeignKey("companies.id"), index=True, nullable=True)
     code: Mapped[str] = mapped_column(String(50), nullable=False)
     name: Mapped[str | None] = mapped_column(String(100), nullable=True)
     is_active: Mapped[bool | None] = mapped_column(Boolean, default=True, nullable=True)
 
 
 class WarehouseDefinition(BaseModel):
-    """Depo tanımları."""
+    """Depo tanımları. `company_id` nullable (2026-09-30 öncesi kayıtlar firmasız kalabilir, geriye dönük
+    uyumluluk için); Genel Ayarlar'daki panel yeni kayıtları aktif firmaya bağlar (`settings.py::_save_depolar`).
+    NOT: `Product.warehouse_id` / stok fişleri hâlâ firma filtrelemeden TÜM depoları görüyor — bu geniş
+    kapsamlı bir değişiklik olacağından bilinçli olarak bu aşamanın dışında bırakıldı (bkz.
+    `gelistirme/13_sirket_tanimlari/tasarim.md`)."""
     __tablename__ = "warehouse_definitions"
 
+    company_id: Mapped[int | None] = mapped_column(ForeignKey("companies.id"), index=True, nullable=True)
     code: Mapped[str] = mapped_column(String(50), nullable=False)
     name: Mapped[str | None] = mapped_column(String(150), nullable=True)
     address: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -722,7 +811,13 @@ class WarehouseDefinition(BaseModel):
 
 
 class PaymentPlan(BaseModel):
-    """Ödeme planı tanımları."""
+    """Ödeme planı tanımları.
+
+    `odeme_tipi` yapılandırılmış bir kod (nakit|havale_eft|kredi_karti|pos|acik_hesap|cek|senet) —
+    `payment_type` (serbest metin, eski/gösterim alanı) ile karıştırılmamalı. Fatura/İrsaliye kaydedilince
+    bu plan seçiliyse ve `otomatik_fis_olustur` açıksa `odeme_tipi`'ne göre `hedef_finans_hesap_id`'de
+    (boşsa kullanıcı seçimiyle) otomatik kasa/banka fişi oluşturulur (bkz. gelistirme/04_odeme_planlari/
+    tasarim.md). `cek`/`senet` şimdilik otomatik fiş üretmez (Çek/Senet modülü henüz kodlanmadı)."""
     __tablename__ = "payment_plans"
 
     code: Mapped[str] = mapped_column(String(50), nullable=False)
@@ -730,6 +825,46 @@ class PaymentPlan(BaseModel):
     days: Mapped[int | None] = mapped_column(Integer, default=0, nullable=True)
     payment_type: Mapped[str | None] = mapped_column(String(50), nullable=True)
     is_active: Mapped[bool | None] = mapped_column(Boolean, default=True, nullable=True)
+    odeme_tipi: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    hedef_finans_hesap_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("finans_hesap.id"), nullable=True)
+    otomatik_fis_olustur: Mapped[bool] = mapped_column(Boolean, default=True)
+    banka_odeme_plani_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("banka_odeme_planlari.id"), nullable=True)
+
+    hedef_hesap: Mapped["FinansHesap | None"] = relationship("FinansHesap")
+    banka_odeme_plani: Mapped["BankaOdemePlani | None"] = relationship("BankaOdemePlani")
+    satirlar: Mapped[list["PaymentPlanLine"]] = relationship(
+        "PaymentPlanLine", back_populates="plan", order_by="PaymentPlanLine.sira_no", cascade="all, delete-orphan",
+    )
+
+
+class PaymentPlanLine(BaseModel):
+    """Ödeme Planı'nın ÇOK TÜRLÜ bölüştürme satırı (bkz. gelistirme/04_odeme_planlari/tasarim.md, 04.11) —
+    kullanıcı isteği: "yarısı peşin yarısı taksitle ya da bir bölümü açık hesap bir bölümü banka havalesi
+    ve kalanı kredi kartı gibi" tek faturanın birden FAZLA ödeme türüne bölünebilmesi.
+
+    Bir `PaymentPlan`'ın satırı YOKSA (çoğu plan — basit/tek tip), otomasyon PaymentPlan'ın KENDİ eski
+    alanlarını (`odeme_tipi`/`hedef_finans_hesap_id`/vb., 04.05-04.09) kullanmaya devam eder — geriye dönük
+    TAM uyumlu. Satır VARSA, PLANIN KENDİ alanları yok sayılır, her satır kendi `odeme_tipi`/hedef hesabıyla
+    AYRI bir fiş üretir (bkz. `odeme_plani_otomasyon_servisi.py`).
+
+    `tutar_formulu`: TOYA'ya özgü, okunaklı değişken adlı bir ifade dili (bkz. `odeme_formul_motoru.py`,
+    mevcut `FormulaService` üzerine ince bir katman) — TUTAR (genel toplam), ARATOPLAM, KDV, KALAN (bu
+    plandaki önceki satırlardan arta kalan) değişkenleri + dört işlem + round/abs/min/max/sum
+    fonksiyonları. Boş bırakılırsa KALAN'a eşittir — bu yüzden SON satır genelde boş bırakılır (yuvarlama
+    farkları son satıra yansır, küsürat kaybı/taşması olmaz)."""
+    __tablename__ = "payment_plan_lines"
+
+    payment_plan_id: Mapped[int] = mapped_column(Integer, ForeignKey("payment_plans.id", ondelete="CASCADE"), index=True, nullable=False)
+    sira_no: Mapped[int] = mapped_column(Integer, default=1)
+    odeme_tipi: Mapped[str] = mapped_column(String(20), nullable=False)   # nakit|havale_eft|kredi_karti|pos|acik_hesap|cek|senet
+    tutar_formulu: Mapped[str | None] = mapped_column(String(200), nullable=True)   # boş = KALAN
+    gun: Mapped[int] = mapped_column(Integer, default=0)                             # vade: fatura tarihinden +N gün
+    hedef_finans_hesap_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("finans_hesap.id"), nullable=True)
+    banka_odeme_plani_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("banka_odeme_planlari.id"), nullable=True)
+
+    plan: Mapped["PaymentPlan"] = relationship("PaymentPlan", back_populates="satirlar")
+    hedef_hesap: Mapped["FinansHesap | None"] = relationship("FinansHesap")
+    banka_odeme_plani: Mapped["BankaOdemePlani | None"] = relationship("BankaOdemePlani")
 
 
 class SystemSetting(BaseModel):
@@ -738,6 +873,43 @@ class SystemSetting(BaseModel):
 
     key: Mapped[str] = mapped_column(String(150), unique=True, index=True, nullable=False)
     value: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
+class NumaraSayac(BaseModel):
+    """Belge/fiş numara sayacı: (kod, dönem) başına son verilen sıra numarası. Dönem, şablondaki {YYYY}/{MM} belirteçlerinden türer
+    (yıllık/aylık sıfırlama; belirteç yoksa '-'). Sayaç bir İPUCUDUR: gerçek çakışma denetimi numaranın kullanımda olup olmadığına bakar."""
+    __tablename__ = "numara_sayac"
+    __table_args__ = (UniqueConstraint("kod", "donem", name="uq_numara_sayac_kod_donem"),)
+
+    kod: Mapped[str] = mapped_column(String(40), index=True, nullable=False)
+    donem: Mapped[str] = mapped_column(String(10), nullable=False, default="-")
+    son_sayi: Mapped[int] = mapped_column(Integer, default=0)
+
+
+class DocumentSeries(BaseModel):
+    """Belge ve fiş numara serileri (Firma bazlı, çoklu seri ve e-Fatura / GİB uyumlu).
+    Her firma kendi serilerini tanımlayabilir (Örn: A, B, FAT, EAR, EIR).
+    """
+    __tablename__ = "document_series"
+    __table_args__ = (
+        UniqueConstraint("company_id", "belge_turu", "seri_kodu", name="uq_doc_series_comp_type_code"),
+    )
+
+    company_id: Mapped[int | None] = mapped_column(ForeignKey("companies.id"), index=True, nullable=True)
+    belge_turu: Mapped[str] = mapped_column(String(40), index=True, nullable=False)
+    seri_kodu: Mapped[str] = mapped_column(String(10), nullable=False)
+    seri_adi: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    sablon: Mapped[str] = mapped_column(String(50), nullable=False)
+    baslangic_no: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    son_numara: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    is_default: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+
+    # --- E-Fatura / e-Belge (GİB) Parametreleri ---
+    is_efatura: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    efatura_turu: Mapped[str | None] = mapped_column(String(30), nullable=True)
+    gib_prefix: Mapped[str | None] = mapped_column(String(10), nullable=True)
+    entegrator_kodu: Mapped[str | None] = mapped_column(String(50), nullable=True)
 
 
 class Company(BaseModel):
@@ -815,6 +987,52 @@ class Company(BaseModel):
     authorized_persons_json: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+
+
+class Donem(BaseModel):
+    """Çalışma dönemi (mali yıl ya da esnek — 3 aylık/aylık) tanımı, firmaya bağlı (2026-09-30). Bir firmanın AYNI
+    ANDA birden fazla dönemi `durum="aktif"` (açık) olabilir — tekillik zorlanmaz (bkz. `DonemService.aktif_yap`);
+    kapatılan dönemler `durum="kapali"` işaretlenir. `Company.periods_json` JSON alanının ve eski, firmadan
+    bağımsız sahte 'Çalışma Dönemi Tanımları' ayarlar panelinin yerini alan TEK gerçek kaynaktır — ikisi de artık
+    bu tabloyu okur/yazar."""
+    __tablename__ = "donemler"
+    __table_args__ = (UniqueConstraint("company_id", "code", name="uq_donem_company_code"),)
+
+    company_id: Mapped[int] = mapped_column(ForeignKey("companies.id"), index=True, nullable=False)
+    code: Mapped[str] = mapped_column(String(30), nullable=False)             # Dönem Adı/Kodu, ör. "2026", "2026-Ç1"
+    baslangic: Mapped[date] = mapped_column(Date, nullable=False)
+    bitis: Mapped[date] = mapped_column(Date, nullable=False)
+    durum: Mapped[str] = mapped_column(String(10), default="aktif")           # aktif | kapali
+
+
+class KdvTanimi(BaseModel):
+    """KDV oranı tanımı, firmaya bağlı (`company_id` FK, 2026-09-30). Genel Ayarlar 'KDV Oranları'
+    panelinin eski, company_id'siz sahte tablosunun yerini alır. NOT: Stok Kartı'ndaki KDV % seçim
+    kutuları hâlâ AYRI, global bir katalog kaynağı (`urun.kdv_tanimlari`, `catalog_picker.py`) kullanıyor —
+    bu iki kaynağın birleştirilmesi daha büyük bir değişiklik olacağından bilinçli olarak bu aşamanın
+    dışında bırakıldı (bkz. `gelistirme/13_sirket_tanimlari/tasarim.md`)."""
+    __tablename__ = "kdv_tanimlari"
+    __table_args__ = (UniqueConstraint("company_id", "code", name="uq_kdv_company_code"),)
+
+    company_id: Mapped[int] = mapped_column(ForeignKey("companies.id"), index=True, nullable=False)
+    code: Mapped[str] = mapped_column(String(30), nullable=False)
+    description: Mapped[str | None] = mapped_column(String(150), nullable=True)
+    rate: Mapped[float] = mapped_column(Float, default=0)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+
+
+class SubeTanimi(BaseModel):
+    """Şube (lokasyon) tanımı, firmaya bağlı (`company_id` FK, 2026-09-30). Genel Ayarlar 'Şube Tanımları'
+    panelinin eski, gerçek bir bağlantısı olmayan ('İlgili Firma' serbest metin sütunlu) sahte tablosunun
+    yerini alır."""
+    __tablename__ = "sube_tanimlari"
+    __table_args__ = (UniqueConstraint("company_id", "code", name="uq_sube_company_code"),)
+
+    company_id: Mapped[int] = mapped_column(ForeignKey("companies.id"), index=True, nullable=False)
+    code: Mapped[str] = mapped_column(String(30), nullable=False)
+    name: Mapped[str] = mapped_column(String(150), nullable=False)
+    yetkili: Mapped[str | None] = mapped_column(String(120), nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
 
 
@@ -964,6 +1182,58 @@ class FinansHesap(BaseModel):
     acilis_bakiyesi: Mapped[float | None] = mapped_column(Float, nullable=True, default=0.0)   # kullanılmıyor: açılış, hareket (açılış fişi) olarak girilir
     aciklama: Mapped[str | None] = mapped_column(Text, nullable=True)
     doviz_kisitli: Mapped[bool] = mapped_column(Boolean, default=False)         # True: yalnız `para_birimi` ile işlem yapılabilir
+    # POS→Banka parametrik otomatik mahsup (bkz. gelistirme/04_odeme_planlari/tasarim.md, 04.09): yalnız
+    # `tur="pos"` hesaplarda anlamlı. `valor_gun` (yukarıda zaten var) ile birlikte kullanılır — "N gün
+    # sonra bu POS hesabındaki bakiye otomatik `pos_hedef_hesap_id`ye aktarılsın" demektir.
+    pos_otomatik_mahsup: Mapped[bool] = mapped_column(Boolean, default=False)
+    pos_hedef_hesap_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("finans_hesap.id"), nullable=True)
+
+    # Kredi Kartı tanımı (2026-10-03): yalnız `tur="kredi_karti"` hesaplarda anlamlı. Gerçek kart numarası
+    # saklanmaz (PCI/güvenlik) — kullanıcı maskeli/son haneli bir referans girer, serbest metindir.
+    kk_kart_no: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    kk_hesap_kesim_gunu: Mapped[int | None] = mapped_column(Integer, nullable=True)   # ayın kaçında ekstre kesilir
+    kk_son_odeme_gunu: Mapped[int | None] = mapped_column(Integer, nullable=True)     # ayın kaçına kadar ödenmeli
+    kk_faiz_orani: Mapped[float | None] = mapped_column(Float, nullable=True)         # aylık gecikme faiz oranı (%)
+
+    # Kredi Kartı / POS hesabının kendi varsayılan Banka Ödeme Planı'na bağlanması (2026-10-03): bu hesap
+    # bir Ödeme Planı satırında hedef hesap olarak seçildiğinde, satırda ayrıca bir banka_odeme_plani_id
+    # seçilmemişse buradaki varsayılan kullanılır (bkz. `odeme_plani_otomasyon_servisi.py`).
+    varsayilan_banka_odeme_plani_id: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("banka_odeme_planlari.id", use_alter=True), nullable=True,
+    )
+
+    pos_hedef_hesap: Mapped["FinansHesap | None"] = relationship("FinansHesap", remote_side="FinansHesap.id")
+    varsayilan_banka_odeme_plani: Mapped["BankaOdemePlani | None"] = relationship(
+        "BankaOdemePlani", foreign_keys=[varsayilan_banka_odeme_plani_id],
+    )
+
+
+class BankaOdemePlani(BaseModel):
+    """Banka/POS komisyon + BSMV + hizmet bedeli planı — taksit sayısına göre değişen kesinti yapısı.
+
+    `FinansHesap.komisyon_orani` tek, sabit bir oran taşır; bu model TAKSİT SAYISINA göre değişen
+    (ör. 3 taksit %2,5 / 6 taksit %4,2) daha ayrıntılı bir yapı sunar. `PaymentPlan.banka_odeme_plani_id`
+    ile (yalnız banka ile ilgili ödeme tipleri — kredi_karti/pos/havale_eft — için anlamlı) bir normal
+    ödeme planına bağlanır. `net_tutar()`: BSMV, komisyon TUTARI üzerinden hesaplanır (Türkiye'de banka/
+    finans kuruluşu komisyonlarının standart vergilendirme biçimi), hizmet bedeli sabit TL kesintisidir."""
+    __tablename__ = "banka_odeme_planlari"
+
+    kod: Mapped[str] = mapped_column(String(50), nullable=False)
+    aciklama: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    finans_hesap_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("finans_hesap.id"), nullable=True)
+    taksit_sayisi: Mapped[int] = mapped_column(Integer, default=1)
+    komisyon_orani: Mapped[float] = mapped_column(Float, default=0.0)          # %
+    bsmv_orani: Mapped[float] = mapped_column(Float, default=5.0)              # %, komisyon tutarı üzerinden
+    hizmet_bedeli: Mapped[float] = mapped_column(Float, default=0.0)           # sabit TL tutar / işlem
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+
+    finans_hesap: Mapped["FinansHesap | None"] = relationship("FinansHesap", foreign_keys=[finans_hesap_id])
+
+    def net_tutar(self, brut_tutar: float) -> float:
+        """Brüt tutardan komisyon + (komisyon üzerinden) BSMV + sabit hizmet bedeli düşülmüş hali."""
+        komisyon = brut_tutar * (self.komisyon_orani or 0.0) / 100
+        bsmv = komisyon * (self.bsmv_orani or 0.0) / 100
+        return brut_tutar - komisyon - bsmv - (self.hizmet_bedeli or 0.0)
 
 
 class CariFis(BaseModel):
@@ -1009,9 +1279,102 @@ class CariHareket(BaseModel):
     fis_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("cari_fis.id"), index=True, nullable=True)
     satir_no: Mapped[int | None] = mapped_column(Integer, nullable=True)
     fin_hesap_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("finans_hesap.id"), index=True, nullable=True)
+    belge_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("quotations.id"), index=True, nullable=True)   # faturadan doğan borç/alacak
+    belge_satir_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("quotation_items.id"), index=True, nullable=True)   # hangi fatura satırından doğdu (bkz. StokHareket.belge_satir_id ile aynı desen)
+    tahsilat_belge_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("quotations.id"), index=True, nullable=True)   # bu faturaya yapılan tahsilat/ödeme
+    iliskili_hareket_id: Mapped[int | None] = mapped_column(Integer, nullable=True)      # kur farkı hareketi → kaynağı olan tahsilat/ödeme hareketi
 
     customer: Mapped["Customer"] = relationship("Customer")
     fis: Mapped["CariFis | None"] = relationship("CariFis")
+
+
+class Gorev(BaseModel):
+    """Genel görev / randevu / hatırlatma (tüm modüllerin kullanabileceği). `ilgili_tur` + `ilgili_id` bir kayda (cari, stok, fatura,
+    teklif, servis...) bağlar; takvim ekranı `baslangic`/`bitis` tarihlerinden beslenir. `tekrar` yinelenen görevleri üretir.
+    Not: eski `tasks` tablosu yedekleme işi zamanlaması içindir, bu tablo ile ilgisi yoktur."""
+    __tablename__ = "gorevler"
+
+    tur: Mapped[str] = mapped_column(String(15), default="gorev", index=True)              # gorev | randevu | hatirlatma
+    baslik: Mapped[str] = mapped_column(String(200), nullable=False)
+    aciklama: Mapped[str | None] = mapped_column(Text, nullable=True)
+    kategori: Mapped[str] = mapped_column(String(30), default="genel", index=True)
+    oncelik: Mapped[int] = mapped_column(Integer, default=2)                                # 1 düşük … 4 acil
+    durum: Mapped[str] = mapped_column(String(20), default="yapilacak", index=True)        # yapilacak|devam|inceleme|tamam|iptal
+    atanan: Mapped[str | None] = mapped_column(String(100), nullable=True, index=True)
+    olusturan: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    baslangic: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, index=True)
+    bitis: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, index=True)
+    tum_gun: Mapped[bool] = mapped_column(Boolean, default=False)
+    hatirlat_dk: Mapped[int | None] = mapped_column(Integer, nullable=True)                 # başlangıçtan (yoksa bitişten) kaç dk önce
+    hatirlatildi: Mapped[bool] = mapped_column(Boolean, default=False)
+    tekrar: Mapped[str] = mapped_column(String(10), default="yok")                          # yok | gunluk | haftalik | aylik
+    tekrar_bitis: Mapped[date | None] = mapped_column(Date, nullable=True)
+    ilgili_tur: Mapped[str | None] = mapped_column(String(30), nullable=True, index=True)
+    ilgili_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
+    ilgili_ad: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    tamamlandi: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+
+class FinansFis(BaseModel):
+    """Kasa / banka hareket fişi: birden fazla finans hareketini (`FinansHareket.fis_id`) tek belgede toplar.
+
+    `grup` kasa | banka; `varsayilan_tur` yalnızca yeni satırın başlangıç türüdür (her satır kendi türünü taşır)."""
+    __tablename__ = "finans_fis"
+
+    grup: Mapped[str] = mapped_column(String(10), index=True, nullable=False, default="kasa")
+    fis_no: Mapped[str] = mapped_column(String(30), index=True, nullable=False)
+    tarih: Mapped[date] = mapped_column(Date, index=True, nullable=False)
+    saat: Mapped[str | None] = mapped_column(String(8), nullable=True)
+    belge_no: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    sube: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    ozel_kod: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    yetki_kodu: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    varsayilan_tur: Mapped[str] = mapped_column(String(20), default="kasa_tahsilat")
+    kilitli: Mapped[bool] = mapped_column(Boolean, default=False)
+    aciklama1: Mapped[str | None] = mapped_column(String(300), nullable=True)
+    aciklama2: Mapped[str | None] = mapped_column(String(300), nullable=True)
+    aciklama3: Mapped[str | None] = mapped_column(String(300), nullable=True)
+    # Ödeme Planı otomasyonu (bkz. gelistirme/04_odeme_planlari/tasarim.md, 04.07+): bu fişi otomatik
+    # üreten belge (ör. Nakit ödemeli Fatura) — dolu ise fiş OTOMATİK oluşmuştur; belge güncellenince/
+    # şartlar değişince aynı fişi bulup güncellemek/geri almak için kullanılır. Çok satırlı (04.11) bir
+    # Ödeme Planı'nda TEK belgeden BİRDEN FAZLA otomatik fiş doğabilir — `kaynak_belge_satir_no`
+    # (PaymentPlanLine.sira_no) bu fişlerin hangisinin hangi satırdan geldiğini ayırt eder.
+    kaynak_belge_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("quotations.id"), nullable=True)
+    kaynak_belge_satir_no: Mapped[int | None] = mapped_column(Integer, nullable=True)
+
+
+class FinansHareket(BaseModel):
+    """Kasa / banka hesabına giren-çıkan para hareketi (bir fiş satırı).
+
+    `yon` giris | cikis türden belirlenir. Virman satırı `hesap_id` hesabından ÇIKAR, `karsi_hesap_id` hesabına GİRER.
+    Carili satır (tahsilat/tediye/havale/EFT) `cari_hareket_id` ile cari defterindeki karşılığına bağlıdır (kaynak='finans');
+    böylece cari bakiyesi ve hesap bakiyesi aynı satırdan doğar, çift sayım olmaz."""
+    __tablename__ = "finans_hareket"
+
+    fis_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("finans_fis.id"), index=True, nullable=True)
+    satir_no: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    tarih: Mapped[date] = mapped_column(Date, index=True, nullable=False)
+    tur: Mapped[str] = mapped_column(String(20), index=True, nullable=False)
+    yon: Mapped[str] = mapped_column(String(10), nullable=False)               # giris | cikis
+    hesap_id: Mapped[int] = mapped_column(Integer, ForeignKey("finans_hesap.id"), index=True, nullable=False)
+    karsi_hesap_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("finans_hesap.id"), index=True, nullable=True)
+    customer_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("customers.id"), index=True, nullable=True)
+    cari_hareket_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("cari_hareket.id"), nullable=True)
+    belge_no: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    aciklama: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    para_birimi: Mapped[str] = mapped_column(String(10), default="TRY")
+    kur: Mapped[float] = mapped_column(Float, default=1.0)
+    tutar: Mapped[float] = mapped_column(Float, default=0.0)
+    tutar_tl: Mapped[float] = mapped_column(Float, default=0.0)
+    # POS→Banka parametrik otomatik mahsup (04.09): bu POS tahsilat satırını hangi virman hareketi
+    # (bkz. `pos_mahsup_servisi.py`) bankaya aktardı — dolu ise bu satır ARTIK mahsup edilmiştir, tarama
+    # bir daha bu satırı işlemez. Yalnız POS hesabındaki "giriş" (tahsilat) satırlarında kullanılır.
+    mahsup_virman_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("finans_hareket.id"), nullable=True)
+
+    fis: Mapped["FinansFis | None"] = relationship("FinansFis")
+    hesap: Mapped["FinansHesap"] = relationship("FinansHesap", foreign_keys=[hesap_id])
+    karsi_hesap: Mapped["FinansHesap | None"] = relationship("FinansHesap", foreign_keys=[karsi_hesap_id])
+    customer: Mapped["Customer | None"] = relationship("Customer")
 
 
 class StokFis(BaseModel):
@@ -1056,6 +1419,23 @@ class StokHareket(BaseModel):
     aciklama: Mapped[str | None] = mapped_column(String(500), nullable=True)
     depo_etkisi: Mapped[float] = mapped_column(Float, default=0.0)             # `depo_id` deposundaki net değişim
     toplam_etki: Mapped[float] = mapped_column(Float, default=0.0)             # Product.stock üzerindeki net değişim
+    belge_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("quotations.id"), index=True, nullable=True)         # irsaliye/faturadan doğan hareket
+    belge_satir_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("quotation_items.id"), index=True, nullable=True)
 
     product: Mapped["Product"] = relationship("Product")
     fis: Mapped["StokFis | None"] = relationship("StokFis")
+
+
+class Bildirim(BaseModel):
+    """Uygulama içi bildirim kaydı (şimdilik online portal müşteri kararları: kabul / ret / karşı teklif / süre dolumu).
+    `ilgili_tur` + `ilgili_no` bir belgeye (teklif no) bağlar; okundu işareti kayıt silinmeden tutulur, silme yalnızca gizler."""
+    __tablename__ = "bildirimler"
+
+    tur: Mapped[str] = mapped_column(String(30), index=True, nullable=False)          # portal_kabul|portal_red|portal_karsi|portal_sure
+    baslik: Mapped[str] = mapped_column(String(200), nullable=False)
+    mesaj: Mapped[str | None] = mapped_column(Text, nullable=True)
+    ilgili_tur: Mapped[str | None] = mapped_column(String(30), nullable=True)         # teklif
+    ilgili_no: Mapped[str | None] = mapped_column(String(100), nullable=True, index=True)
+    tutar: Mapped[float | None] = mapped_column(Float, nullable=True)
+    okundu: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
+    okunma_zamani: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)

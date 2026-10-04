@@ -20,6 +20,7 @@ from PyQt6.QtWidgets import (
 )
 
 from src.desktop.connectors import wolvox_connector as wolvox
+from src.desktop.services import portal_secret_store
 from src.desktop.services import portal_sync_service, settings_store
 
 
@@ -170,7 +171,7 @@ class PortalSettingsWidget(QWidget):
 
     def _load_portal(self) -> None:
         self.txt_url.setText(settings_store.get_setting(self.db, portal_sync_service.KEY_BASE_URL, "") or "")
-        self.txt_key.setText(settings_store.get_setting(self.db, portal_sync_service.KEY_API_KEY, "") or "")
+        self.txt_key.setText(portal_secret_store.al(self.db, portal_sync_service.KEY_API_KEY))
 
     def save(self) -> bool:
         if not self.db:
@@ -180,8 +181,12 @@ class PortalSettingsWidget(QWidget):
         if url and not url.lower().startswith(("http://", "https://")):
             QMessageBox.warning(self, "Portal", "Adres http:// veya https:// ile başlamalıdır.")
             return False
-        settings_store.set_setting(self.db, portal_sync_service.KEY_BASE_URL, url, commit=False)
-        settings_store.set_setting(self.db, portal_sync_service.KEY_API_KEY, self.txt_key.text().strip(), commit=True)
+        try:
+            portal_secret_store.yaz(self.db, portal_sync_service.KEY_API_KEY, self.txt_key.text())
+        except portal_secret_store.SecretStoreError as e:
+            QMessageBox.warning(self, "Portal", f"API anahtarı güvenli kimlik deposuna yazılamadı; kaydedilmedi. {e}")
+            return False
+        settings_store.set_setting(self.db, portal_sync_service.KEY_BASE_URL, url, commit=True)
         self.toast_requested.emit("Portal ayarları kaydedildi", "success")
         return True
 

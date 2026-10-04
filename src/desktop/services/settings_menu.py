@@ -3,18 +3,18 @@ TOYA ERP - Genel Ayarlar Menü Kodları, Arama ve Sıralama Kalıcılığı
 
 Her menü, her işlem (eylem) ve sağ paneldeki her bölüm bir KOD taşır:
     grup          sys.set.10          (Şirket Tanımları)
-    menü          sys.set.105         (Çalışma Dönemi)
-    menü işlemi   sys.set.105.01      (o menünün 1. işlemi)
+    menü          sys.set.101         (Firma Bilgileri)
+    menü işlemi   sys.set.101.01      (o menünün 1. işlemi)
     sağ bölüm     sys.rp.02           (Filtreleme & Arama)
     sağ işlem     sys.rp.02.01
-Arama kod ve isme göre çalışır; Türkçe harfler duyarsızdır ("sirket" → "ŞİRKET", "105" → sys.set.105).
+Arama kod ve isme göre çalışır; Türkçe harfler duyarsızdır ("sirket" → "ŞİRKET", "101" → sys.set.101).
 Sağ panel bölüm sıralaması kullanıcıya göre saklanır (sürükle-bırak sonucu).
 """
 
 from __future__ import annotations
 
 import json
-from typing import Iterable
+from collections.abc import Iterable
 
 from src.desktop.services.settings_store import get_setting, set_setting
 
@@ -23,6 +23,7 @@ SCREEN_CODE = "sys.set.001"
 #: grup adı → grup kodu
 GROUP_CODES: dict[str, str] = {
     "ŞİRKET TANIMLARI": "sys.set.10",
+    "ADRES & VERGİ": "sys.set.15",
     "KULLANICI & YETKİ": "sys.set.20",
     "FİNANS TANIMLARI": "sys.set.30",
     "STOK TANIMLARI": "sys.set.40",
@@ -32,18 +33,19 @@ GROUP_CODES: dict[str, str] = {
 
 #: panel_id → menü kodu
 ITEM_CODES: dict[str, str] = {
-    "firma_bilgileri": "sys.set.101", "sube_tanimlari": "sys.set.102", "depo_tanimlari": "sys.set.103",
-    "doviz_kur": "sys.set.104", "calisma_donemi": "sys.set.105",
+    "firma_bilgileri": "sys.set.101", "numara_serileri": "sys.set.102",
+    "adres_tanimlari": "sys.set.151", "vergi_daireleri": "sys.set.152",
     "kullanicilar": "sys.set.201", "roller": "sys.set.202", "yetkiler": "sys.set.203",
-    "odeme_planlari": "sys.set.301", "fiyat_listeleri": "sys.set.302",
+    "doviz_kur": "sys.set.300", "banka_tanimlari": "sys.set.301",
+    "odeme_planlari": "sys.set.302", "banka_odeme_planlari": "sys.set.303", "fiyat_listeleri": "sys.set.304",
     "stok_kategoriler": "sys.set.401", "stok_markalar": "sys.set.402", "birim_tanimlari": "sys.set.403",
     "stok_ozel_alanlar": "sys.set.404",
     "cari_gruplari": "sys.set.501", "cari_ozel_alanlar": "sys.set.502",
     "yedek_merkezi": "sys.set.611", "portal_yedek": "sys.set.612",
     "cms_baglantilari": "sys.set.621", "portal_yayin": "sys.set.622", "online_portal": "sys.set.623",
-    "gorunum_profilleri": "sys.set.631", "ekran_grid": "sys.set.632",
+    "gorunum_profilleri": "sys.set.631", "ekran_grid": "sys.set.632", "form_tasarimlari": "sys.set.633",
     "eposta_smtp": "sys.set.641", "kdv_oranlari": "sys.set.642", "sayi_bicimi": "sys.set.643",
-    "guvenlik": "sys.set.651", "surum_git": "sys.set.652",
+    "guvenlik": "sys.set.651", "surum_git": "sys.set.652", "yardim": "sys.set.653",
 }
 
 #: grup adı → [(alt menü başlığı, alt menü kodu, [panel_id, ...])]; listelenmeyen menüler grupta düz kalır
@@ -51,7 +53,7 @@ SUBGROUPS: dict[str, list[tuple[str, str, list[str]]]] = {
     "SİSTEM": [
         ("🗄️ Yedekleme", "sys.set.61", ["yedek_merkezi", "portal_yedek"]),
         ("🔌 Bağlantılar", "sys.set.62", ["cms_baglantilari", "portal_yayin", "online_portal"]),
-        ("🎨 Görünüm", "sys.set.63", ["gorunum_profilleri", "ekran_grid"]),
+        ("🎨 Görünüm", "sys.set.63", ["gorunum_profilleri", "ekran_grid", "form_tasarimlari"]),
         ("🧾 Genel", "sys.set.64", ["eposta_smtp", "kdv_oranlari", "sayi_bicimi"]),
     ],
 }

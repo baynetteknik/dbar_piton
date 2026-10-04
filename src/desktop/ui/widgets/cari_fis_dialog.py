@@ -7,8 +7,12 @@ from __future__ import annotations
 
 from PyQt6.QtCore import Qt
 
+from src.desktop.services import money_service
 from src.desktop.services import cari_fis_rapor
-from src.desktop.services.cari_hareket_service import CariHareketError, CariHareketService
+from src.desktop.services.cari_hareket_service import (
+    CariHareketError,
+    CariHareketService,
+)
 from src.desktop.ui.widgets.cari_durum_widget import CariDurumWidget
 from src.desktop.ui.widgets.cari_fis_baslik_widget import CariFisBaslikWidget
 from src.desktop.ui.widgets.cari_fis_kalemleri_widget import CariFisKalemleriWidget
@@ -108,4 +112,4 @@ class CariFisDialog(FisDialogBase):
             self.durum.clear()
             return
         cari = self.kalemler.cari_bul(cid)
-        self.durum.set_customer(cari, self.svc.cari_bakiye(cid, haric_fis_id=self.fis_id))
+        self.durum.set_customer(cari, self.svc.cari_bakiye(cid, haric_fis_id=self.fis_id), self.svc.dovizli_bakiye(cid, self.fis_id), money_service.yerel_para(self.db))

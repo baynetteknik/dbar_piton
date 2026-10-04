@@ -37,6 +37,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from src.desktop.ui.components.button_style import btn_style
 from src.desktop.ui.components.edge_panel import EdgeTriggeredPanel
 from src.desktop.ui.components.filterable_table import FilterableTableView
 
@@ -683,6 +684,7 @@ class NewTaskDialog(QDialog):
                 font-size: 12px;
                 background-color: white;
                 color: #0f172a;
+                combobox-popup: 0;
             }
             QComboBox QAbstractItemView {
                 border: 1px solid #94a3b8;
@@ -1062,6 +1064,38 @@ class BackupWidget(QWidget):
         self.setStyleSheet(BACKUP_STYLE_SHEET)
         self.init_ui()
 
+    def apply_combo_style(self, widget):
+        widget.setStyleSheet("""
+            QComboBox {
+                border: 1px solid #cbd5e1;
+                border-radius: 6px;
+                padding: 5px 10px;
+                font-size: 12px;
+                background-color: white;
+                color: #0f172a;
+                combobox-popup: 0;
+            }
+            QComboBox QAbstractItemView {
+                border: 1px solid #94a3b8;
+                background-color: #ffffff;
+                color: #0f172a;
+                outline: none;
+                padding: 2px 0px;
+            }
+            QComboBox QAbstractItemView::item {
+                min-height: 26px;
+                padding: 4px 10px;
+                background-color: #ffffff;
+                color: #0f172a;
+                border-radius: 0px;
+            }
+            QComboBox QAbstractItemView::item:hover,
+            QComboBox QAbstractItemView::item:selected {
+                background-color: #2563eb;
+                color: #ffffff;
+            }
+        """)
+
     def load_tasks_from_json(self):
         file_path = "data/backup_tasks.json"
         os.makedirs(os.path.dirname(file_path), exist_ok=True)
@@ -1173,6 +1207,7 @@ class BackupWidget(QWidget):
         self.cmb_filter_target = QComboBox()
         self.cmb_filter_target.addItems(["Tümü", "SFTP Uzak Sunucu", "Local Depolama", "Amazon S3 Bulut", "Local Disk D:"])
         self.cmb_filter_target.currentTextChanged.connect(self.on_search_changed)
+        self.apply_combo_style(self.cmb_filter_target)
         filter_lyt.addWidget(lbl_target_filter)
         filter_lyt.addWidget(self.cmb_filter_target)
 
@@ -1181,6 +1216,7 @@ class BackupWidget(QWidget):
         self.cmb_filter_status = QComboBox()
         self.cmb_filter_status.addItems(["Tümü", "Aktif", "Manuel"])
         self.cmb_filter_status.currentTextChanged.connect(self.on_search_changed)
+        self.apply_combo_style(self.cmb_filter_status)
         filter_lyt.addWidget(lbl_status_filter)
         filter_lyt.addWidget(self.cmb_filter_status)
         filter_lyt.addStretch()
@@ -1285,6 +1321,7 @@ class BackupWidget(QWidget):
         self.combo_page_size = QComboBox()
         self.combo_page_size.addItems(["25 kayıt", "50 kayıt", "100 kayıt"])
         self.combo_page_size.currentTextChanged.connect(self.on_page_size_changed)
+        self.apply_combo_style(self.combo_page_size)
 
         for btn in [self.btn_first_page, self.btn_prev_page, self.btn_next_page, self.btn_last_page]:
             btn.setStyleSheet("QPushButton { border: 1px solid #cbd5e1; border-radius: 4px; padding: 4px 8px; background: white; }")
@@ -1409,22 +1446,7 @@ class BackupWidget(QWidget):
         self.switch_category("Backup")
 
     def toolbar_btn_style(self):
-        return """
-            QPushButton {
-                background-color: #f8fafc;
-                border: 1px solid #cbd5e1;
-                border-radius: 6px;
-                padding: 6px 10px;
-                font-family: 'Segoe UI';
-                font-size: 11px;
-                color: #334155;
-                font-weight: bold;
-                text-align: left;
-                min-height: 28px;
-            }
-            QPushButton:hover { background-color: #e2e8f0; }
-            QPushButton:disabled { color: #cbd5e1; background-color: #f1f5f9; }
-        """
+        return btn_style()
 
     def switch_category(self, category: str):
         self.selected_category = category

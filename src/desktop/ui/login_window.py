@@ -265,6 +265,7 @@ class LoginWindow(QMainWindow):
     def _input_style(self) -> str:
         return """
             QLineEdit, QComboBox {
+                combobox-popup: 0;
                 background-color: #0f172a;
                 color: #e2e8f0;
                 border: 1px solid #334155;
@@ -411,7 +412,9 @@ class LoginWindow(QMainWindow):
 
                 # Rol tabanlı yetkileri DB'den yükle ve giriş yapan kullanıcıyı ata
                 try:
-                    from src.desktop.managers.permission_manager import PermissionManager
+                    from src.desktop.managers.permission_manager import (
+                        PermissionManager,
+                    )
                     pm = PermissionManager()
                     pm.load_from_db(self.db)
                     pm.set_current_user(user)
@@ -510,7 +513,9 @@ class LoginWindow(QMainWindow):
         if not self.db:
             self._show_status("Kurtarma için veritabanı bağlantısı gerekli.", "error")
             return
-        from src.desktop.ui.widgets.password_recovery_dialog import PasswordRecoveryDialog
+        from src.desktop.ui.widgets.password_recovery_dialog import (
+            PasswordRecoveryDialog,
+        )
 
         dlg = PasswordRecoveryDialog(
             db_session=self.db, preselect_username=username, parent=self,

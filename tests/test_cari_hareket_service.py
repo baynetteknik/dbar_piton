@@ -40,6 +40,33 @@ def test_doviz_hareketi_kuru_otomatik_alir_ve_tl_karsiligini_hesaplar(svc, db_se
     assert svc.cari_bakiye(c) == -20.0
 
 
+def test_tl_hesaptan_herhangi_bir_dovizde_cari_hareket_kapatilabilir_yabanci_hesap_hala_sikidir(svc, db_session):
+    """Kullanıcı kararı (2026-09-29, hibrit kısıt): müşteri fiilen TL öder, kapanan borç USD/EUR olabilir —
+    TL hesap için döviz kısıtı gevşer. Ama YABANCI para hesaplar (kasiyer yanlış tuşa bastı koruması) hâlâ sıkı."""
+    from src.core.models import FinansHesap
+
+    c = _cid(db_session, "C1")
+    tl_kasa = FinansHesap(tur="kasa", kod="TLK", ad="TL Kasa", para_birimi="TRY", doviz_kisitli=True)
+    usd_kasa = FinansHesap(tur="kasa", kod="USK", ad="USD Kasa", para_birimi="USD", doviz_kisitli=True)
+    db_session.add_all([tl_kasa, usd_kasa])
+    db_session.commit()
+
+    # TL hesaptan USD cari hareketi kapatılabiliyor (yeni, esnetilmiş davranış — asıl istenen senaryo)
+    h = svc.create(customer_id=c, tur="tahsilat", tutar=100.0, para_birimi="USD", kur=30.0,
+                   odeme_araci="kasa", fin_hesap_id=tl_kasa.id)
+    assert (h.para_birimi, h.fin_hesap_id) == ("USD", tl_kasa.id)
+
+    # Yabancı para hesap (USD) hâlâ yalnız kendi dövizini kabul ediyor — EUR reddedilir
+    with pytest.raises(CariHareketError, match="yalnızca"):
+        svc.create(customer_id=c, tur="tahsilat", tutar=50.0, para_birimi="EUR", kur=32.0,
+                   odeme_araci="kasa", fin_hesap_id=usd_kasa.id)
+
+    # USD hesaptan USD cari hareketi (eski, aynı-döviz davranışı) hâlâ çalışıyor
+    h2 = svc.create(customer_id=c, tur="tahsilat", tutar=20.0, para_birimi="USD", kur=30.0,
+                    odeme_araci="kasa", fin_hesap_id=usd_kasa.id)
+    assert h2.fin_hesap_id == usd_kasa.id
+
+
 def test_dogrulama_hatalari(svc, db_session):
     c = _cid(db_session, "C1")
     with pytest.raises(CariHareketError):

@@ -3,9 +3,11 @@ TOYA ERP - Atomik Dışa Aktarım ve Yazdırma Widget'ı (ExportActionsWidget)
 Excel (.xlsx), PDF, CSV aktarımı ve Yazıcı (Baskı) işlemlerini yöneten bağımsız bileşen.
 """
 
-from PyQt6.QtWidgets import QWidget, QVBoxLayout, QPushButton, QGroupBox
 from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtWidgets import QGroupBox, QPushButton, QVBoxLayout, QWidget
+
 from src.desktop.managers.theme_manager import ThemeManager
+from src.desktop.ui.components.button_style import btn_style
 
 
 class ExportActionsWidget(QWidget):
@@ -23,25 +25,7 @@ class ExportActionsWidget(QWidget):
         self._init_ui()
 
     def _btn_style(self, bg="#ffffff", text="#1e293b", border="#cbd5e1"):
-        return f"""
-            QPushButton {{
-                background-color: {bg};
-                color: {text};
-                border: 1px solid {border};
-                border-radius: 6px;
-                padding: 7px 12px;
-                font-size: 11px;
-                font-weight: 600;
-                text-align: left;
-                font-family: 'Segoe UI';
-            }}
-            QPushButton:hover {{
-                background-color: #f1f5f9;
-            }}
-            QPushButton:pressed {{
-                background-color: #e2e8f0;
-            }}
-        """
+        return btn_style(bg, text)
 
     def _init_ui(self):
         main_lyt = QVBoxLayout(self)

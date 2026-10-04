@@ -5,9 +5,10 @@ doğrudan Python widget'ına dönüştürür ve merkezi ThemeManager & AppGrid i
 """
 
 import os
-from pathlib import Path
+
 from PyQt6 import uic
-from PyQt6.QtWidgets import QWidget, QTableWidget, QTableView
+from PyQt6.QtWidgets import QTableView, QTableWidget, QWidget
+
 from src.desktop.managers.theme_manager import ThemeManager
 
 

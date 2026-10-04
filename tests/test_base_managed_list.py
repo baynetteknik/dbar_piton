@@ -28,37 +28,34 @@ def test_base_managed_list_widget_initialization(qapp):
 
 def test_view_settings_widget_module_switching(qapp):
     """Tests module profile switching in ViewSettingsWidget."""
+    from src.desktop.managers.profile_manager import ProfileManager
     from src.desktop.ui.components.filterable_table import FilterableTableView
     from src.desktop.ui.settings import ViewSettingsWidget
 
-    # Save profiles for two different modules
-    table_cust = FilterableTableView({0: ("ID", "id")}, profile_key="customers")
-    table_cust.save_column_profile("CustProfile")
+    managers = {key: ProfileManager(profile_key=key) for key in ("customers", "sites")}
+    previous_active = {key: pm.get_active_profile_name() for key, pm in managers.items()}
+    try:
+        table_cust = FilterableTableView({0: ("ID", "id")}, profile_key="customers")
+        table_cust.save_column_profile("CustProfile")
+        table_sites = FilterableTableView({0: ("ID", "id")}, profile_key="sites")
+        table_sites.save_column_profile("SiteProfile")
+        settings_widget = ViewSettingsWidget()
 
-    table_sites = FilterableTableView({0: ("ID", "id")}, profile_key="sites")
-    table_sites.save_column_profile("SiteProfile")
-
-    settings_widget = ViewSettingsWidget()
-
-    # Select "customers" in combo
-    idx_cust = settings_widget.module_combo.findData("customers")
-    settings_widget.module_combo.setCurrentIndex(idx_cust)
-    items_cust = [
-        settings_widget.profile_list.item(i).text()
-        for i in range(settings_widget.profile_list.count())
-    ]
-    assert "CustProfile" in items_cust
-
-    # Switch to "sites" in combo
-    idx_sites = settings_widget.module_combo.findData("sites")
-    settings_widget.module_combo.setCurrentIndex(idx_sites)
-    items_sites = [
-        settings_widget.profile_list.item(i).text()
-        for i in range(settings_widget.profile_list.count())
-    ]
-    assert "SiteProfile" in items_sites
-    assert "CustProfile" not in items_sites
-
-    # Clean up profiles
-    table_cust.delete_column_profile("CustProfile")
-    table_sites.delete_column_profile("SiteProfile")
+        for key, expected, excluded in (
+            ("customers", "CustProfile", "SiteProfile"),
+            ("sites", "SiteProfile", "CustProfile"),
+        ):
+            idx = settings_widget.module_combo.findData(key)
+            assert idx != -1
+            settings_widget.module_combo.setCurrentIndex(idx)
+            assert settings_widget.get_current_profile_key() == key
+            items = [
+                settings_widget.profile_list.item(i).text()
+                for i in range(settings_widget.profile_list.count())
+            ]
+            assert any(expected in item for item in items)
+            assert not any(excluded in item for item in items)
+    finally:
+        for key, profile_name in (("customers", "CustProfile"), ("sites", "SiteProfile")):
+            managers[key].delete_profile(profile_name)
+            managers[key].set_active_profile_name(previous_active[key])

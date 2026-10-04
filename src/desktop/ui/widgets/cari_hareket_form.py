@@ -6,14 +6,26 @@ from __future__ import annotations
 
 from PyQt6.QtCore import QDate, Qt
 from PyQt6.QtWidgets import (
-    QCheckBox, QComboBox, QCompleter, QDateEdit, QDialog, QDialogButtonBox, QFormLayout, QLabel, QLineEdit,
-    QVBoxLayout, QWidget,
+    QCheckBox,
+    QComboBox,
+    QCompleter,
+    QDateEdit,
+    QDialog,
+    QDialogButtonBox,
+    QFormLayout,
+    QLabel,
+    QLineEdit,
+    QVBoxLayout,
+    QWidget,
 )
 from sqlalchemy import select
 
 from src.core.models import CariHareket, Currency, Customer
 from src.desktop.services.cari_hareket_service import (
-    TURLER, YONLER, CariHareketError, CariHareketService,
+    TURLER,
+    YONLER,
+    CariHareketError,
+    CariHareketService,
 )
 from src.desktop.ui.components.dialog_style import apply_light_dialog_style
 from src.desktop.ui.components.grid_delegates import apply_calendar_style

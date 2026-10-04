@@ -12,6 +12,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from src.desktop.ui.components.button_style import btn_style
 from src.desktop.ui.components.collapsible_section import CollapsibleSection
 
 
@@ -43,28 +44,7 @@ class ExportWidget(QWidget):
 
     def _btn_style(self) -> str:
         """Standart dışa aktarım butonu stili."""
-        return """
-            QPushButton {
-                background-color: #ffffff;
-                color: #1e293b;
-                border: 1px solid #cbd5e1;
-                border-radius: 6px;
-                padding: 6px 10px;
-                font-size: 11px;
-                font-weight: 600;
-                text-align: left;
-                font-family: 'Segoe UI';
-            }
-            QPushButton:hover {
-                background-color: #f1f5f9;
-                border-color: #94a3b8;
-            }
-            QPushButton:disabled {
-                color: #94a3b8;
-                background-color: #f8fafc;
-                border-color: #e2e8f0;
-            }
-        """
+        return btn_style()
 
     def init_ui(self):
         """Bileşenleri ve butonları oluşturur."""

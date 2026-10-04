@@ -18,7 +18,7 @@ try {
         portal_service(), $method, $path,
         $method === 'POST' ? json_body() : [], $_GET,
         $isAgent, $_SERVER['REMOTE_ADDR'] ?? null, $_SERVER['HTTP_USER_AGENT'] ?? null,
-        portal_mirror(), portal_backup(),
+        portal_mirror(), portal_backup(), portal_updater(),
     );
 } catch (Throwable $e) {
     error_log('portal error: ' . $e->getMessage());

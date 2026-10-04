@@ -31,6 +31,7 @@ from src.core.models import Customer, Site
 from src.core.repository import SqliteCustomerRepository
 from src.core.sync.customer_sync import CustomerSyncEngine
 from src.desktop.managers.profile_manager import ProfileManager
+from src.desktop.ui.components.button_style import btn_style
 from src.desktop.ui.components.collapsible_section import CollapsibleSection
 from src.desktop.ui.components.edge_panel import EdgeTriggeredPanel
 from src.desktop.ui.components.filterable_table import FilterableTableView
@@ -284,6 +285,19 @@ class CustomerDialog(QDialog):
                 padding: 6px 10px;
                 background-color: white;
                 color: #0f172a;
+            }
+            QComboBox {
+                combobox-popup: 0;
+            }
+            QComboBox QAbstractItemView {
+                outline: 0;
+                padding: 0px;
+                border: 1px solid #cbd5e1;
+                background-color: white;
+            }
+            QComboBox QAbstractItemView::item {
+                padding: 3px 6px;
+                min-height: 20px;
             }
             QLineEdit:focus, QTextEdit:focus { border-color: #3b82f6; }
         """
@@ -747,6 +761,17 @@ class SyncDialog(QDialog):
                 padding: 8px;
                 background-color: white;
                 font-weight: bold;
+                combobox-popup: 0;
+            }
+            QComboBox QAbstractItemView {
+                outline: 0;
+                padding: 0px;
+                border: 1px solid #cbd5e1;
+                background-color: white;
+            }
+            QComboBox QAbstractItemView::item {
+                padding: 3px 6px;
+                min-height: 20px;
             }
         """)
         self.load_active_sites()
@@ -1047,12 +1072,15 @@ class MusteriYonetimiWidget(ThreePanelBaseWidget):
                 color: #0f172a;
                 font-size: 12px;
             }
+            QComboBox {
+                combobox-popup: 0;
+            }
             QComboBox QAbstractItemView {
                 border: 1px solid #94a3b8;
                 background-color: #ffffff;
                 color: #0f172a;
                 outline: none;
-                padding: 2px 0px;
+                padding: 0px;
             }
             QComboBox QAbstractItemView::item {
                 min-height: 26px;
@@ -1347,9 +1375,21 @@ class MusteriYonetimiWidget(ThreePanelBaseWidget):
                 color: #334155;
                 font-weight: 600;
                 font-size: 11px;
+                combobox-popup: 0;
             }
             QComboBox::drop-down {
                 border: none;
+            }
+            QComboBox QAbstractItemView {
+                border: 1px solid #cbd5e1;
+                background-color: #ffffff;
+                color: #0f172a;
+                outline: 0;
+                padding: 0px;
+            }
+            QComboBox QAbstractItemView::item {
+                padding: 3px 6px;
+                min-height: 20px;
             }
         """)
         for i in range(self.combo_page_size.count()):
@@ -1591,27 +1631,7 @@ class MusteriYonetimiWidget(ThreePanelBaseWidget):
         self.right_panel.toggle_panel()
 
     def toolbar_btn_style(self):
-        return """
-            QPushButton {
-                background-color: #f8fafc;
-                border: 1px solid #cbd5e1;
-                border-radius: 6px;
-                padding: 4px 8px;
-                font-family: 'Segoe UI';
-                font-size: 11px;
-                color: #334155;
-                font-weight: bold;
-                text-align: left;
-                min-height: 28px;
-            }
-            QPushButton:hover {
-                background-color: #e2e8f0;
-                border-color: #94a3b8;
-            }
-            QPushButton:pressed {
-                background-color: #cbd5e1;
-            }
-        """
+        return btn_style()
 
     def open_new_customer_dialog(self):
         dlg = CustomerDialog(self.db, self.company_id, None, None, self)

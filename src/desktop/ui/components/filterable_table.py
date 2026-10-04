@@ -17,6 +17,7 @@ from PyQt6.QtWidgets import (
 
 from src.desktop.managers.profile_manager import ProfileManager
 from src.desktop.models.profile_models import IndividualColumn, ViewProfile
+from src.desktop.ui.components.button_style import btn_style
 from src.desktop.ui.components.checkable_header_view import CheckableHeaderView
 from src.desktop.ui.components.profile_style_delegate import ProfileStyleDelegate
 from src.desktop.ui.components.view_profile_bar import ViewProfileBar
@@ -104,6 +105,25 @@ class _ModelAwareTableView(QTableView):
         self.model_attached.emit()
 
 
+#: Standart tablo görünümü (tüm liste ve giriş gridleri): beyaz zemin, açık ızgara, mavi seçim. Ekrana özel kopya yazma.
+STANDART_TABLO_QSS = """
+    QTableView {
+        border: 1px solid #cbd5e1;
+        background-color: white;
+        gridline-color: #f1f5f9;
+        border-radius: 6px;
+        font-family: 'Segoe UI';
+        font-size: 12px;
+        color: #334155;
+    }
+    QTableView::item { padding: 6px; }
+    QTableView::item:selected {
+        background-color: #eff6ff;
+        color: #1d4ed8;
+        font-weight: 600;
+    }
+"""
+
 _CHECKED_VALUE = int(Qt.CheckState.Checked.value)
 
 
@@ -123,8 +143,14 @@ class FilterableTableView(QWidget):
     filter_changed = pyqtSignal(dict)  # Aktif filtre sözlüğünü yayar
     column_visibility_changed = pyqtSignal(int, bool)  # Sütun göster/gizle durumunu yayar (col_idx, visible)
     checked_rows_changed = pyqtSignal(int)  # İşaretli satır sayısını yayar (select_column verildiyse)
+    profiles_changed = pyqtSignal()  # Profil kaydedildi / silindi / seçildi (sol panel profil bölümü kendini günceller)
 
     MANDATORY_COLUMNS = set()  # Kullanıcı istediği sütunu (ID dahil) gizleyebilmeli
+    #: Tek bir sütunun alabileceği azami genişlik (px). Uygulamadaki en geniş meşru sütun bile
+    #: birkaç yüz pikseli geçmiyor; bu sınır olmadan tarayıcı-benzeri bir kayma/çift-tık anında
+    #: sütun genişliği binlerce piksele sıçrayıp profile kaydedilebiliyor — sonraki her açılışta
+    #: o sütun tüm alanı kaplayıp sağındaki sütunları (ör. Modül, Durum) ekran dışına itiyordu.
+    MAX_COLUMN_WIDTH = 900
 
     def __init__(
         self,
@@ -134,8 +160,11 @@ class FilterableTableView(QWidget):
         parent=None,
         select_column: int | None = None,
         mode: str = "list",
+        table_view_class=None,
     ):
         super().__init__(parent)
+        #: Tablo görünümü sınıfı (varsayılan `_ModelAwareTableView`); veri girişi için `EntryTableView` verilir.
+        self._table_view_class = table_view_class or _ModelAwareTableView
         self.headers_dict = headers_dict  # {col_idx: (label, field_name)}
         self.profile_key = profile_key
         self.enable_profile_bar = enable_profile_bar
@@ -232,8 +261,9 @@ class FilterableTableView(QWidget):
             self.filter_bar_container.setVisible(False)
 
         # 3. Asıl QTableView
-        self.table_view = _ModelAwareTableView()
+        self.table_view = self._table_view_class()
         self.table_view.setObjectName("MainTableView")
+        self.table_view.setStyleSheet(STANDART_TABLO_QSS)
         self.table_view.setSortingEnabled(self.mode != "entry")  # entry'de sıralama kapalı
 
         # Opt-in: seçim kolonu başlığına üç durumlu onay kutusu tak
@@ -310,6 +340,9 @@ class FilterableTableView(QWidget):
         hheader.geometriesChanged.connect(self.sync_filter_widths)
         self.table_view.horizontalScrollBar().valueChanged.connect(self.sync_filter_widths)
         self.table_view.horizontalScrollBar().rangeChanged.connect(lambda *_: self.sync_filter_widths())
+
+        if self.select_column is not None and self.table_view.model() is not None:
+            self._bind_selection_model()          # model tablo görünümüyle birlikte geldiyse (EntryTableView) `model_attached` kaçırılmış olur
 
         # En son kullanılan aktif profili otomatik yükle
         pm = ProfileManager(profile_key=self.profile_key)
@@ -609,7 +642,7 @@ class FilterableTableView(QWidget):
                 indiv = profile.column_settings.individual_columns[field_name]
                 self.set_column_hidden(col_idx, False if is_mandatory else not indiv.visible)
                 if indiv.width > 0:
-                    self.table_view.setColumnWidth(col_idx, indiv.width)
+                    self.table_view.setColumnWidth(col_idx, min(indiv.width, self.MAX_COLUMN_WIDTH))
             else:
                 self.set_column_hidden(col_idx, False)
 
@@ -628,7 +661,7 @@ class FilterableTableView(QWidget):
         indiv_cols = {}
         for col_idx, (_label, field_name) in self.headers_dict.items():
             vis = not header.isSectionHidden(col_idx)
-            w = self.table_view.columnWidth(col_idx)
+            w = min(self.table_view.columnWidth(col_idx), self.MAX_COLUMN_WIDTH)
             v_idx = header.visualIndex(col_idx)
             indiv_cols[field_name] = IndividualColumn(visible=vis, width=w, order=v_idx)
 
@@ -645,44 +678,19 @@ class FilterableTableView(QWidget):
         self.show_header_context_menu(pos)
 
     def add_column_actions_to_menu(self, menu):
-        """
-        Sağ tık menüsüne sütun gizle/göster aksiyonları ekler.
-        quotations.py ve diğer liste ekranları tarafından çağrılır.
-        """
-        from PyQt6.QtGui import QAction
+        """Sağ tık menüsüne "Sütunlar ve Profiller" eylemi ekler: iki sütunlu, aramalı sütun menüsünü (başlık menüsüyle aynı) imlecin
+        yerinde açar. (Eskiden burada tek sütunlu uzun bir alt menü vardı.)"""
+        from PyQt6.QtGui import QAction, QCursor
 
-        col_menu = menu.addMenu("👁️ Sütunlar")
-        col_menu.setStyleSheet("""
-            QMenu {
-                background:#1e3a8a; border:1px solid #3b82f6;
-                font-size:10px; padding:2px;
-            }
-            QMenu::item { padding:4px 16px; color:#ffffff; }
-            QMenu::item:selected { background:#2563eb; color:#ffffff; }
-        """)
+        act = QAction("🗂️ Sütunlar ve Profiller…", menu)
 
-        header = self.table_view.horizontalHeader()
-        for col_idx in sorted(self.headers_dict.keys()):
-            label, _ = self.headers_dict[col_idx]
-            is_visible = not header.isSectionHidden(col_idx)
-            act = QAction(
-                f"{'✅' if is_visible else '☐'} {label}", self,
-            )
-            act.triggered.connect(
-                lambda checked, c=col_idx, v=is_visible:
-                self.set_column_hidden(c, v),
-            )
-            col_menu.addAction(act)
-
-        col_menu.addSeparator()
-        act_show_all = QAction("👁️ Tümünü Göster", self)
-        act_show_all.triggered.connect(
-            lambda: [
-                self.set_column_hidden(c, False)
-                for c in self.headers_dict.keys()
-            ],
-        )
-        col_menu.addAction(act_show_all)
+        def ac():
+            from PyQt6.QtCore import QTimer
+            header = self.table_view.horizontalHeader()
+            pos = header.mapFromGlobal(QCursor.pos())
+            QTimer.singleShot(0, lambda: self.show_header_context_menu(pos))          # bağlam menüsü kapandıktan sonra
+        act.triggered.connect(ac)
+        menu.addAction(act)
 
     def show_header_context_menu(self, pos):
         """Tablo başlığına sağ tıklandığında iki sütunlu, arama ve profil kayıt özellikli menüyü açar."""
@@ -701,18 +709,20 @@ class FilterableTableView(QWidget):
             QWidgetAction,
         )
 
+        from src.desktop.managers.theme_manager import ThemeManager
+
         menu = QMenu(self)
-        menu.setStyleSheet("""
-            QMenu {
-                background-color: #f8fafc;
-                border: 1px solid #cbd5e1;
-                border-radius: 8px;
-                padding: 6px;
-            }
-        """)
+        menu.setStyleSheet(ThemeManager().get_context_menu_stylesheet())
 
         # Ana widget ve dikey layout
         main_widget = QWidget()
+        # Menü içeriği temadan (qt_material gri zemin / açık gri yazı) bağımsız, açık zemin + koyu yazı olsun
+        main_widget.setStyleSheet(
+            "QWidget { background: transparent; color: #ffffff; }"
+            " QLabel { background: transparent; color: #ffffff; }"
+            " QCheckBox { background: transparent; color: #ffffff; }"
+            " QLineEdit, QComboBox { background-color: #ffffff; color: #0f172a; }",
+        )
         main_widget.setMinimumWidth(300)
         main_layout = QVBoxLayout(main_widget)
         main_layout.setContentsMargins(6, 6, 6, 6)
@@ -752,7 +762,7 @@ class FilterableTableView(QWidget):
             cb.setStyleSheet("""
                 QCheckBox {
                     font-size: 11px;
-                    color: #334155;
+                    color: #ffffff;
                 }
                 QCheckBox::indicator {
                     width: 14px;
@@ -774,20 +784,24 @@ class FilterableTableView(QWidget):
         line = QFrame()
         line.setFrameShape(QFrame.Shape.HLine)
         line.setFrameShadow(QFrame.Shadow.Sunken)
-        line.setStyleSheet("color: #e2e8f0;")
+        line.setStyleSheet("color: #3b82f6;")
         main_layout.addWidget(line)
 
         # 3. Görünüm Profilleri Bölümü
         profile_title = QLabel("Görünüm Profilleri")
-        profile_title.setStyleSheet("font-weight: bold; font-size: 10px; color: #64748b;")
+        profile_title.setStyleSheet("font-weight: bold; font-size: 11px; color: #bfdbfe; background: transparent;")
         main_layout.addWidget(profile_title)
 
         # Profil Seçme ve Silme Satırı
         prof_select_lyt = QHBoxLayout()
         prof_select_lyt.setSpacing(4)
+        prof_select_lyt.setAlignment(Qt.AlignmentFlag.AlignVCenter)
+        satir_h = 30            # açılır liste, giriş kutusu ve düğmeler AYNI yükseklikte (üstten hizalı değil, ortalı)
+        dugme_ek = " QPushButton { height: 30px; min-height: 30px; max-height: 30px; padding: 0px 8px; }"       # qt_material genel "height: 36px" kuralını ezer
 
         self.menu_profile_combo = QComboBox()
-        self.menu_profile_combo.setStyleSheet("font-size: 11px; padding: 2px 4px;")
+        self.menu_profile_combo.setStyleSheet("font-size: 11px; padding: 0px 6px; background-color: #ffffff; color: #0f172a; height: 30px; min-height: 30px; max-height: 30px;")
+        self.menu_profile_combo.setFixedHeight(satir_h)
 
         # Kayıtlı profilleri yükle (En son aktif profil en üsttedir)
         profiles = self.load_column_profile_list()
@@ -811,17 +825,8 @@ class FilterableTableView(QWidget):
 
         btn_delete_prof = QPushButton("🗑️ Sil")
         btn_delete_prof.setToolTip("Profili Sil")
-        btn_delete_prof.setFixedHeight(22)
-        btn_delete_prof.setStyleSheet("""
-            QPushButton {
-                background-color: #fee2e2;
-                border: 1px solid #fca5a5;
-                border-radius: 4px;
-                font-size: 11px;
-                padding: 2px 4px;
-            }
-            QPushButton:hover { background-color: #fca5a5; }
-        """)
+        btn_delete_prof.setFixedHeight(satir_h)
+        btn_delete_prof.setStyleSheet(btn_style("#fee2e2", "#991b1b") + dugme_ek)
         btn_delete_prof.clicked.connect(
             lambda checked, combo=self.menu_profile_combo, m=menu: self.on_delete_profile_clicked(combo, m),
         )
@@ -829,17 +834,8 @@ class FilterableTableView(QWidget):
 
         btn_manage_prof = QPushButton("⚙️ Yönet")
         btn_manage_prof.setToolTip("Görünüm Profillerini Yönet")
-        btn_manage_prof.setFixedHeight(22)
-        btn_manage_prof.setStyleSheet("""
-            QPushButton {
-                background-color: #f1f5f9;
-                border: 1px solid #cbd5e1;
-                border-radius: 4px;
-                font-size: 11px;
-                padding: 2px 4px;
-            }
-            QPushButton:hover { background-color: #e2e8f0; }
-        """)
+        btn_manage_prof.setFixedHeight(satir_h)
+        btn_manage_prof.setStyleSheet(btn_style() + dugme_ek)
         btn_manage_prof.clicked.connect(
             lambda checked, m=menu: self.on_manage_profiles_clicked(m),
         )
@@ -849,6 +845,7 @@ class FilterableTableView(QWidget):
         # Profil Kaydetme Satırı
         prof_save_lyt = QHBoxLayout()
         prof_save_lyt.setSpacing(4)
+        prof_save_lyt.setAlignment(Qt.AlignmentFlag.AlignVCenter)
 
         self.menu_profile_input = QLineEdit()
         if active != "Varsayılan":
@@ -856,22 +853,14 @@ class FilterableTableView(QWidget):
             self.menu_profile_input.setPlaceholderText(f"Mevcut '{active}' güncellenecek...")
         else:
             self.menu_profile_input.setPlaceholderText("Yeni profil adı...")
-        self.menu_profile_input.setStyleSheet("font-size: 11px; padding: 2px 4px;")
+        self.menu_profile_input.setStyleSheet("font-size: 11px; padding: 0px 6px; background-color: #ffffff; color: #0f172a; height: 30px; min-height: 30px; max-height: 30px;")
+        self.menu_profile_input.setFixedHeight(satir_h)
         prof_save_lyt.addWidget(self.menu_profile_input, 1)
 
         btn_save_prof = QPushButton("💾 Kaydet")
         btn_save_prof.setToolTip("Görünümü Kaydet / Güncelle")
-        btn_save_prof.setFixedHeight(22)
-        btn_save_prof.setStyleSheet("""
-            QPushButton {
-                background-color: #eff6ff;
-                border: 1px solid #bfdbfe;
-                border-radius: 4px;
-                font-size: 11px;
-                padding: 2px 6px;
-            }
-            QPushButton:hover { background-color: #bfdbfe; }
-        """)
+        btn_save_prof.setFixedHeight(satir_h)
+        btn_save_prof.setStyleSheet(btn_style("#eff6ff", "#1d4ed8") + dugme_ek)
         btn_save_prof.clicked.connect(
             lambda checked, inp=self.menu_profile_input, combo=self.menu_profile_combo, m=menu: self.on_save_profile_clicked(inp, combo, m),
         )
@@ -881,7 +870,7 @@ class FilterableTableView(QWidget):
         # 4. Otomatik Kapanmayı Engelleme / Menüyü Açık Tut Seçeneği
         from PyQt6.QtWidgets import QCheckBox
         self.menu_keep_open_cb = QCheckBox("📌 Menüyü Açık Tut")
-        self.menu_keep_open_cb.setStyleSheet("font-size: 11px; font-weight: bold; color: #1e40af; padding-top: 4px;")
+        self.menu_keep_open_cb.setStyleSheet("font-size: 11px; font-weight: bold; color: #ffffff; padding-top: 4px;")
         
         from PyQt6.QtCore import QSettings
         settings = QSettings("baynetteknik", "dbar_piton")
@@ -930,8 +919,8 @@ class FilterableTableView(QWidget):
             name = combo.currentText()
 
         if not name or name == "Varsayılan":
-            from PyQt6.QtWidgets import QMessageBox
-            QMessageBox.warning(menu, self.tr("Uyarı"), self.tr("Lütfen kaydedilecek profil için bir isim girin veya listeden bir profil seçin."))
+            from src.desktop.ui.components import dialog_style
+            dialog_style.uyari(self.window(), self.tr("Uyarı"), self.tr("Lütfen kaydedilecek profil için bir isim girin veya listeden bir profil seçin."))
             return
 
         import json
@@ -942,21 +931,19 @@ class FilterableTableView(QWidget):
         try:
             profiles = json.loads(profiles_json)
             if name in profiles:
-                from PyQt6.QtWidgets import QMessageBox
-                reply = QMessageBox.question(
-                    menu,
+                from src.desktop.ui.components import dialog_style
+                if not dialog_style.onay(
+                    self.window(),
                     self.tr("Profil Güncellensin mi?"),
-                    self.tr(f"'{name}' isimli görünüm profili zaten mevcut.\nYaptığınız görünüm değişikliklerini '{name}' profilinin üzerine kaydetmek istediğinizden emin misiniz?"),
-                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-                    QMessageBox.StandardButton.Yes,
-                )
-                if reply != QMessageBox.StandardButton.Yes:
+                    f"'{name}' isimli görünüm profili zaten mevcut.\nYaptığınız görünüm değişikliklerini '{name}' profilinin üzerine kaydetmek istediğinizden emin misiniz?",
+                ):
                     return
         except Exception:
             pass
 
         self.save_column_profile(name)
         name_input.clear()
+        self._refresh_profile_combo(combo)
         self.close_menu_if_needed(menu)
 
     def on_delete_profile_clicked(self, combo, menu):
@@ -965,7 +952,20 @@ class FilterableTableView(QWidget):
         if not name or name == "Varsayılan":
             return
         self.delete_column_profile(name)
+        self._refresh_profile_combo(combo)
         self.close_menu_if_needed(menu)
+
+    def _refresh_profile_combo(self, combo) -> None:
+        """Menü açık kalırken (ya da yeniden açılmadan) kaydedilen / silinen profil listede hemen görünsün."""
+        active = ProfileManager(profile_key=self.profile_key).get_active_profile_name()
+        combo.blockSignals(True)
+        combo.clear()
+        for p in self.load_column_profile_list():
+            combo.addItem(p)
+        idx = combo.findText(active)
+        if idx >= 0:
+            combo.setCurrentIndex(idx)
+        combo.blockSignals(False)
 
     def save_column_profile(self, name):
         """Sütun durumlarını ProfileManager (v2.0.0) ile saklar."""
@@ -975,6 +975,7 @@ class FilterableTableView(QWidget):
         pm.set_active_profile_name(name)
         if hasattr(self, "profile_bar") and self.profile_bar:
             self.profile_bar.reload_profiles()
+        self.profiles_changed.emit()
 
     def delete_column_profile(self, name):
         """Belirtilen profili ProfileManager'dan siler."""
@@ -982,6 +983,7 @@ class FilterableTableView(QWidget):
         pm.delete_profile(name)
         if hasattr(self, "profile_bar") and self.profile_bar:
             self.profile_bar.reload_profiles()
+        self.profiles_changed.emit()
 
     def load_column_profile_list(self) -> list[str]:
         """Kayıtlı profillerin isimlerini döner (En son aktif profil ilk sıradadır)."""
@@ -1002,6 +1004,7 @@ class FilterableTableView(QWidget):
         self.apply_view_profile(profile)
         if hasattr(self, "profile_bar") and self.profile_bar:
             self.profile_bar.reload_profiles()
+        self.profiles_changed.emit()
 
     def resizeEvent(self, event):  # noqa: N802
         super().resizeEvent(event)

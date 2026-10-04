@@ -8,10 +8,23 @@ Kasa-banka hareketlerine bağlantı sonraki aşamadır."""
 from __future__ import annotations
 
 from PyQt6.QtCore import Qt
-from PyQt6.QtWidgets import QDialog, QHBoxLayout, QLabel, QLineEdit, QPushButton, QTableWidgetItem, QVBoxLayout, QWidget
+from PyQt6.QtWidgets import (
+    QDialog,
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
+    QPushButton,
+    QTableWidgetItem,
+    QVBoxLayout,
+    QWidget,
+)
 
 from src.desktop.core.grid_presets import GRID_PRESETS, register_preset
-from src.desktop.services.finans_hesap_service import HESAP_TURLERI, FinansHesapError, FinansHesapService
+from src.desktop.services.finans_hesap_service import (
+    HESAP_TURLERI,
+    FinansHesapError,
+    FinansHesapService,
+)
 from src.desktop.ui.components.app_grid import AppGrid
 from src.desktop.ui.components.combo_delegate import ComboDelegate
 from src.desktop.ui.components.dialog_style import apply_light_dialog_style

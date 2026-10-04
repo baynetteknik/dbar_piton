@@ -114,7 +114,7 @@ class ReportDesignerWidget(QWidget):
         self.toolbox.item_requested.connect(self._on_toolbox_item_requested)
         left_tabs.addTab(self.toolbox, "🧰 Araçlar")
 
-        self.data_tree = DataTreeWidget(left_tabs)
+        self.data_tree = DataTreeWidget(left_tabs, module=self.template.module)
         self.data_tree.field_requested.connect(self._on_field_requested)
         left_tabs.addTab(self.data_tree, "🌲 Veri Ağacı")
 
@@ -186,6 +186,28 @@ class ReportDesignerWidget(QWidget):
         lyt.addWidget(sep_page)
 
         self.cmb_page_size = QComboBox(bar)
+        self.cmb_page_size.setStyleSheet("""
+    QComboBox {
+        combobox-popup: 0;
+        background-color: #1E293B;
+        color: #F8FAFC;
+        border: 1px solid #334155;
+        border-radius: 4px;
+        padding: 3px 8px;
+        font-size: 11px;
+    }
+    QComboBox QAbstractItemView {
+        outline: 0;
+        padding: 0px;
+        border: 1px solid #334155;
+        background-color: #1E293B;
+        color: #F8FAFC;
+    }
+    QComboBox QAbstractItemView::item {
+        padding: 3px 6px;
+        min-height: 20px;
+    }
+""")
         self.cmb_page_size.addItems(list(PAGE_SIZES_MM.keys()))
         self.cmb_page_size.setCurrentText(
             self.template.page.size if self.template.page.size in PAGE_SIZES_MM else "A4",
@@ -194,6 +216,28 @@ class ReportDesignerWidget(QWidget):
         lyt.addWidget(self.cmb_page_size)
 
         self.cmb_orientation = QComboBox(bar)
+        self.cmb_orientation.setStyleSheet("""
+    QComboBox {
+        combobox-popup: 0;
+        background-color: #1E293B;
+        color: #F8FAFC;
+        border: 1px solid #334155;
+        border-radius: 4px;
+        padding: 3px 8px;
+        font-size: 11px;
+    }
+    QComboBox QAbstractItemView {
+        outline: 0;
+        padding: 0px;
+        border: 1px solid #334155;
+        background-color: #1E293B;
+        color: #F8FAFC;
+    }
+    QComboBox QAbstractItemView::item {
+        padding: 3px 6px;
+        min-height: 20px;
+    }
+""")
         self.cmb_orientation.addItems(["Dikey", "Yatay"])
         self.cmb_orientation.setCurrentIndex(
             1 if self.template.page.orientation == PaperOrientation.LANDSCAPE else 0,
@@ -206,6 +250,28 @@ class ReportDesignerWidget(QWidget):
         lyt.addWidget(sep)
 
         self.cmb_grid = QComboBox(bar)
+        self.cmb_grid.setStyleSheet("""
+    QComboBox {
+        combobox-popup: 0;
+        background-color: #1E293B;
+        color: #F8FAFC;
+        border: 1px solid #334155;
+        border-radius: 4px;
+        padding: 3px 8px;
+        font-size: 11px;
+    }
+    QComboBox QAbstractItemView {
+        outline: 0;
+        padding: 0px;
+        border: 1px solid #334155;
+        background-color: #1E293B;
+        color: #F8FAFC;
+    }
+    QComboBox QAbstractItemView::item {
+        padding: 3px 6px;
+        min-height: 20px;
+    }
+""")
         self.cmb_grid.addItems(
             ["1.0 mm (Hassas)", "2.5 mm (Standart)", "5.0 mm (Geniş)", "Kapalı"],
         )
@@ -343,7 +409,7 @@ class ReportDesignerWidget(QWidget):
     def _save_template(self) -> None:
         """Mevcut şablon modelini JSON formatında kaydeder."""
         try:
-            out_dict = _template_to_dict(self.template)
+            out_dict = self.template.to_dict()
             with open(self.template_path, "w", encoding="utf-8") as f:
                 json.dump(out_dict, f, ensure_ascii=False, indent=2)
             QMessageBox.information(
@@ -370,6 +436,7 @@ class ReportDesignerWidget(QWidget):
             self.canvas.template = self.template
             self.canvas._populate_bands()
             self.inspector.clear_selection()
+            self.data_tree.set_module(self.template.module)
             self._emit_title()
             self._set_status(f"Şablon yüklendi: {p.name}")
         except Exception as e:  # noqa: BLE001
@@ -381,64 +448,3 @@ class ReportDesignerWidget(QWidget):
         data = service.build_teklif_data()
         dialog = ReportPreviewDialog(template=self.template, data=data, parent=self)
         dialog.exec()
-
-
-def _template_to_dict(template: ReportTemplate) -> dict:
-    """ReportTemplate -> kaydedilebilir dict (yalnızca varsayılandan sapan alanlar)."""
-    page = template.page
-    orientation = page.orientation.value if hasattr(page.orientation, "value") else str(page.orientation)
-    out: dict = {
-        "schema_version": template.schema_version,
-        "template_id": template.template_id,
-        "title": template.title,
-        "template_type": template.template_type,
-        "page": {
-            "size": page.size,
-            "orientation": orientation,
-            "width_mm": page.width_mm,
-            "height_mm": page.height_mm,
-            "margin_top_mm": page.margin_top_mm,
-            "margin_bottom_mm": page.margin_bottom_mm,
-            "margin_left_mm": page.margin_left_mm,
-            "margin_right_mm": page.margin_right_mm,
-        },
-        "bands": [],
-    }
-    for b in template.bands:
-        band_dict: dict = {"id": b.id, "type": b.type, "height_mm": b.height_mm, "items": []}
-        if b.dataset:
-            band_dict["dataset"] = b.dataset
-        if b.can_grow:
-            band_dict["can_grow"] = b.can_grow
-        if b.keep_together:
-            band_dict["keep_together"] = b.keep_together
-        for itm in b.items:
-            itm_dict: dict = {
-                "id": itm.id, "type": itm.type,
-                "x_mm": itm.x_mm, "y_mm": itm.y_mm, "w_mm": itm.w_mm, "h_mm": itm.h_mm,
-            }
-            for attr, default in (
-                ("text", None), ("field", None), ("expression", None), ("format", None),
-                ("font_bold", False), ("font_italic", False),
-                ("border_top", False), ("border_bottom", False),
-                ("border_left", False), ("border_right", False),
-                ("bg_color", None), ("word_wrap", False),
-            ):
-                val = getattr(itm, attr)
-                if val != default:
-                    itm_dict[attr] = val
-            if itm.font_size != 9:
-                itm_dict["font_size"] = itm.font_size
-            if itm.align != "left":
-                itm_dict["align"] = itm.align
-            if itm.border_color != "#CCCCCC":
-                itm_dict["border_color"] = itm.border_color
-            if itm.border_width != 0.5:
-                itm_dict["border_width"] = itm.border_width
-            if itm.corner_radius > 0:
-                itm_dict["corner_radius"] = itm.corner_radius
-            if itm.text_color != "#000000":
-                itm_dict["text_color"] = itm.text_color
-            band_dict["items"].append(itm_dict)
-        out["bands"].append(band_dict)
-    return out

@@ -5,16 +5,21 @@ Screen Registry'den aldığı şemaya göre Header, Sol Panel, Grid, Sağ Panel 
 otomatik olarak birleştirir ve yetkileri denetler.
 """
 
-from typing import Optional, Dict, Any
-from PyQt6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QLabel, 
-    QLineEdit, QPushButton, QFrame
-)
-from PyQt6.QtCore import Qt
+from typing import Dict, Optional
 
-from src.desktop.managers.theme_manager import ThemeManager
-from src.desktop.managers.permission_manager import PermissionManager
+from PyQt6.QtWidgets import (
+    QFrame,
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
+    QPushButton,
+    QVBoxLayout,
+    QWidget,
+)
+
 from src.desktop.core.screen_registry import get_screen_definition
+from src.desktop.managers.permission_manager import PermissionManager
+from src.desktop.managers.theme_manager import ThemeManager
 from src.desktop.ui.components.app_grid import AppGrid
 from src.desktop.ui.components.sidebars import SIDEBAR_COMPONENTS
 

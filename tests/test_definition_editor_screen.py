@@ -156,3 +156,45 @@ def test_header_status_combo_syncs_with_bool(qapp):
     assert ed.cmb_header_status.currentText() == "Aktif"
     ed.cmb_header_status.setCurrentText("Pasif")
     assert ed._widgets["act"].isChecked() is False
+
+
+# ---------------------------------------------------------------- 2026-10-03: taşma düzeltmeleri
+def test_combo_genislik_uzun_secenek_metninden_bagimsizdir(qapp):
+    """Uzun seçenek metni (ör. 'KOD — Uzun Hesap Adı') kapalı kutunun kendisini büyütüp pencereyi
+    sağa taşırmamalı — genişlik sabit bir karakter sayısına bağlı, popup'ta tam metin görünür."""
+    uzun = "BNK001 — Çok Uzun Bir Banka Hesabı Adı Buraya Sığdırılmaya Çalışılıyor A.Ş."
+    tabs = [{"title": "T", "fields": [{"key": "h", "label": "Hesap", "type": "combo", "options": [uzun]}]}]
+    ed = DefinitionEditorScreen(title="K", tabs=tabs)
+    cb = ed._widgets["h"]
+    assert cb.sizeHint().width() < 300   # eskiden uzun metin yüzünden >600px olabiliyordu
+    assert cb.itemText(0) == uzun        # tam metin yine de saklanır/seçilebilir
+
+
+def test_right_panel_false_ozet_paneli_olusturmaz_ve_cokmez(qapp):
+    """`right_panel=False` (ör. Banka/Kasa Kartı editörü) sağ 'ÖZET' panelini hiç kurmamalı;
+    `set_data`/`collect` canlı yenileme akışı bu durumda çökmeden no-op geçmeli."""
+    tabs = [{"title": "T", "fields": [{"key": "n", "label": "N", "type": "text"}]}]
+    ed = DefinitionEditorScreen(title="K", tabs=tabs, right_panel=False, nav_sidebar=False)
+    assert not hasattr(ed, "sec_summary")
+    ed.set_data({"n": "ABC"}, is_edit=True)   # çökmemeli
+    assert ed._widgets["n"].text() == "ABC"
+
+
+def test_sol_sag_paneller_acilir_kapanir_toggle_ile(qapp):
+    tabs = [{"title": "T", "fields": [{"key": "n", "label": "N", "type": "text"}]}]
+    ed = DefinitionEditorScreen(title="K", tabs=tabs, nav_sidebar=True)
+    sol_panel, sag_panel = ed._left_panel_frame, ed._right_panel_frame
+    # `.show()` edilmemiş bir widget ağacında `isVisible()` her zaman False döner (üst pencere
+    # görünürlüğüne bağlı), bu yüzden `isHidden()` kullanılıyor; dar ekranlı test ortamlarında
+    # paneller varsayılan kapalı başlayabileceğinden burada sadece toggle'ın çalıştığı doğrulanır.
+
+    basta_sol, basta_sag = sol_panel.isHidden(), sag_panel.isHidden()
+    ed._left_panel_toggle.click()
+    assert sol_panel.isHidden() != basta_sol
+    ed._left_panel_toggle.click()
+    assert sol_panel.isHidden() == basta_sol
+
+    ed._right_panel_toggle.click()
+    assert sag_panel.isHidden() != basta_sag
+    ed._right_panel_toggle.click()
+    assert sag_panel.isHidden() == basta_sag

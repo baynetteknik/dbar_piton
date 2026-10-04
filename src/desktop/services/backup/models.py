@@ -108,8 +108,8 @@ def validate(job: BackupJob) -> str | None:
         return "Haftalık zamanlama için en az bir gün seçin."
     if st == "interval" and int(job.schedule.get("interval_minutes", 0) or 0) < 5:
         return "Aralık en az 5 dakika olmalı."
-    if st == "disk" and not str(job.schedule.get("disk_label", "")).strip():
-        return "Harici disk için disk etiketi girin."
+    if st == "disk" and not (str(job.schedule.get("disk_label", "")).strip() or str(job.schedule.get("disk_id", "")).strip()):
+        return "Harici disk için kayıtlı bir disk seçin ya da disk etiketi girin."
     if job.notify.get("mode", "never") not in NOTIFY_MODES:
         return "Geçersiz bildirim modu."
     return None
@@ -144,7 +144,7 @@ class JobStore:
         jobs = self._load_all()
         for i, j in enumerate(jobs):
             if j.id == job.id:
-                job.state = job.state or j.state
+                job.state = j.state or job.state        # durum çalıştırıcıya aittir; düzenleme eski kopyayla ezmemeli
                 jobs[i] = job
                 break
         else:

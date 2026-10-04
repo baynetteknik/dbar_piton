@@ -5,12 +5,17 @@ kart giriş ekranlarının (Cari Kartı, Stok Kartı) alt tarafına gömülebile
 salt-okunur "son yapılan işlemler" (giriş/çıkış) özet şeridi.
 """
 
-from typing import List, Dict, Optional
-from PyQt6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QLabel,
-    QFrame, QScrollArea,
-)
+from typing import Dict, List
+
 from PyQt6.QtCore import Qt
+from PyQt6.QtWidgets import (
+    QFrame,
+    QHBoxLayout,
+    QLabel,
+    QScrollArea,
+    QVBoxLayout,
+    QWidget,
+)
 
 from src.desktop.ui.widgets.quick_tiles_bar_widget import QuickTileButton
 

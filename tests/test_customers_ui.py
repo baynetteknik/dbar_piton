@@ -203,35 +203,43 @@ def test_view_settings_widget_integration(qapp):
     """Tests the ViewSettingsWidget profile listing and deletion interface."""
     from unittest.mock import patch
 
+    from PyQt6.QtWidgets import QMessageBox
+
+    from src.desktop.managers.profile_manager import ProfileManager
     from src.desktop.ui.components.filterable_table import FilterableTableView
     from src.desktop.ui.settings import ViewSettingsWidget
-    
-    # Save a temporary profile "SettingsTest"
-    headers = {0: ("ID", "id")}
-    table = FilterableTableView(headers)
-    table.save_column_profile("SettingsTest")
-    
-    widget = ViewSettingsWidget()
-    
-    # Check that "SettingsTest" is listed
-    items = [widget.profile_list.item(i).text() for i in range(widget.profile_list.count())]
-    assert any("SettingsTest" in item for item in items)
-    
-    # Select the item and delete it
-    for i in range(widget.profile_list.count()):
-        if "SettingsTest" in widget.profile_list.item(i).text():
-            widget.profile_list.setCurrentRow(i)
-            widget.table.selectRow(i)
-            break
-            
-    from PyQt6.QtWidgets import QMessageBox
-    with patch('PyQt6.QtWidgets.QMessageBox.information') as mock_info, \
-         patch('PyQt6.QtWidgets.QMessageBox.warning') as mock_warn, \
-         patch('PyQt6.QtWidgets.QMessageBox.question', return_value=QMessageBox.StandardButton.Yes):
-        widget.delete_selected_profile()
-        assert mock_info.called
-        assert not mock_warn.called
-    
-    # Verify removed
-    items = [widget.profile_list.item(i).text() for i in range(widget.profile_list.count())]
-    assert "SettingsTest" not in items
+
+    pm = ProfileManager(profile_key="customers")
+    previous_active = pm.get_active_profile_name()
+    table = FilterableTableView({0: ("ID", "id")}, profile_key="customers")
+    try:
+        table.save_column_profile("SettingsTest")
+        widget = ViewSettingsWidget()
+        idx = widget.module_combo.findData("customers")
+        assert idx != -1
+        widget.module_combo.setCurrentIndex(idx)
+        assert widget.get_current_profile_key() == "customers"
+        items = [widget.profile_list.item(i).text() for i in range(widget.profile_list.count())]
+        assert any("SettingsTest" in item for item in items)
+
+        for i, text in enumerate(items):
+            if "SettingsTest" in text:
+                widget.profile_list.setCurrentRow(i)
+                widget.table.selectRow(i)
+                break
+        assert widget.get_selected_profile_name() == "SettingsTest"
+        with (
+            patch("PyQt6.QtWidgets.QMessageBox.information") as mock_info,
+            patch("PyQt6.QtWidgets.QMessageBox.warning") as mock_warn,
+            patch("PyQt6.QtWidgets.QMessageBox.question", return_value=QMessageBox.StandardButton.Yes),
+        ):
+            widget.delete_selected_profile()
+            assert mock_info.called
+            assert not mock_warn.called
+
+        items = [widget.profile_list.item(i).text() for i in range(widget.profile_list.count())]
+        assert not any("SettingsTest" in item for item in items)
+        assert "SettingsTest" not in pm.load_profiles()
+    finally:
+        pm.delete_profile("SettingsTest")
+        pm.set_active_profile_name(previous_active)

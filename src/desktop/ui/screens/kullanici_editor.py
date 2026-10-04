@@ -107,6 +107,8 @@ class KullaniciEditorDialog(QDialog):
             }, is_edit=False)
 
         self.showMaximized()
+        from src.desktop.ui.components.window_fit_helper import zorla_ilk_yerlesim
+        zorla_ilk_yerlesim(self)
 
     # ------------------------------------------------------------------
     def _build_security_tab(self) -> QWidget:

@@ -4,6 +4,7 @@ Wraps the new 3-Panel GitTrackerScreen for backward compatibility.
 """
 
 import logging
+
 from PyQt6.QtWidgets import QVBoxLayout, QWidget
 
 from src.desktop.ui.components.git_tracker_screen import GitTrackerScreen

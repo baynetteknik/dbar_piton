@@ -88,6 +88,28 @@ class PropertyInspector(QWidget):
         form_data.setSpacing(4)
 
         self.cmb_type = QComboBox(grp_data)
+        self.cmb_type.setStyleSheet("""
+    QComboBox, QFontComboBox {
+        combobox-popup: 0;
+        border: 1px solid #cbd5e1;
+        border-radius: 4px;
+        padding: 3px 6px;
+        background-color: white;
+        color: #0f172a;
+        font-size: 11px;
+    }
+    QComboBox QAbstractItemView, QFontComboBox QAbstractItemView {
+        outline: 0;
+        padding: 0px;
+        border: 1px solid #cbd5e1;
+        background-color: #ffffff;
+        color: #0f172a;
+    }
+    QComboBox QAbstractItemView::item, QFontComboBox QAbstractItemView::item {
+        padding: 3px 6px;
+        min-height: 20px;
+    }
+""")
         self.cmb_type.addItems(["text", "data_field", "expression", "image", "barcode", "line", "box", "system_var"])
         self.cmb_type.currentTextChanged.connect(self._on_ui_changed)
 
@@ -101,6 +123,28 @@ class PropertyInspector(QWidget):
         self.txt_expression.textChanged.connect(self._on_ui_changed)
 
         self.cmb_format = QComboBox(grp_data)
+        self.cmb_format.setStyleSheet("""
+    QComboBox, QFontComboBox {
+        combobox-popup: 0;
+        border: 1px solid #cbd5e1;
+        border-radius: 4px;
+        padding: 3px 6px;
+        background-color: white;
+        color: #0f172a;
+        font-size: 11px;
+    }
+    QComboBox QAbstractItemView, QFontComboBox QAbstractItemView {
+        outline: 0;
+        padding: 0px;
+        border: 1px solid #cbd5e1;
+        background-color: #ffffff;
+        color: #0f172a;
+    }
+    QComboBox QAbstractItemView::item, QFontComboBox QAbstractItemView::item {
+        padding: 3px 6px;
+        min-height: 20px;
+    }
+""")
         self.cmb_format.addItems(["", "currency", "number", "integer", "date", "percent"])
         self.cmb_format.currentTextChanged.connect(self._on_ui_changed)
 
@@ -119,6 +163,28 @@ class PropertyInspector(QWidget):
         form_typo.setSpacing(4)
 
         self.cmb_font = QFontComboBox(grp_typo)
+        self.cmb_font.setStyleSheet("""
+    QComboBox, QFontComboBox {
+        combobox-popup: 0;
+        border: 1px solid #cbd5e1;
+        border-radius: 4px;
+        padding: 3px 6px;
+        background-color: white;
+        color: #0f172a;
+        font-size: 11px;
+    }
+    QComboBox QAbstractItemView, QFontComboBox QAbstractItemView {
+        outline: 0;
+        padding: 0px;
+        border: 1px solid #cbd5e1;
+        background-color: #ffffff;
+        color: #0f172a;
+    }
+    QComboBox QAbstractItemView::item, QFontComboBox QAbstractItemView::item {
+        padding: 3px 6px;
+        min-height: 20px;
+    }
+""")
         self.cmb_font.currentFontChanged.connect(self._on_ui_changed)
 
         self.spn_font_size = QSpinBox(grp_typo)
@@ -136,6 +202,28 @@ class PropertyInspector(QWidget):
 
         # Hizalama
         self.cmb_align = QComboBox(grp_typo)
+        self.cmb_align.setStyleSheet("""
+    QComboBox, QFontComboBox {
+        combobox-popup: 0;
+        border: 1px solid #cbd5e1;
+        border-radius: 4px;
+        padding: 3px 6px;
+        background-color: white;
+        color: #0f172a;
+        font-size: 11px;
+    }
+    QComboBox QAbstractItemView, QFontComboBox QAbstractItemView {
+        outline: 0;
+        padding: 0px;
+        border: 1px solid #cbd5e1;
+        background-color: #ffffff;
+        color: #0f172a;
+    }
+    QComboBox QAbstractItemView::item, QFontComboBox QAbstractItemView::item {
+        padding: 3px 6px;
+        min-height: 20px;
+    }
+""")
         self.cmb_align.addItems(["left", "center", "right"])
         self.cmb_align.currentTextChanged.connect(self._on_ui_changed)
 

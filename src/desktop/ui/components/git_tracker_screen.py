@@ -13,7 +13,6 @@ from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtGui import QStandardItem
 from PyQt6.QtWidgets import (
     QApplication,
-    QCheckBox,
     QComboBox,
     QDialog,
     QFrame,
@@ -29,14 +28,15 @@ from PyQt6.QtWidgets import (
 )
 
 import git_tracker
-from src.desktop.services.git_service import GitService
 from src.desktop.managers.profile_manager import ProfileManager
+from src.desktop.services.git_service import GitService
+from src.desktop.ui.components.button_style import btn_style
 from src.desktop.ui.components.collapsible_section import CollapsibleSection
 from src.desktop.ui.components.layout_hint_helper import register_layout_hint
 from src.desktop.ui.components.three_panel_base import ThreePanelBaseWidget
 from src.desktop.ui.widgets.git_change_summary_widget import GitChangeSummaryWidget
-from src.desktop.ui.widgets.git_report_dialog import GitReportDialog
 from src.desktop.ui.widgets.git_profile_panel_widget import GitProfilePanelWidget
+from src.desktop.ui.widgets.git_report_dialog import GitReportDialog
 from src.desktop.ui.widgets.git_sync_advisor_widget import GitSyncAdvisorWidget
 
 logger = logging.getLogger(__name__)
@@ -244,32 +244,30 @@ class GitTrackerScreen(ThreePanelBaseWidget):
             }
 
     def toolbar_btn_style(self, bg_color="#ffffff", text_color="#1e293b"):
-        return f"""
-            QPushButton {{
-                background-color: {bg_color};
-                color: {text_color};
-                border: 1px solid #cbd5e1;
-                border-radius: 6px;
-                padding: 6px 10px;
-                font-size: 11px;
-                font-weight: 600;
-                text-align: left;
-                font-family: 'Segoe UI';
-            }}
-            QPushButton:hover {{ background-color: #f1f5f9; }}
-            QPushButton:disabled {{ color: #94a3b8; background-color: #f8fafc; border-color: #e2e8f0; }}
-        """
+        return btn_style(bg_color, text_color)
 
     def setup_left_panel_content(self, container: QFrame, layout: QVBoxLayout) -> None:
         """Sol Panel: Bekleyen Siparişler / Teklifler tarzı Akordiyon Grupları."""
         combo_style = """
             QComboBox, QLineEdit {
+                combobox-popup: 0;
                 border: 1px solid #cbd5e1;
                 border-radius: 6px;
                 padding: 5px 8px;
                 background-color: white;
                 color: #0f172a;
                 font-size: 11px;
+            }
+            QComboBox QAbstractItemView {
+                outline: 0;
+                padding: 0px;
+                border: 1px solid #cbd5e1;
+                background-color: #ffffff;
+                color: #0f172a;
+            }
+            QComboBox QAbstractItemView::item {
+                padding: 3px 6px;
+                min-height: 20px;
             }
         """
 
@@ -377,12 +375,24 @@ class GitTrackerScreen(ThreePanelBaseWidget):
         """Sağ Panel: Filtreler, Durum Göstergeleri, Seçili Detayı ve Canlı Konsol."""
         combo_style = """
             QComboBox, QLineEdit {
+                combobox-popup: 0;
                 border: 1px solid #cbd5e1;
                 border-radius: 6px;
                 padding: 5px 8px;
                 background-color: white;
                 color: #0f172a;
                 font-size: 11px;
+            }
+            QComboBox QAbstractItemView {
+                outline: 0;
+                padding: 0px;
+                border: 1px solid #cbd5e1;
+                background-color: #ffffff;
+                color: #0f172a;
+            }
+            QComboBox QAbstractItemView::item {
+                padding: 3px 6px;
+                min-height: 20px;
             }
         """
 
@@ -581,6 +591,28 @@ class GitTrackerScreen(ThreePanelBaseWidget):
         self.btn_last_page.clicked.connect(self.go_to_last_page)
 
         self.combo_page_size = QComboBox()
+        self.combo_page_size.setStyleSheet("""
+            QComboBox {
+                combobox-popup: 0;
+                border: 1px solid #cbd5e1;
+                border-radius: 4px;
+                padding: 2px 6px;
+                background-color: white;
+                color: #0f172a;
+                font-size: 11px;
+            }
+            QComboBox QAbstractItemView {
+                outline: 0;
+                padding: 0px;
+                border: 1px solid #cbd5e1;
+                background-color: #ffffff;
+                color: #0f172a;
+            }
+            QComboBox QAbstractItemView::item {
+                padding: 3px 6px;
+                min-height: 20px;
+            }
+        """)
         self.combo_page_size.addItems(["25 kayıt", "50 kayıt", "100 kayıt"])
         self.combo_page_size.currentTextChanged.connect(self.on_page_size_changed)
 
@@ -728,7 +760,7 @@ class GitTrackerScreen(ThreePanelBaseWidget):
                     chash = r["commit_hash"][:7] if r["commit_hash"] else ""
 
                     items = [
-                        QStandardItem("☐"),
+                        QStandardItem(""),
                         QStandardItem(str(row_idx + 1)),
                         QStandardItem(status_badge),
                         QStandardItem(chash),
@@ -760,7 +792,7 @@ class GitTrackerScreen(ThreePanelBaseWidget):
                     st = r["status"]
                     st_icon = "✅ Yapıldı" if st == "Yapıldı" else ("⏳ Devam Ediyor" if st == "Devam Ediyor" else "📌 Bekliyor")
                     items = [
-                        QStandardItem("☐"),
+                        QStandardItem(""),
                         QStandardItem(str(r["id"])),
                         QStandardItem(r["category"] or ""),
                         QStandardItem(r["title"] or ""),
@@ -783,7 +815,7 @@ class GitTrackerScreen(ThreePanelBaseWidget):
                 for c in page_rows:
                     badge = "🟡 Değişti" if not c["staged"] else "🟢 Sahnelendi"
                     items = [
-                        QStandardItem("☐"),
+                        QStandardItem(""),
                         QStandardItem(badge),
                         QStandardItem(c["code"]),
                         QStandardItem(c["file"]),
@@ -1061,7 +1093,7 @@ class GitTrackerScreen(ThreePanelBaseWidget):
         if p.get("login_at"):
             self.advisor.set_login_status(f"✔ {who} giriş yapıldı", "ok", f"{p['title']} — {p['login_at']}")
         else:
-            self.advisor.set_login_status(f"⚠ Giriş yapılmadı", "warn",
+            self.advisor.set_login_status("⚠ Giriş yapılmadı", "warn",
                                           "GİT BAĞLANTISI → 'Google ile Giriş Yap' (ya da Bağlantıyı Test Et) ile giriş yapın")
 
     def _on_advice_action(self, action: str):

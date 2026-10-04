@@ -5,10 +5,14 @@ kullanıcı tarafından genişliğinin (eninin) ayarlanıp QSettings'te kalıcı
 """
 
 import logging
-from PyQt6.QtCore import QEvent, Qt, pyqtSignal, QSettings
+
+from PyQt6.QtCore import QEvent, QSettings, Qt, pyqtSignal
 from PyQt6.QtWidgets import (
-    QFrame, QHBoxLayout, QPushButton, QVBoxLayout, 
-    QWidget, QLabel, QSizeGrip
+    QFrame,
+    QHBoxLayout,
+    QPushButton,
+    QVBoxLayout,
+    QWidget,
 )
 
 logger = logging.getLogger(__name__)
@@ -40,6 +44,9 @@ class EdgeTriggeredPanel(QWidget):
         if parent:
             parent.installEventFilter(self)
 
+    PIN_ACIK_IPUCU = "Paneli Sabitle"
+    PIN_KAPALI_IPUCU = "Sabitlemeyi Kaldır"
+
     def init_ui(self):
         self.main_layout = QHBoxLayout(self)
         self.main_layout.setContentsMargins(0, 0, 0, 0)
@@ -68,6 +75,7 @@ class EdgeTriggeredPanel(QWidget):
         """
         self.trigger_strip.setStyleSheet(strip_style)
         self.trigger_strip.clicked.connect(self.toggle_panel)
+        self.trigger_strip.setToolTip("Paneli aç / kapat")
 
         # 2. İçerik Kutusu (Panel Frame)
         self.panel_frame = QFrame()
@@ -108,6 +116,7 @@ class EdgeTriggeredPanel(QWidget):
         self.pin_btn.setFixedHeight(24)
         self.pin_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.pin_btn.setStyleSheet(btn_style)
+        self.pin_btn.setToolTip(self.PIN_ACIK_IPUCU)
         self.pin_btn.clicked.connect(self.toggle_pin)
         header_lyt.addWidget(self.pin_btn)
 
@@ -128,8 +137,8 @@ class EdgeTriggeredPanel(QWidget):
         header_lyt.addWidget(btn_w_plus)
         header_lyt.addStretch()
 
-        self.close_btn = QPushButton("❌")
-        self.close_btn.setFixedSize(24, 24)
+        self.close_btn = QPushButton("❌ Gizle")
+        self.close_btn.setFixedHeight(24)
         self.close_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.close_btn.setStyleSheet("""
             QPushButton {
@@ -138,9 +147,12 @@ class EdgeTriggeredPanel(QWidget):
                 border-radius: 4px;
                 color: #ef4444;
                 font-weight: bold;
+                font-size: 10px;
+                padding: 2px 6px;
             }
             QPushButton:hover { background-color: #fee2e2; }
         """)
+        self.close_btn.setToolTip("Paneli Kapat")
         self.close_btn.clicked.connect(self.close_panel)
         header_lyt.addWidget(self.close_btn)
 
@@ -209,6 +221,7 @@ class EdgeTriggeredPanel(QWidget):
         self.is_pinned = not self.is_pinned
         if self.is_pinned:
             self.pin_btn.setText("📍 Serbest")
+            self.pin_btn.setToolTip(self.PIN_KAPALI_IPUCU)
             self.pin_btn.setStyleSheet("""
                 QPushButton {
                     background-color: #3b82f6;
@@ -223,6 +236,7 @@ class EdgeTriggeredPanel(QWidget):
             """)
         else:
             self.pin_btn.setText("📌 Sabitle")
+            self.pin_btn.setToolTip(self.PIN_ACIK_IPUCU)
             self.pin_btn.setStyleSheet("""
                 QPushButton {
                     background-color: #ffffff;

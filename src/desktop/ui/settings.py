@@ -7,10 +7,11 @@ mimarisinde tüm ERP sistem ayarlarını yönetir.
 import hashlib
 import json
 import logging
-from datetime import date, timedelta
+from datetime import date
+from pathlib import Path
 from typing import Any
 
-from PyQt6.QtCore import QDate, Qt, pyqtSignal
+from PyQt6.QtCore import QDate, Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import QAction, QFont, QStandardItem, QStandardItemModel
 from PyQt6.QtWidgets import (
     QAbstractItemView,
@@ -24,7 +25,6 @@ from PyQt6.QtWidgets import (
     QGridLayout,
     QGroupBox,
     QHBoxLayout,
-    QHeaderView,
     QLabel,
     QLineEdit,
     QListWidget,
@@ -35,9 +35,7 @@ from PyQt6.QtWidgets import (
     QScrollArea,
     QSpinBox,
     QStackedWidget,
-    QTableView,
     QTableWidget,
-    QTableWidgetItem,
     QTabWidget,
     QVBoxLayout,
     QWidget,
@@ -45,25 +43,33 @@ from PyQt6.QtWidgets import (
 from sqlalchemy import select
 
 from src.core.models import (
+    BankaOdemePlani,
     Category,
     Currency,
+    FinansHesap,
     PaymentPlan,
     Site,
     SystemSetting,
     UnitDefinition,
     User,
-    WarehouseDefinition,
 )
 from src.desktop.services import currency_rate_service
-from src.desktop.core.grid_presets import GRID_PRESETS, register_preset
 from src.desktop.services import settings_menu as sm
+from src.desktop.services.currency_catalog import CURRENCY_CATALOG, get_currency_info
 from src.desktop.ui.components.app_grid import AppGrid
+from src.desktop.ui.components.button_style import (
+    DANGER_BG,
+    DANGER_FG,
+    PRIMARY,
+    btn_style,
+)
 from src.desktop.ui.components.coded_button import CodedButton
-from src.desktop.ui.components.tooltip_style import apply_app_style, with_tooltip
 from src.desktop.ui.components.collapsible_section import CollapsibleSection
 from src.desktop.ui.components.edge_panel import EdgeTriggeredPanel
+from src.desktop.ui.components.entry_table_view import EntryTableView, standart_grid
 from src.desktop.ui.components.filterable_table import FilterableTableView
 from src.desktop.ui.components.git_tracker_widget import GitTrackerWidget
+from src.desktop.ui.components.grid_delegates import ComboDelegate
 from src.desktop.ui.components.layout_hint_helper import (
     is_layout_hints_enabled,
     register_layout_hint,
@@ -73,18 +79,57 @@ from src.desktop.ui.components.text_selection_helper import (
     is_global_text_selection_enabled,
     set_global_text_selection_enabled,
 )
-from src.desktop.services.currency_catalog import CURRENCY_CATALOG, get_currency_info
-from src.desktop.ui.widgets.currency_picker_dialog import pick_currency
-from src.desktop.ui.widgets.currency_rate_report_widget import CurrencyRateReportWidget
-from src.desktop.ui.widgets.masked_decimal_field import MaskedDecimalField
-from src.desktop.ui.widgets.reorderable_sidebar import ReorderableSidebar
-from src.desktop.ui.widgets.serbest_piyasa_kaynak_widget import SerbestPiyasaKaynakField
+from src.desktop.ui.components.tooltip_style import apply_app_style, with_tooltip
 from src.desktop.ui.screen_definitions_manager import (
     ScreenDefinitionsManagerWidget,
 )
 from src.desktop.ui.sites import SitesWidget
+from src.desktop.ui.widgets.address_definitions_widget import (
+    AddressDefinitionsWidget,
+)
+from src.desktop.ui.widgets.bank_definitions_widget import BankDefinitionsWidget
+from src.desktop.ui.widgets.banka_odeme_plani_ekle_dialog import (
+    BankaOdemePlaniEkleDialog,
+)
+from src.desktop.ui.widgets.currency_picker_dialog import pick_currency
+from src.desktop.ui.widgets.currency_rate_report_widget import (
+    CurrencyRateReportWidget,
+)
+from src.desktop.ui.widgets.document_numbering_widget import (
+    DocumentNumberingWidget,
+)
+from src.desktop.ui.widgets.masked_decimal_field import MaskedDecimalField
+from src.desktop.ui.widgets.odeme_plani_ekle_dialog import OdemePlaniEkleDialog
+from src.desktop.ui.widgets.odeme_plani_satirlari_dialog import (
+    OdemePlaniSatirlariDialog,
+)
+from src.desktop.ui.widgets.reorderable_sidebar import ReorderableSidebar
+from src.desktop.ui.widgets.serbest_piyasa_kaynak_widget import SerbestPiyasaKaynakField
+from src.desktop.ui.widgets.settings_hub_widget import SettingsHubWidget
+from src.desktop.ui.widgets.tax_offices_widget import TaxOfficesWidget
+from src.desktop.ui.widgets.yardim_widget import YardimWidget
 
 logger = logging.getLogger(__name__)
+
+#: Ödeme Planı > Ödeme Tipi — yapılandırılmış kod ↔ görünen etiket (bkz. gelistirme/04_odeme_planlari/
+#: tasarim.md). Fatura/İrsaliye kaydedilince bu tipe göre otomatik kasa/banka fişi oluşturulacak (04.07+);
+#: "cek"/"senet" şimdilik yalnızca seçilebilir, Çek/Senet modülü kodlanana kadar otomatik fiş üretmez.
+ODEME_TIPI_SECENEKLERI: list[tuple[str, str]] = [
+    ("nakit", "Nakit"),
+    ("havale_eft", "Havale/EFT"),
+    ("kredi_karti", "Kredi Kartı"),
+    ("pos", "POS"),
+    ("acik_hesap", "Açık Hesap"),
+    ("cek", "Çek"),
+    ("senet", "Senet"),
+]
+_ODEME_TIPI_KOD_TO_ETIKET: dict[str, str] = dict(ODEME_TIPI_SECENEKLERI)
+_ODEME_TIPI_ETIKET_TO_KOD: dict[str, str] = {v: k for k, v in ODEME_TIPI_SECENEKLERI}
+#: Eski (serbest metin) "Ödeme Tipi" değerlerinin yeni koda eşlenmesi — mevcut 7 varsayılan plan için.
+_ODEME_TIPI_ESKI_ESLEME: dict[str, str] = {
+    "açık hesap": "acik_hesap", "nakit": "nakit", "kredi kartı": "kredi_karti",
+    "taksit": "kredi_karti",   # taksitli kredi kartı ödemesi (ör. CF3TAK) — description'da taksit bilgisi kalır
+}
 
 
 class UserDialog(QDialog):
@@ -181,6 +226,19 @@ class UserDialog(QDialog):
                 background-color: #f8fafc;
                 color: #0f172a;
                 font-size: 12px;
+            }
+            QComboBox {
+                combobox-popup: 0;
+            }
+            QComboBox QAbstractItemView {
+                outline: 0;
+                padding: 0px;
+                border: 1px solid #cbd5e1;
+                background-color: white;
+            }
+            QComboBox QAbstractItemView::item {
+                padding: 3px 6px;
+                min-height: 20px;
             }
             QLineEdit:focus, QComboBox:focus {
                 border-color: #3b82f6;
@@ -641,19 +699,7 @@ class UserManagementWidget(QWidget):
     def toolbar_btn_style(
         self, bg_color="#ffffff", text_color="#1e293b",
     ) -> str:
-        return f"""
-            QPushButton {{
-                background-color: {bg_color};
-                color: {text_color};
-                border: 1px solid #cbd5e1;
-                border-radius: 6px;
-                padding: 6px 12px;
-                font-size: 11px;
-                font-weight: 600;
-                text-align: left;
-            }}
-            QPushButton:hover {{ background-color: #f1f5f9; }}
-        """
+        return btn_style(bg_color, text_color)
 
     def dia_btn_style(
         self,
@@ -702,7 +748,9 @@ class UserManagementWidget(QWidget):
         self.cmb_filter_role = QComboBox()
         self.cmb_filter_role.addItems(["Tümü", "admin", "user"])
         self.cmb_filter_role.setStyleSheet(
-            "QComboBox { border: 1px solid #cbd5e1; border-radius: 4px; padding: 4px 8px; background-color: white; font-size: 11px; }",
+            "QComboBox { border: 1px solid #cbd5e1; border-radius: 4px; padding: 4px 8px; background-color: white; font-size: 11px; combobox-popup: 0; }"
+            " QComboBox QAbstractItemView { outline: 0; padding: 0px; border: 1px solid #cbd5e1; background-color: white; }"
+            " QComboBox QAbstractItemView::item { padding: 3px 6px; min-height: 20px; }",
         )
         self.cmb_filter_role.currentTextChanged.connect(self.load_users)
 
@@ -713,7 +761,9 @@ class UserManagementWidget(QWidget):
         self.cmb_filter_status.addItem("Aktif", 1)
         self.cmb_filter_status.addItem("Pasif", 0)
         self.cmb_filter_status.setStyleSheet(
-            "QComboBox { border: 1px solid #cbd5e1; border-radius: 4px; padding: 4px 8px; background-color: white; font-size: 11px; }",
+            "QComboBox { border: 1px solid #cbd5e1; border-radius: 4px; padding: 4px 8px; background-color: white; font-size: 11px; combobox-popup: 0; }"
+            " QComboBox QAbstractItemView { outline: 0; padding: 0px; border: 1px solid #cbd5e1; background-color: white; }"
+            " QComboBox QAbstractItemView::item { padding: 3px 6px; min-height: 20px; }",
         )
         self.cmb_filter_status.currentIndexChanged.connect(self.load_users)
 
@@ -1076,7 +1126,9 @@ class ViewSettingsWidget(QWidget):
         self.module_combo.addItem("💾 Yedekleme Tanımları", "backup_tasks")
         self.module_combo.addItem("🔄 Geri Yükleme Tanımları", "restore_tasks")
         self.module_combo.setStyleSheet(
-            "QComboBox { border: 1px solid #cbd5e1; border-radius: 4px; padding: 4px 8px; background-color: white; font-weight: bold; font-size: 11px; }",
+            "QComboBox { border: 1px solid #cbd5e1; border-radius: 4px; padding: 4px 8px; background-color: white; font-weight: bold; font-size: 11px; combobox-popup: 0; }"
+            " QComboBox QAbstractItemView { outline: 0; padding: 0px; border: 1px solid #cbd5e1; background-color: white; }"
+            " QComboBox QAbstractItemView::item { padding: 3px 6px; min-height: 20px; }",
         )
         self.module_combo.currentIndexChanged.connect(self.load_profiles)
 
@@ -1268,6 +1320,13 @@ class ViewSettingsWidget(QWidget):
     def get_current_profile_key(self) -> str:
         key = self.module_combo.currentData()
         return str(key or "customers")
+
+    def showEvent(self, event) -> None:  # noqa: N802
+        """Başka ekrandan kaydedilen / silinen profiller, bu liste açıldığında (görününce) güncel görünsün."""
+        super().showEvent(event)
+        if getattr(self, "_profiles_ready", False):
+            self.load_profiles()
+        self._profiles_ready = True                  # ilk gösterimde liste zaten kurulumda yüklendi
 
     def load_profiles(self) -> None:
         self.table_model.removeRows(0, self.table_model.rowCount())
@@ -1547,6 +1606,7 @@ class KurGirDialog(QDialog):
         form = QFormLayout()
 
         self.cmb_doviz = QComboBox()
+        self.cmb_doviz.setStyleSheet("QComboBox { combobox-popup: 0; padding: 2px 6px; font-size: 11px; } QComboBox QAbstractItemView { outline: 0; padding: 0px; } QComboBox QAbstractItemView::item { padding: 3px 6px; }")
         self.cmb_doviz.addItems(currency_codes)
         if initial_code and initial_code in currency_codes:
             self.cmb_doviz.setCurrentText(initial_code)
@@ -1620,6 +1680,7 @@ class GeneralSettingsScreen(QWidget):
     """
 
     toast_requested = pyqtSignal(str, str)
+    companies_updated = pyqtSignal()
 
     # Menü yapısı — (grup_adı, ikon, [(menü_adı, panel_id), ...])
     MENU_STRUCTURE = [
@@ -1628,10 +1689,15 @@ class GeneralSettingsScreen(QWidget):
             "🏢",
             [
                 ("Firma Bilgileri", "firma_bilgileri"),
-                ("Şube Tanımları", "sube_tanimlari"),
-                ("Depo Tanımları", "depo_tanimlari"),
-                ("Döviz & Kur", "doviz_kur"),
-                ("Çalışma Dönemi", "calisma_donemi"),
+                ("Belge & Seri No", "numara_serileri"),
+            ],
+        ),
+        (
+            "ADRES & VERGİ",
+            "🌍",
+            [
+                ("Adres Tanımları", "adres_tanimlari"),
+                ("Vergi Daireleri", "vergi_daireleri"),
             ],
         ),
         (
@@ -1647,7 +1713,10 @@ class GeneralSettingsScreen(QWidget):
             "FİNANS TANIMLARI",
             "💱",
             [
+                ("Döviz & Kur", "doviz_kur"),
+                ("Banka & Şube Tanımları", "banka_tanimlari"),
                 ("Ödeme Planları", "odeme_planlari"),
+                ("Banka Ödeme Planları", "banka_odeme_planlari"),
                 ("Fiyat Listeleri", "fiyat_listeleri"),
             ],
         ),
@@ -1680,11 +1749,13 @@ class GeneralSettingsScreen(QWidget):
                 ("Online Portal", "online_portal"),
                 ("Profiller", "gorunum_profilleri"),
                 ("Ekran Gridleri", "ekran_grid"),
+                ("Form Tasarımları", "form_tasarimlari"),
                 ("E-Posta", "eposta_smtp"),
                 ("KDV", "kdv_oranlari"),
                 ("Kuruş Hanesi", "sayi_bicimi"),
                 ("Güvenlik", "guvenlik"),
                 ("Sürüm & Git", "surum_git"),
+                ("Yardım", "yardim"),
             ],
         ),
     ]
@@ -1701,11 +1772,12 @@ class GeneralSettingsScreen(QWidget):
             "stok": {},
             "cari": {},
         }
+        self._oranli_gridler: list = []                # `_new_grid` ile kurulan tanım tablolarının oranlı genişlik uygulayıcıları
 
         apply_app_style()                              # ipuçları: mavi zemin, beyaz yazı (bkz. tooltip_style)
         self.init_ui()
         register_layout_hint(self, "Ayarlar", "Genel Ayarlar Ana Ekranı")
-        self.switch_panel("firma_bilgileri")
+        self.switch_panel("settings_hub")
 
     def init_ui(self) -> None:
         main_layout = QVBoxLayout(self)
@@ -1731,8 +1803,12 @@ class GeneralSettingsScreen(QWidget):
         right_sidebar = self.build_right_sidebar()
         content_lyt.addWidget(right_sidebar)
 
-        # Sol/sağ paneller açık gelir: Döviz İşlemleri gibi bölümlere ulaşmadan
-        # işlem yapılamıyor, kullanıcı her seferinde kenar şeridinden açmasın.
+        # Sol/sağ paneller açık gelir: sol panel asıl gezinme menüsünü, sağ panel İŞLEMLER'i
+        # barındırıyor (document_detail_screen.py'deki yardımcı kenar panellerinden farklı —
+        # onlar kapalı gelebiliyordu çünkü asıl işlev sağ tık/başka yerdeydi). 1366x768 taşması asıl
+        # `PortalDeployWidget`'ın (QStackedWidget TÜM sayfaların en genişine göre boyutlanıyor)
+        # eski tek satırlık 5 buton satırından kaynaklanıyordu — o yeniden tasarlandı (bkz.
+        # portal_deploy_widget.py), burada paneller kapatılmadı.
         self.left_panel.open_panel()
         self.right_panel.open_panel()
 
@@ -1761,6 +1837,25 @@ class GeneralSettingsScreen(QWidget):
             "font-size: 13px; font-weight: 800; color: #1e3a8a;",
         )
         lyt.addWidget(self.lbl_breadcrumb)
+
+        self.btn_hub = QPushButton("🏠 Ayarlar Panosu")
+        self.btn_hub.setStyleSheet("""
+            QPushButton {
+                background-color: #3b82f6;
+                color: #ffffff;
+                border: none;
+                border-radius: 4px;
+                padding: 4px 10px;
+                font-weight: bold;
+                font-size: 11px;
+            }
+            QPushButton:hover {
+                background-color: #2563eb;
+            }
+        """)
+        self.btn_hub.setToolTip("İkonlu Genel Ayarlar Panosuna / Karşılama Ekranına Dön")
+        self.btn_hub.clicked.connect(lambda: self.switch_panel("settings_hub"))
+        lyt.addWidget(self.btn_hub)
         lyt.addStretch()
 
         self.chk_layout_hints = QCheckBox(
@@ -1780,7 +1875,7 @@ class GeneralSettingsScreen(QWidget):
             self.cmb_code_mode.addItem(label, key)
         self.cmb_code_mode.setCurrentIndex(max(0, self.cmb_code_mode.findData(self.code_mode)))
         self.cmb_code_mode.setToolTip("Menü/işlem kodlarının gösterimi: İpucu (üzerine gelince), Rozet (adın altında) veya Gizli.")
-        self.cmb_code_mode.setStyleSheet("font-size: 11px; padding: 2px 6px;")
+        self.cmb_code_mode.setStyleSheet("font-size: 11px; padding: 2px 6px; combobox-popup: 0;")
         self.cmb_code_mode.currentIndexChanged.connect(lambda _i: self.set_code_mode(self.cmb_code_mode.currentData()))
         lyt.addWidget(lbl_kod)
         lyt.addWidget(self.cmb_code_mode)
@@ -1904,10 +1999,19 @@ class GeneralSettingsScreen(QWidget):
         """Menü (panel) başına işlemler: {panel_id: [(etiket, geri çağrı), ...]}. Sağ panel ve sağ tık menüsü AYNI kaynağı kullanır."""
         return {
             "firma_bilgileri": [
-                ("➕ Yeni Firma", lambda: getattr(self, "firma_tab", None) and self.firma_tab.add_new()),
+                ("🧙 Şirket Sihirbazı", lambda: getattr(self, "firma_tab", None) and self.firma_tab.add_wizard()),
+                ("➕ Yeni Firma (Manuel)", lambda: getattr(self, "firma_tab", None) and self.firma_tab.add_new()),
                 ("✏️ Düzenle", lambda: getattr(self, "firma_tab", None) and self.firma_tab.edit_selected()),
                 ("🗑️ Sil", lambda: getattr(self, "firma_tab", None) and self.firma_tab.delete_selected()),
                 ("🔄 Yenile", lambda: getattr(self, "firma_tab", None) and self.firma_tab.load_data()),
+            ],
+            "numara_serileri": [
+                ("➕ Yeni Seri Ekle", lambda: getattr(self, "doc_num_tab", None) and self.doc_num_tab._on_add()),
+                ("✏️ Seriyi Düzenle", lambda: getattr(self, "doc_num_tab", None) and self.doc_num_tab._on_edit()),
+                ("⭐ Varsayılan Yap", lambda: getattr(self, "doc_num_tab", None) and self.doc_num_tab._on_set_default()),
+                ("🔍 Boşluk Analizi", lambda: getattr(self, "doc_num_tab", None) and self.doc_num_tab._on_gaps_dialog()),
+                ("🗑️ Seriyi Sil", lambda: getattr(self, "doc_num_tab", None) and self.doc_num_tab._on_delete()),
+                ("🔄 Yenile", lambda: getattr(self, "doc_num_tab", None) and self.doc_num_tab.load_data()),
             ],
             "cms_baglantilari": [
                 ("➕ Yeni Bağlantı", lambda: getattr(self, "sites_tab", None) and self.sites_tab.open_add_site_dialog()),
@@ -1918,15 +2022,23 @@ class GeneralSettingsScreen(QWidget):
                 ("🔑 Jeton Çek", lambda: getattr(self, "sites_tab", None) and self.sites_tab.auto_fetch_token_selected()),
                 ("🔄 Yenile", lambda: getattr(self, "sites_tab", None) and self.sites_tab.load_sites()),
             ],
-            "sube_tanimlari": [
-                ("➕ Yeni Şube Ekle", lambda: self._add_table_row(getattr(self, "tbl_sube", None), ["", "", "Toya ERP A.Ş.", "", "Aktif"])),
-                ("🗑️ Seçili Şubeyi Sil", lambda: self._delete_table_row(getattr(self, "tbl_sube", None))),
-                ("💾 Şubeleri Kaydet", lambda: self.save_current_panel()),
+            "adres_tanimlari": [
+                ("➕ Yeni Ekle", lambda: getattr(self, "address_tab", None) and self.address_tab.add_new()),
+                ("✏️ Düzenle", lambda: getattr(self, "address_tab", None) and self.address_tab.edit_selected()),
+                ("🗑️ Sil", lambda: getattr(self, "address_tab", None) and self.address_tab.delete_selected()),
+                ("🔄 Yenile", lambda: getattr(self, "address_tab", None) and self.address_tab.refresh_all()),
             ],
-            "calisma_donemi": [
-                ("➕ Yeni Dönem Ekle", lambda: self._add_table_row(getattr(self, "tbl_donem", None), ["", "", "", "Aktif"])),
-                ("🗑️ Seçili Dönemi Sil", lambda: self._delete_table_row(getattr(self, "tbl_donem", None))),
-                ("💾 Dönemleri Kaydet", lambda: self.save_current_panel()),
+            "vergi_daireleri": [
+                ("➕ Yeni Vergi Dairesi", lambda: getattr(self, "tax_tab", None) and self.tax_tab.add_new()),
+                ("✏️ Düzenle", lambda: getattr(self, "tax_tab", None) and self.tax_tab.edit_selected()),
+                ("🗑️ Sil", lambda: getattr(self, "tax_tab", None) and self.tax_tab.delete_selected()),
+                ("🔄 Yenile", lambda: getattr(self, "tax_tab", None) and self.tax_tab.load_data()),
+            ],
+            "banka_tanimlari": [
+                ("➕ Yeni Banka / Şube", lambda: getattr(self, "bank_tab", None) and self.bank_tab.add_new()),
+                ("✏️ Düzenle", lambda: getattr(self, "bank_tab", None) and self.bank_tab.edit_selected()),
+                ("🗑️ Sil", lambda: getattr(self, "bank_tab", None) and self.bank_tab.delete_selected()),
+                ("🔄 Yenile", lambda: getattr(self, "bank_tab", None) and self.bank_tab.refresh_all()),
             ],
             "kullanicilar": [
                 ("➕ Yeni Kullanıcı", lambda: getattr(self, "users_tab", None) and self.users_tab.add_new()),
@@ -1950,8 +2062,16 @@ class GeneralSettingsScreen(QWidget):
                 ("💾 Kurları Kaydet", lambda: self.save_current_panel()),
             ],
             "odeme_planlari": [
-                ("➕ Yeni Plan Ekle", lambda: self._add_table_row(getattr(self, "tbl_odeme", None), ["", "", "0", "Açık Hesap", "Aktif"])),
+                ("➕ Yeni Plan Ekle", lambda: self._yeni_odeme_plani_ekle()),
+                ("✏️ Seçiliyi Düzenle", lambda: self._yeni_odeme_plani_ekle(duzenle=True)),
+                ("📑 Çok Türlü Satırları Düzenle", lambda: self._odeme_plani_satirlarini_duzenle()),
                 ("🗑️ Seçili Planı Sil", lambda: self._delete_table_row(getattr(self, "tbl_odeme", None))),
+                ("💾 Planları Kaydet", lambda: self.save_current_panel()),
+            ],
+            "banka_odeme_planlari": [
+                ("➕ Yeni Banka Ödeme Planı Ekle", lambda: self._yeni_banka_odeme_plani_ekle()),
+                ("✏️ Seçiliyi Düzenle", lambda: self._yeni_banka_odeme_plani_ekle(duzenle=True)),
+                ("🗑️ Seçiliyi Sil", lambda: self._delete_table_row(getattr(self, "tbl_banka_odeme", None))),
                 ("💾 Planları Kaydet", lambda: self.save_current_panel()),
             ],
             "fiyat_listeleri": [
@@ -1972,11 +2092,6 @@ class GeneralSettingsScreen(QWidget):
             "birim_tanimlari": [
                 ("➕ Yeni Birim", lambda: self._add_table_row(getattr(self, "tbl_birim", None), ["", "", "1", "Aktif"])),
                 ("🗑️ Seçiliyi Sil", lambda: self._delete_table_row(getattr(self, "tbl_birim", None))),
-                ("💾 Kaydet", lambda: self.save_current_panel()),
-            ],
-            "depo_tanimlari": [
-                ("➕ Yeni Depo", lambda: self._add_table_row(getattr(self, "tbl_depo", None), ["", "", "Merkez", "Aktif"])),
-                ("🗑️ Seçiliyi Sil", lambda: self._delete_table_row(getattr(self, "tbl_depo", None))),
                 ("💾 Kaydet", lambda: self.save_current_panel()),
             ],
             "stok_ozel_alanlar": [
@@ -2005,6 +2120,28 @@ class GeneralSettingsScreen(QWidget):
             ],
             "ekran_grid": [
                 ("📐 Şablonları Yenile", lambda: getattr(self, "screen_defs_tab", None) and self.screen_defs_tab.load_screen_definitions()),
+            ],
+            "portal_yayin": [
+                # 👤 PROFİL İŞLEMLERİ
+                ("➕ Yeni Profil Ekle", lambda: getattr(self, "portal_deploy_tab", None) and self.portal_deploy_tab.new_profile()),
+                ("💾 Profili Kaydet", lambda: getattr(self, "portal_deploy_tab", None) and self.portal_deploy_tab.save()),
+                ("🗑️ Profili Sil", lambda: getattr(self, "portal_deploy_tab", None) and self.portal_deploy_tab._on_delete_profile()),
+                # 🚀 GÖNDERİM
+                ("🔌 Bağlantıyı Test Et", lambda: getattr(self, "portal_deploy_tab", None) and self.portal_deploy_tab._on_test()),
+                ("📦 Paketi Üret ve Gönder", lambda: getattr(self, "portal_deploy_tab", None) and self.portal_deploy_tab._on_send()),
+                ("🧩 Softaculous Paketi Üret", lambda: getattr(self, "portal_deploy_tab", None) and self.portal_deploy_tab._on_softaculous()),
+                # 🔑 GÜNCELLEME ANAHTARI
+                ("🔑 Güncelleme Anahtarını Kopyala", lambda: getattr(self, "portal_deploy_tab", None) and self.portal_deploy_tab._on_copy_secret()),
+                ("📥 Anahtarı Yapıştır", lambda: getattr(self, "portal_deploy_tab", None) and self.portal_deploy_tab._on_paste_secret()),
+                # ❓ YARDIM & GEÇMİŞ
+                ("❓ Yardım / Nasıl Kullanılır?", lambda: getattr(self, "portal_deploy_tab", None) and self.portal_deploy_tab.show_help()),
+                ("🗂️ Sürüm Geçmişi", lambda: getattr(self, "portal_deploy_tab", None) and self.portal_deploy_tab.show_history()),
+            ],
+            "form_tasarimlari": [
+                ("➕ Yeni Form Ekle", lambda: self._form_tasarim_ekle()),
+                ("🎨 Tasarımcıda Aç", lambda: self._form_tasarim_ac()),
+                ("🗑️ Sil", lambda: self._form_tasarim_sil()),
+                ("🔄 Yenile", lambda: self._load_form_tasarimlari()),
             ],
             "surum_git": [
                 # ── 👤 PROFİL İŞLEMLERİ ──
@@ -2054,6 +2191,10 @@ class GeneralSettingsScreen(QWidget):
     #: uzun işlem listelerini açılır alt menülere böler: {panel_id: [(başlık, işlem sayısı, açık mı)]}
     ACTION_GROUPS = {
         "surum_git": [("👤 PROFİL İŞLEMLERİ", 5, False), ("🌿 GİT İŞLEMLERİ", 7, True)],
+        "portal_yayin": [
+            ("👤 PROFİL İŞLEMLERİ", 3, True), ("🚀 GÖNDERİM", 3, True),
+            ("🔑 GÜNCELLEME ANAHTARI", 2, False), ("❓ YARDIM & GEÇMİŞ", 2, False),
+        ],
     }
 
     def _panel_actions(self, panel_id: str) -> list:
@@ -2197,7 +2338,7 @@ class GeneralSettingsScreen(QWidget):
                 self._open_menu_path(self.active_panel_id)
             return
 
-        for panel_id, (item_widget, sec, menu_adi, grup_adi) in self.menu_item_containers.items():
+        for panel_id, (item_widget, _sec, menu_adi, grup_adi) in self.menu_item_containers.items():
             sub = sm.subgroup_of(grup_adi, panel_id) or ("", "")
             matches = sm.matches(q, menu_adi, grup_adi, sm.item_code(panel_id), sm.GROUP_CODES.get(grup_adi, ""), sub[0], sub[1])
             item_widget.setVisible(matches)
@@ -2221,6 +2362,8 @@ class GeneralSettingsScreen(QWidget):
 
     def _breadcrumb_text(self, panel_id: str) -> str:
         """'Genel Ayarlar > [Alt menü >] Menü' — adlar kısa tutulur, bağlamı üst menüler verir."""
+        if panel_id == "settings_hub":
+            return f"⚙️ [{sm.SCREEN_CODE}] Genel Ayarlar > 🏠 Ayarlar Panosu"
         name, group = next(((m, g) for g, _i, ml in self.MENU_STRUCTURE for m, p in ml if p == panel_id), (panel_id, ""))
         sub = sm.subgroup_of(group, panel_id)
         path = " > ".join(x for x in ((sub[0].split(" ", 1)[-1] if sub else ""), name) if x)
@@ -2243,19 +2386,7 @@ class GeneralSettingsScreen(QWidget):
 
     def btn_style(self, bg="#ffffff", fg="#1e293b") -> str:
         """Derinlikli düğme: alt kenar kalın (gölge hissi), üzerine gelince koyulaşır, basınca çöker."""
-        white = bg.lower() in ("#ffffff", "#fff")
-        hover_bg = "#f1f5f9" if white else self._darken_hex(bg)
-        edge = "#94a3b8" if white else self._darken_hex(bg, 0.30)
-        return with_tooltip(f"""
-            QPushButton {{
-                background:{bg}; color:{fg};
-                border:1px solid {edge}; border-bottom:3px solid {edge}; border-radius:6px;
-                padding:5px 8px; font-size:11px; font-weight:600;
-                text-align:left; min-height:24px;
-            }}
-            QPushButton:hover {{ background:{hover_bg}; }}
-            QPushButton:pressed {{ border-bottom:1px solid {edge}; padding-top:7px; }}
-        """)
+        return btn_style(bg, fg)
 
     def menu_btn_style(self, active: bool = False) -> str:
         """Asıl menü düğmesi: kart görünümlü, derinlikli; aktif olan mavi vurgulu."""
@@ -2330,7 +2461,7 @@ class GeneralSettingsScreen(QWidget):
         lbl_st.setStyleSheet(lbl_style)
         self.cmb_right_status = QComboBox()
         self.cmb_right_status.addItems(["Tümü", "Aktif", "Pasif"])
-        self.cmb_right_status.setStyleSheet(with_tooltip("border: 1px solid #cbd5e1; border-radius: 4px; padding: 3px; background: white; font-size: 11px;"))
+        self.cmb_right_status.setStyleSheet(with_tooltip("border: 1px solid #cbd5e1; border-radius: 4px; padding: 3px; background: white; font-size: 11px; combobox-popup: 0;"))
         self.cmb_right_status.currentTextChanged.connect(self.filter_active_table_status)
         for w in (lbl_s, self.txt_right_filter, lbl_st, self.cmb_right_status):
             sec_filter.add_widget(w)
@@ -2499,6 +2630,8 @@ class GeneralSettingsScreen(QWidget):
         self.doviz_rapor_widget = CurrencyRateReportWidget(db_session=self.db)
         lyt.addWidget(self.doviz_rapor_widget)
         dlg.showMaximized()
+        from src.desktop.ui.components.window_fit_helper import zorla_ilk_yerlesim
+        zorla_ilk_yerlesim(dlg)
         dlg.exec()
         self.doviz_rapor_widget = None
 
@@ -2519,10 +2652,6 @@ class GeneralSettingsScreen(QWidget):
         elif self.active_panel_id in ("gorunum_profilleri", "view_settings"):
             if hasattr(self, "view_settings_tab") and hasattr(self.view_settings_tab, "table"):
                 return self.view_settings_tab.table
-        elif self.active_panel_id == "sube_tanimlari":
-            return getattr(self, "tbl_sube", None)
-        elif self.active_panel_id == "calisma_donemi":
-            return getattr(self, "tbl_donem", None)
         elif self.active_panel_id == "yetkiler":
             return getattr(self, "tbl_yetkiler", None)
         elif self.active_panel_id == "doviz_kur":
@@ -2530,6 +2659,8 @@ class GeneralSettingsScreen(QWidget):
             return grid.table_view if grid is not None else None
         elif self.active_panel_id == "odeme_planlari":
             return getattr(self, "tbl_odeme", None)
+        elif self.active_panel_id == "banka_odeme_planlari":
+            return getattr(self, "tbl_banka_odeme", None)
         elif self.active_panel_id == "fiyat_listeleri":
             return getattr(self, "tbl_fiyat", None)
         elif self.active_panel_id == "stok_kategoriler":
@@ -2538,12 +2669,19 @@ class GeneralSettingsScreen(QWidget):
             return getattr(self, "tbl_marka", None)
         elif self.active_panel_id == "birim_tanimlari":
             return getattr(self, "tbl_birim", None)
-        elif self.active_panel_id == "depo_tanimlari":
-            return getattr(self, "tbl_depo", None)
         elif self.active_panel_id == "cari_gruplari":
             return getattr(self, "tbl_cari_grup", None)
         elif self.active_panel_id == "kdv_oranlari":
             return getattr(self, "tbl_kdv", None)
+        elif self.active_panel_id == "form_tasarimlari":
+            return getattr(self, "tbl_form_tasarim", None)
+        elif self.active_panel_id == "numara_serileri":
+            if hasattr(self, "doc_num_tab") and hasattr(self.doc_num_tab, "grid"):
+                return getattr(
+                    self.doc_num_tab.grid,
+                    "table_view",
+                    getattr(self.doc_num_tab.grid, "table", None),
+                )
         return None
 
     def _add_table_row(self, table: QTableWidget | None, default_vals: list[str]):
@@ -2553,7 +2691,7 @@ class GeneralSettingsScreen(QWidget):
         r = table.rowCount()
         table.insertRow(r)
         for c, val in enumerate(default_vals):
-            table.setItem(r, c, QTableWidgetItem(val))
+            table.setItem(r, c, QStandardItem(val))
         table.selectRow(r)
 
     def _delete_table_row(self, table: QTableWidget | None):
@@ -2570,14 +2708,36 @@ class GeneralSettingsScreen(QWidget):
         """Aktif panel gömülü bir yönetim widget'ıysa onu döndürür."""
         m = {
             "firma_bilgileri": "firma_tab",
+            "numara_serileri": "doc_num_tab",
             "cms_baglantilari": "sites_tab",
             "kullanicilar": "users_tab",
             "roller": "roller_tab",
             "gorunum_profilleri": "view_settings_tab",
             "ekran_grid": "screen_defs_tab",
+            "portal_yayin": "portal_deploy_tab",
+            "adres_tanimlari": "address_tab",
+            "vergi_daireleri": "tax_tab",
+            "banka_tanimlari": "bank_tab",
+            "settings_hub": "hub_tab",
         }
         attr = m.get(self.active_panel_id)
         return getattr(self, attr, None) if attr else None
+
+    @staticmethod
+    def _tablo_boyut(table) -> tuple[int, int]:
+        """`QTableWidget` (AppGrid) ya da model'li `QTableView` (standart tanım tablosu) fark etmeden (satır, sütun)."""
+        if isinstance(table, QTableWidget):
+            return table.rowCount(), table.columnCount()
+        model = table.model()
+        return (model.rowCount(), model.columnCount()) if model else (0, 0)
+
+    @staticmethod
+    def _tablo_metin(table, r: int, c: int) -> str:
+        if isinstance(table, QTableWidget):
+            it = table.item(r, c)
+            return it.text() if it else ""
+        model = table.model()
+        return str(model.data(model.index(r, c)) or "") if model else ""
 
     def filter_active_table(self, query: str):
         """Aktif tablodaki satırları arama metnine göre filtreler."""
@@ -2586,16 +2746,12 @@ class GeneralSettingsScreen(QWidget):
             emb.apply_quick_search(query)
             return
         table = self._get_active_table()
-        if not table or not isinstance(table, QTableWidget):
+        if not table:
             return
+        rows, cols = self._tablo_boyut(table)
         q = query.strip().lower()
-        for r in range(table.rowCount()):
-            match = False
-            for c in range(table.columnCount()):
-                it = table.item(r, c)
-                if it and q in it.text().lower():
-                    match = True
-                    break
+        for r in range(rows):
+            match = any(q in self._tablo_metin(table, r, c).lower() for c in range(cols))
             table.setRowHidden(r, not match if q else False)
 
     def filter_active_table_status(self, status: str):
@@ -2605,18 +2761,16 @@ class GeneralSettingsScreen(QWidget):
             emb.apply_status_filter(status)
             return
         table = self._get_active_table()
-        if not table or not isinstance(table, QTableWidget):
+        if not table:
             return
         status = status.strip().lower()
-        for r in range(table.rowCount()):
+        rows, cols = self._tablo_boyut(table)
+        for r in range(rows):
             if status == "tümü":
                 table.setRowHidden(r, False)
                 continue
-            last_col = table.columnCount() - 1
-            it = table.item(r, last_col)
-            if it:
-                row_status = it.text().strip().lower()
-                table.setRowHidden(r, status not in row_status)
+            row_status = self._tablo_metin(table, r, cols - 1).strip().lower()
+            table.setRowHidden(r, status not in row_status)
 
     def export_active_to_excel(self):
         """Aktif paneldeki verileri Excel (.xlsx) veya CSV dosyasına aktarır."""
@@ -2681,7 +2835,7 @@ class GeneralSettingsScreen(QWidget):
     def import_active_from_excel(self):
         """Excel (.xlsx veya .csv) dosyasından aktif tabloya veri aktarır."""
         table = self._get_active_table()
-        if not table or not isinstance(table, QTableWidget):
+        if not table or not hasattr(table, "insertRow"):  # AppGrid (QTableWidget) ve EntryTableView ikisi de destekler
             QMessageBox.information(self, self.tr("Bilgi"), self.tr("Bu panel için Excel'den doğrudan veri alma desteklenmemektedir."))
             return
 
@@ -2708,7 +2862,7 @@ class GeneralSettingsScreen(QWidget):
                 r = table.rowCount()
                 table.insertRow(r)
                 for c in range(min(len(row), table.columnCount())):
-                    table.setItem(r, c, QTableWidgetItem(str(row.iloc[c])))
+                    table.setItem(r, c, QStandardItem(str(row.iloc[c])))
                 imported_count += 1
 
             QMessageBox.information(
@@ -2861,20 +3015,23 @@ class GeneralSettingsScreen(QWidget):
         self.stack = QStackedWidget()
 
         panel_builders = {
+            "settings_hub": self.build_settings_hub_panel,
             "firma_bilgileri": self.build_firma_bilgileri_panel,
+            "numara_serileri": self.build_numara_serileri_panel,
             "cms_baglantilari": self.build_cms_baglantilari_panel,
-            "sube_tanimlari": self.build_sube_panel,
-            "calisma_donemi": self.build_calisma_donemi_panel,
+            "adres_tanimlari": self.build_adres_tanimlari_panel,
+            "vergi_daireleri": self.build_vergi_daireleri_panel,
+            "banka_tanimlari": self.build_banka_tanimlari_panel,
             "kullanicilar": self.build_kullanicilar_panel,
             "roller": self.build_roller_panel,
             "yetkiler": self.build_yetkiler_panel,
             "doviz_kur": self.build_doviz_panel,
             "odeme_planlari": self.build_odeme_planlari_panel,
+            "banka_odeme_planlari": self.build_banka_odeme_planlari_panel,
             "fiyat_listeleri": self.build_fiyat_listeleri_panel,
             "stok_kategoriler": self.build_stok_kategoriler_panel,
             "stok_markalar": self.build_stok_markalar_panel,
             "birim_tanimlari": self.build_birim_panel,
-            "depo_tanimlari": self.build_depo_panel,
             "stok_ozel_alanlar": lambda: self.build_ozel_alan_panel("stok"),
             "cari_gruplari": self.build_cari_gruplari_panel,
             "cari_ozel_alanlar": lambda: self.build_ozel_alan_panel("cari"),
@@ -2888,7 +3045,9 @@ class GeneralSettingsScreen(QWidget):
             "sayi_bicimi": self.build_sayi_bicimi_panel,
             "gorunum_profilleri": self.build_gorunum_panel,
             "ekran_grid": self.build_ekran_grid_panel,
+            "form_tasarimlari": self.build_form_tasarimlari_panel,
             "surum_git": self.build_surum_panel,
+            "yardim": self.build_yardim_panel,
         }
 
         for panel_id, builder in panel_builders.items():
@@ -2927,6 +3086,20 @@ class GeneralSettingsScreen(QWidget):
         self.active_panel_id = panel_id
         if panel_id in self.panels:
             self.stack.setCurrentWidget(self.panels[panel_id])
+        if self._oranli_gridler:
+            QTimer.singleShot(0, self._oranli_yenile)
+
+        # Settings Hub aktifken kenar panelleri kapatıp geniş ferah bir görünüm sunar
+        if panel_id == "settings_hub":
+            if hasattr(self, "left_panel") and self.left_panel.is_open:
+                self.left_panel.close_panel()
+            if hasattr(self, "right_panel") and self.right_panel.is_open:
+                self.right_panel.close_panel()
+        else:
+            if hasattr(self, "left_panel") and not self.left_panel.is_open:
+                self.left_panel.open_panel()
+            if hasattr(self, "right_panel") and not self.right_panel.is_open:
+                self.right_panel.open_panel()
 
         # Panele özgü sağ panel bölümleri — yalnız ilgili panel aktifken görünür.
         if hasattr(self, "right_sidebar"):
@@ -3008,67 +3181,151 @@ class GeneralSettingsScreen(QWidget):
             n = emb.record_count()
         else:
             t = self._get_active_table()
-            if isinstance(t, QTableWidget):
-                n = t.rowCount()
+            if t is not None:
+                n, _c = self._tablo_boyut(t)
         self.lbl_bottom_count.setText(f"📊 {n} kayıt" if n is not None else "")
 
     @staticmethod
     def _tr_upper(text: str) -> str:
         return text.replace("i", "İ").replace("ı", "I").upper()
 
-    def _new_grid(self, name: str, labels: list[str], stretch: int | None = None, editable: bool = True) -> AppGrid:
-        """Standart proje grid'i (AppGrid): merkezi tema renk/yazı tipi/satır yüksekliği, başlık sağ tık menüsü ve
-        sağ tık işlemleri. `stretch` sütunu diğerlerinin 3 katı genişlik alır."""
-        weights = [3.0 if i == stretch else 1.0 for i in range(len(labels))]
-        total = sum(weights)
+    @staticmethod
+    def _panel_baslik(lyt: QVBoxLayout, ikon_baslik: str, aciklama: str) -> None:
+        """Panel başlığı standardı: `<emoji> Başlık` (koyu lacivert) + altında gri açıklama. Tüm tanım panelleri
+        bunu kullanır (bkz. `gelistirme/00_mimari/GRID_STANDARDI.md`, YZ2 Görev 27 madde B)."""
+        lbl = QLabel(ikon_baslik)
+        lbl.setStyleSheet("font-size:14px; font-weight:800; color:#1e3a8a;")
+        lyt.addWidget(lbl)
+        if aciklama:
+            lbl_info = QLabel(aciklama)
+            lbl_info.setStyleSheet("color:#64748b; font-size:11px;")
+            lbl_info.setWordWrap(True)
+            lyt.addWidget(lbl_info)
+
+    def _aktif_firma_uyar(self, ne_icin: str) -> None:
+        """Firmaya bağlı bir ayar (Şube/Dönem/Birim/...) kaydedilmek istendiğinde aktif firma yoksa çağrılır;
+        hiç firma tanımlanmamışsa ve birden çok firma olup hiçbiri seçilmemişse FARKLI mesaj gösterir
+        (2026-09-30) — "birden fazla dönem/şube olabilir" isteğiyle aynı oturumda, aktif_firma() belirsiz
+        (>1 firma, hiçbiri seçilmemiş) durumunda kullanıcıyı yanlış yönlendirmemek için."""
+        from src.desktop.services.company_service import CompanyService
+        if len(CompanyService(self.db).list_companies()) > 1:
+            QMessageBox.warning(self, "Aktif Firma Seçilmedi",
+                                 f"{ne_icin} için önce Firma Bilgileri'nden çalışacağınız firmayı aktif olarak seçin.")
+        else:
+            QMessageBox.warning(self, "Firma Seçili Değil",
+                                 f"{ne_icin} için önce Firma Bilgileri'nden bir firma tanımlayın.")
+
+    def _new_grid(self, name: str, labels: list[str], stretch: int | None = None, editable: bool = True) -> EntryTableView:
+        """Standart tanım tablosu (`standart_grid`, bkz. `gelistirme/00_mimari/GRID_STANDARDI.md`). Sütun anahtarları
+        `c0..cN` (KOD İÇİNDE DEĞİŞTİRME — kayıtlı görünüm profilleri buna bağlı), başlıklar BÜYÜK harf. `stretch` sütunu
+        ilk gösterimde diğerlerinin 3 katı genişlik alır; kullanıcı bir sütunu elle boyutlandırınca oran durur (bkz.
+        `_oranli_kur`, `FisKalemGrid._oranli_genislik`/`showEvent` deseniyle aynı fikir). `editable=False` ise çağıran
+        taraf hücreleri salt okunur yapar (bkz. `tv._toya_editable`, örn. rol × yetki matrisi).
+        Dönen değer `EntryTableView`; ekleme için kapsayıcı `tablo.container` (`FilterableTableView`) niteliğindedir."""
         pid = f"dbgrid_ayar_{name}"
-        GRID_PRESETS.pop(pid, None)   # yetki matrisi gibi dinamik sütunlar için her seferinde yeniden kaydedilir
-        register_preset(pid, [self._tr_upper(x) for x in labels], [w / total for w in weights], name=name)
-        grid = AppGrid(pid, editable=editable)
-        grid.context_actions_provider = self._panel_context_actions
-        return grid
+        kolonlar = [(f"c{i}", self._tr_upper(lbl)) for i, lbl in enumerate(labels)]
+        entry = standart_grid(pid, kolonlar)
+        tv = entry.table_view
+        tv.container = entry
+        tv._toya_editable = editable
+        tv.context_actions_provider = self._panel_context_actions
+        tv.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        tv.customContextMenuRequested.connect(lambda pos, t=tv: self._ayar_grid_menu(t, pos))
+        self._oranli_kur(tv, [3.0 if i == stretch else 1.0 for i in range(len(labels))])
+        return tv
+
+    def _oranli_kur(self, tv: EntryTableView, weights: list[float]) -> None:
+        """`stretch` sütununun ilk gösterimde oranlı genişlemesini kurar; kullanıcı bir sütunu elle boyutlandırınca
+        kalıcı olarak durur (bkz. `FisKalemGrid._oranli_genislik`/`showEvent` deseni — burada `EntryGridBase`'e
+        bağlanmadan aynı fikir dışarıdan, `switch_panel`'in tetiklediği tek noktadan uygulanır)."""
+        durum = {"oranli": True, "uyguluyor": False}
+
+        def uygula() -> None:
+            if not durum["oranli"] or not tv.isVisible():
+                return
+            toplam = sum(weights) or 1.0
+            w = max(tv.viewport().width(), 300)
+            durum["uyguluyor"] = True
+            for i, wt in enumerate(weights):
+                tv.setColumnWidth(i, max(40, int(w * wt / toplam)))
+            durum["uyguluyor"] = False
+
+        def kullanici_boyutlandirdi(*_a) -> None:
+            if not durum["uyguluyor"]:
+                durum["oranli"] = False
+
+        tv.horizontalHeader().sectionResized.connect(kullanici_boyutlandirdi)
+        self._oranli_gridler.append(uygula)
+
+    def _oranli_yenile(self) -> None:
+        """Panel değişince (`switch_panel`) az önce görünür olan tanım tablolarının oranlı genişliğini uygular."""
+        for uygula in self._oranli_gridler:
+            uygula()
+
+    def _ayar_grid_menu(self, tv: EntryTableView, pos) -> None:
+        """Tanım tablosu sağ tık menüsü: panel eylemleri (Kaydet/Ekle/Sil…) + ayırıcı + sütun/profil yönetimi
+        (bkz. `FisKalemGrid._baglam_menusu` deseni: eylemler + ayırıcı + `entry.add_column_actions_to_menu(menu)`)."""
+        from src.desktop.managers.theme_manager import ThemeManager
+        menu = QMenu(self)
+        try:
+            menu.setStyleSheet(ThemeManager().get_context_menu_stylesheet())
+        except Exception:  # noqa: BLE001
+            pass
+        menu.setToolTipsVisible(True)
+        for label, cb, tip in tv.context_actions_provider():
+            act = menu.addAction(label)
+            act.setToolTip(tip)
+            act.triggered.connect(lambda _=False, c=cb: c())
+        menu.addSeparator()
+        tv.container.add_column_actions_to_menu(menu)
+        if not menu.isEmpty():
+            menu.exec(tv.viewport().mapToGlobal(pos))
 
     # ─────────────────────────────────────────────────────────────
     # PANEL BUILDERS
     # ─────────────────────────────────────────────────────────────
 
+    def build_settings_hub_panel(self) -> QWidget:
+        """Ayarlar Panosu / Karşılama Ekranı (3D İkon Grid)."""
+        self.hub_tab = SettingsHubWidget(parent=self)
+        self.hub_tab.navigate_requested.connect(self.switch_panel)
+        return self.hub_tab
+
+    def build_adres_tanimlari_panel(self) -> QWidget:
+        """Ülkeler, İller, İlçeler, Semtler/Mahalleler Yönetimi."""
+        self.address_tab = AddressDefinitionsWidget(db_session=self.db, parent=self)
+        self.address_tab.toast_requested.connect(self.toast_requested)
+        return self.address_tab
+
+    def build_vergi_daireleri_panel(self) -> QWidget:
+        """Vergi Daireleri Yönetimi."""
+        self.tax_tab = TaxOfficesWidget(db_session=self.db, parent=self)
+        self.tax_tab.toast_requested.connect(self.toast_requested)
+        return self.tax_tab
+
+    def build_banka_tanimlari_panel(self) -> QWidget:
+        """Banka ve Şube Tanımları Yönetimi."""
+        self.bank_tab = BankDefinitionsWidget(db_session=self.db, parent=self)
+        self.bank_tab.toast_requested.connect(self.toast_requested)
+        return self.bank_tab
+
     def build_firma_bilgileri_panel(self) -> QWidget:
         """Firma (Şirket) kimlik kartları listesi (kabuk içinde: yalnız içerik)."""
         from src.desktop.ui.screens.firma_list_widget import FirmaListWidget
         self.firma_tab = FirmaListWidget(self.db, embedded=True)
+        self.firma_tab.companies_updated.connect(self.companies_updated.emit)
         return self.firma_tab
+
+    def build_numara_serileri_panel(self) -> QWidget:
+        """Belge ve Seri Numaralandırma Yönetimi (Firma bazlı, e-Fatura / GİB uyumlu)."""
+        self.doc_num_tab = DocumentNumberingWidget(db_session=self.db, parent=self)
+        self.doc_num_tab.toast_requested.connect(self.toast_requested)
+        return self.doc_num_tab
 
     def build_cms_baglantilari_panel(self) -> QWidget:
         """CMS / ERP dış bağlantı yönetimi (eski 'Firma Bilgileri' içeriği)."""
         self.sites_tab = SitesWidget(self.db, embedded=True)
         return self.sites_tab
-
-    def build_sube_panel(self) -> QWidget:
-        """Şube Tanımları Paneli."""
-        w = QWidget()
-        lyt = QVBoxLayout(w)
-        lyt.setContentsMargins(12, 12, 12, 12)
-        lyt.setSpacing(8)
-
-        lbl = QLabel("🏢 Şube Tanımları")
-        lbl.setStyleSheet("font-size:14px; font-weight:800; color:#1e3a8a;")
-        lyt.addWidget(lbl)
-
-        lbl_info = QLabel(
-            "Firmanıza bağlı merkez, şube ve mağaza lokasyonlarını buradan yönetebilirsiniz.",
-        )
-        lbl_info.setStyleSheet("color:#64748b; font-size:11px;")
-        lyt.addWidget(lbl_info)
-
-        self.tbl_sube = self._new_grid('tbl_sube', ['Şube Kodu', 'Şube Adı', 'İlgili Firma', 'Yetkili', 'Durum'], stretch=1)
-
-        default_subeler = [
-            ("01", "MERKEZ ŞUBE", "Toya ERP A.Ş.", "Ahmet Yılmaz", "Aktif"),
-            ("02", "KADIKÖY ŞUBE", "Toya ERP A.Ş.", "Mehmet Demir", "Aktif"),
-        ]
-        self._load_generic_table(self.tbl_sube, "subeler", default_subeler)
-        lyt.addWidget(self.tbl_sube, 1)
-        return w
 
     def build_kullanicilar_panel(self) -> QWidget:
         """Kullanıcı tanımları listesi (kabuk içinde: yalnız içerik)."""
@@ -3091,13 +3348,8 @@ class GeneralSettingsScreen(QWidget):
         lyt = QVBoxLayout(w)
         lyt.setContentsMargins(12, 12, 12, 12)
         lyt.setSpacing(8)
-        lbl = QLabel("🛡️ Rol × Yetki Matrisi")
-        lbl.setStyleSheet("font-size:14px; font-weight:800; color:#1e3a8a;")
-        lyt.addWidget(lbl)
-        info = QLabel("Her rolün hangi yetkilere sahip olduğunu gösterir. "
-                      "Değişiklik için 'Rol Tanımları'ndaki rol editörünü kullanın.")
-        info.setStyleSheet("color:#64748b; font-size:11px;")
-        lyt.addWidget(info)
+        self._panel_baslik(lyt, "🛡️ Rol × Yetki Matrisi", "Her rolün hangi yetkilere sahip olduğunu gösterir. "
+                          "Değişiklik için 'Rol Tanımları'ndaki rol editörünü kullanın.")
 
         svc = RoleService(self.db)
         svc.seed_defaults()
@@ -3108,15 +3360,19 @@ class GeneralSettingsScreen(QWidget):
         self.tbl_yetkiler = self._new_grid(
             "tbl_yetkiler", ["Yetki"] + [r.name for r in roles], stretch=0, editable=False,
         )
+        salt_okunur = Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable
         self.tbl_yetkiler.setRowCount(len(codes))
         for row, code in enumerate(codes):
-            self.tbl_yetkiler.setItem(row, 0, QTableWidgetItem(permission_label(code)))
+            ad = QStandardItem(permission_label(code))
+            ad.setFlags(salt_okunur)
+            self.tbl_yetkiler.setItem(row, 0, ad)
             for col, r in enumerate(roles, start=1):
                 has = "*" in role_perms[r.name] or code in role_perms[r.name]
-                it = QTableWidgetItem("✔" if has else "—")
+                it = QStandardItem("✔" if has else "—")
                 it.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+                it.setFlags(salt_okunur)
                 self.tbl_yetkiler.setItem(row, col, it)
-        lyt.addWidget(self.tbl_yetkiler, 1)
+        lyt.addWidget(self.tbl_yetkiler.container, 1)
         return w
 
     #: Döviz & Kur grid kolonları — M.B. (T.C. Merkez Bankası) ve S.P. (Serbest
@@ -3745,35 +4001,38 @@ class GeneralSettingsScreen(QWidget):
         html = self._generate_html_table(headers, body_rows, f"TOYA ERP — {baslik}")
         self._show_print_preview(html)
 
-    def build_calisma_donemi_panel(self) -> QWidget:
-        """Çalışma Dönemi (Mali Yıl) Tanımları Paneli."""
-        w = QWidget()
-        lyt = QVBoxLayout(w)
-        lyt.setContentsMargins(12, 12, 12, 12)
-        lyt.setSpacing(8)
+    #: Ödeme Planı / Banka Ödeme Planı grid'lerinde boş/seçilmemiş hesap-plan değeri.
+    _HEDEF_HESAP_BOS = "(Seçilmedi)"
+    _BANKA_PLANI_BOS = "(Seçilmedi)"
 
-        lbl = QLabel("🗓️ Çalışma Dönemi Tanımları")
-        lbl.setStyleSheet("font-size:14px; font-weight:800; color:#1e3a8a;")
-        lyt.addWidget(lbl)
+    def _hedef_hesap_secenekleri(self) -> list[str]:
+        """FinansHesap listesinden "KOD — Ad" seçenekleri (ComboDelegate'e canlı/her açılışta sorulur)."""
+        secenekler = [self._HEDEF_HESAP_BOS]
+        if self.db:
+            try:
+                hesaplar = self.db.scalars(
+                    select(FinansHesap).where(FinansHesap.aktif == True).order_by(FinansHesap.kod),  # noqa: E712
+                ).all()
+                secenekler += [f"{h.kod} — {h.ad}" for h in hesaplar]
+            except Exception as e:  # noqa: BLE001
+                logger.warning(f"Finans hesapları yüklenemedi: {e}")
+        return secenekler
 
-        lbl_info = QLabel(
-            "Firmanın mali yıl / çalışma dönemlerini tanımlar. Yalnızca bir dönem "
-            "'Aktif' olmalıdır; kapanan dönemler 'Kapalı' olarak işaretlenir.",
-        )
-        lbl_info.setStyleSheet("color:#64748b; font-size:11px;")
-        lbl_info.setWordWrap(True)
-        lyt.addWidget(lbl_info)
-
-        self.tbl_donem = self._new_grid('tbl_donem', ['Dönem Kodu', 'Başlangıç Tarihi', 'Bitiş Tarihi', 'Durum'], stretch=0)
-
-        import datetime as _dt
-        yil = _dt.datetime.now().year
-        default_donemler = [
-            (str(yil), f"01.01.{yil}", f"31.12.{yil}", "Aktif"),
-        ]
-        self._load_generic_table(self.tbl_donem, "calisma_donemleri", default_donemler)
-        lyt.addWidget(self.tbl_donem, 1)
-        return w
+    def _banka_odeme_plani_secenekleri(self) -> list[str]:
+        """BankaOdemePlani listesinden "KOD — Açıklama" seçenekleri — Ödeme Planı > Kredi Kartı/POS/Havale
+        gibi banka ile ilgili tiplerde isteğe bağlı bağlanır (bkz. gelistirme/04_odeme_planlari/tasarim.md)."""
+        secenekler = [self._BANKA_PLANI_BOS]
+        if self.db:
+            try:
+                planlar = self.db.scalars(
+                    select(BankaOdemePlani).where(
+                        BankaOdemePlani.is_deleted == False, BankaOdemePlani.is_active == True,  # noqa: E712
+                    ).order_by(BankaOdemePlani.kod),
+                ).all()
+                secenekler += [f"{p.kod} — {p.aciklama or ''}".rstrip(" —") for p in planlar]
+            except Exception as e:  # noqa: BLE001
+                logger.warning(f"Banka ödeme planları yüklenemedi: {e}")
+        return secenekler
 
     def build_odeme_planlari_panel(self) -> QWidget:
         """Ödeme Planları Paneli."""
@@ -3782,36 +4041,182 @@ class GeneralSettingsScreen(QWidget):
         lyt.setContentsMargins(12, 12, 12, 12)
         lyt.setSpacing(8)
 
-        lbl = QLabel("💳 Ödeme Planı Tanımları")
-        lbl.setStyleSheet("font-size:14px; font-weight:800; color:#1e3a8a;")
-        lyt.addWidget(lbl)
-
-        lbl_info = QLabel(
-            "Teklif ve Fatura işlemlerinde kullanılan vade ve taksit planları.",
+        self._panel_baslik(
+            lyt, "💳 Ödeme Planı Tanımları",
+            "Teklif ve Fatura işlemlerinde kullanılan vade/taksit planları — Ödeme Tipi ve Hedef Hesap, "
+            "faturadan otomatik kasa/banka fişi oluşturmak için kullanılır. Kredi Kartı/POS/Havale gibi "
+            "banka ile ilgili tiplerde isteğe bağlı bir Banka Ödeme Planı'na (komisyon/BSMV/hizmet bedeli) "
+            "bağlanabilir.",
         )
-        lbl_info.setStyleSheet("color:#64748b; font-size:11px;")
-        lyt.addWidget(lbl_info)
 
-        self.tbl_odeme = self._new_grid('tbl_odeme', ['Kod', 'Açıklama', 'Gün', 'Ödeme Tipi', 'Durum'], stretch=1)
+        self.tbl_odeme = self._new_grid(
+            'tbl_odeme',
+            ['Kod', 'Açıklama', 'Gün', 'Ödeme Tipi', 'Hedef Hesap', 'Banka Ödeme Planı', 'Otomatik Fiş', 'Durum'],
+            stretch=1,
+        )
+        self.tbl_odeme.setItemDelegateForColumn(
+            3, ComboDelegate(lambda: [e for _k, e in ODEME_TIPI_SECENEKLERI], self.tbl_odeme),
+        )
+        self.tbl_odeme.setItemDelegateForColumn(
+            4, ComboDelegate(self._hedef_hesap_secenekleri, self.tbl_odeme),
+        )
+        self.tbl_odeme.setItemDelegateForColumn(
+            5, ComboDelegate(self._banka_odeme_plani_secenekleri, self.tbl_odeme),
+        )
+        self.tbl_odeme.setItemDelegateForColumn(
+            6, ComboDelegate(lambda: ["Evet", "Hayır"], self.tbl_odeme),
+        )
+        self.tbl_odeme.setItemDelegateForColumn(
+            7, ComboDelegate(lambda: ["Aktif", "Pasif"], self.tbl_odeme),
+        )
 
         default_planlar = [
-            ("30GVD", "30 GÜN VADE", "30", "Açık Hesap", "Aktif"),
-            ("45GVD", "45 GÜNLÜK VADE", "45", "Açık Hesap", "Aktif"),
-            ("60GVD", "60 GÜNLÜK VADE", "60", "Açık Hesap", "Aktif"),
-            ("60GUNKK", "60 GÜN KREDİ KARTI", "60", "Kredi Kartı", "Aktif"),
-            ("AH", "AÇIK HESAP", "0", "Açık Hesap", "Aktif"),
-            ("NAKIT", "NAKİT", "0", "Nakit", "Aktif"),
-            ("CF3TAK", "CARDFINANS 3 TAKSİT", "90", "Taksit", "Aktif"),
+            ("30GVD", "30 GÜN VADE", "30", "Açık Hesap", self._HEDEF_HESAP_BOS, self._BANKA_PLANI_BOS, "Evet", "Aktif"),
+            ("45GVD", "45 GÜNLÜK VADE", "45", "Açık Hesap", self._HEDEF_HESAP_BOS, self._BANKA_PLANI_BOS, "Evet", "Aktif"),
+            ("60GVD", "60 GÜNLÜK VADE", "60", "Açık Hesap", self._HEDEF_HESAP_BOS, self._BANKA_PLANI_BOS, "Evet", "Aktif"),
+            ("60GUNKK", "60 GÜN KREDİ KARTI", "60", "Kredi Kartı", self._HEDEF_HESAP_BOS, self._BANKA_PLANI_BOS, "Evet", "Aktif"),
+            ("AH", "AÇIK HESAP", "0", "Açık Hesap", self._HEDEF_HESAP_BOS, self._BANKA_PLANI_BOS, "Evet", "Aktif"),
+            ("NAKIT", "NAKİT", "0", "Nakit", self._HEDEF_HESAP_BOS, self._BANKA_PLANI_BOS, "Evet", "Aktif"),
+            ("CF3TAK", "CARDFINANS 3 TAKSİT", "90", "Kredi Kartı", self._HEDEF_HESAP_BOS, self._BANKA_PLANI_BOS, "Evet", "Aktif"),
         ]
         for row_data in default_planlar:
             r = self.tbl_odeme.rowCount()
             self.tbl_odeme.insertRow(r)
             for c, val in enumerate(row_data):
-                self.tbl_odeme.setItem(r, c, QTableWidgetItem(val))
+                self.tbl_odeme.setItem(r, c, QStandardItem(val))
 
-        lyt.addWidget(self.tbl_odeme, 1)
+        lyt.addWidget(self.tbl_odeme.container, 1)
         self._load_odeme_planlari_from_db()
         return w
+
+    def _yeni_odeme_plani_ekle(self, duzenle: bool = False) -> None:
+        """"Ödeme Planı" popup'ı: yeni kayıt ekler, ya da seçili satırı önceden doldurarak düzenler.
+        Grid hücreleri hâlâ doğrudan da düzenlenebilir — bu popup ek bir giriş yolu."""
+        t = getattr(self, "tbl_odeme", None)
+        if not t:
+            return
+        mevcut = None
+        row = t.currentRow()
+        if duzenle:
+            if row < 0:
+                QMessageBox.warning(self, "Uyarı", "Lütfen düzenlemek istediğiniz satırı seçin.")
+                return
+            mevcut = {
+                "kod": t.item(row, 0).text() if t.item(row, 0) else "",
+                "aciklama": t.item(row, 1).text() if t.item(row, 1) else "",
+                "gun": t.item(row, 2).text() if t.item(row, 2) else "0",
+                "tip": t.item(row, 3).text() if t.item(row, 3) else "",
+                "hesap": t.item(row, 4).text() if t.item(row, 4) else "",
+                "banka_plani": t.item(row, 5).text() if t.item(row, 5) else "",
+                "otomatik": t.item(row, 6).text() if t.item(row, 6) else "Evet",
+                "aktif": t.item(row, 7).text() if t.item(row, 7) else "Aktif",
+            }
+        dlg = OdemePlaniEkleDialog(
+            [e for _k, e in ODEME_TIPI_SECENEKLERI],
+            self._hedef_hesap_secenekleri(),
+            self._banka_odeme_plani_secenekleri(),
+            deger=mevcut,
+            parent=self,
+        )
+        if not dlg.exec():
+            return
+        d = dlg.deger()
+        vals = [d["kod"], d["aciklama"], d["gun"], d["tip"], d["hesap"], d["banka_plani"], d["otomatik"], d["aktif"]]
+        r = row if duzenle and row >= 0 else t.rowCount()
+        if not (duzenle and row >= 0):
+            t.insertRow(r)
+        for c, val in enumerate(vals):
+            t.setItem(r, c, QStandardItem(val))
+        t.selectRow(r)
+
+    def _odeme_plani_satirlarini_duzenle(self) -> None:
+        """04.11: Seçili Ödeme Planı'nın ÇOK TÜRLÜ bölüştürme satırlarını düzenler (bkz.
+        `OdemePlaniSatirlariDialog`) — "yarısı nakit yarısı kredi kartı" gibi karma planlar için.
+        Plan önce kaydedilmiş (DB'de gerçek bir ID'si) olmalı."""
+        t = getattr(self, "tbl_odeme", None)
+        row = t.currentRow() if t else -1
+        if row < 0:
+            QMessageBox.warning(self, "Uyarı", "Lütfen satırlarını düzenlemek istediğiniz planı seçin.")
+            return
+        kod = (t.item(row, 0).text() if t.item(row, 0) else "").strip()
+        if not kod or not self.db:
+            return
+        plan = self.db.scalar(select(PaymentPlan).where(PaymentPlan.code == kod, PaymentPlan.is_deleted == False))  # noqa: E712
+        if plan is None:
+            QMessageBox.information(
+                self, "Önce Kaydedin",
+                "Satırları düzenlemeden önce bu Ödeme Planı'nı bir kez kaydedin (💾 Planları Kaydet).",
+            )
+            return
+        OdemePlaniSatirlariDialog(
+            self.db, plan.id, plan.code,
+            [e for _k, e in ODEME_TIPI_SECENEKLERI],
+            self._hedef_hesap_secenekleri(),
+            self._banka_odeme_plani_secenekleri(),
+            parent=self,
+        ).exec()
+
+    def build_banka_odeme_planlari_panel(self) -> QWidget:
+        """Banka Ödeme Planları Paneli — taksit sayısına göre değişen komisyon/BSMV/hizmet bedeli."""
+        w = QWidget()
+        lyt = QVBoxLayout(w)
+        lyt.setContentsMargins(12, 12, 12, 12)
+        lyt.setSpacing(8)
+
+        self._panel_baslik(
+            lyt, "🏦 Banka Ödeme Planı Tanımları",
+            "Taksit sayısına göre değişen komisyon/BSMV/hizmet bedeli planları — Ödeme Planları'ndaki "
+            "Kredi Kartı/POS/Havale gibi banka ile ilgili tiplere bağlanır.",
+        )
+
+        self.tbl_banka_odeme = self._new_grid(
+            'tbl_banka_odeme',
+            ['Kod', 'Açıklama', 'Hesap', 'Taksit Sayısı', 'Komisyon %', 'BSMV %', 'Hizmet Bedeli', 'Durum'],
+            stretch=1,
+        )
+        self.tbl_banka_odeme.setItemDelegateForColumn(
+            2, ComboDelegate(self._hedef_hesap_secenekleri, self.tbl_banka_odeme),
+        )
+        self.tbl_banka_odeme.setItemDelegateForColumn(
+            7, ComboDelegate(lambda: ["Aktif", "Pasif"], self.tbl_banka_odeme),
+        )
+
+        lyt.addWidget(self.tbl_banka_odeme.container, 1)
+        self._load_banka_odeme_planlari_from_db()
+        return w
+
+    def _yeni_banka_odeme_plani_ekle(self, duzenle: bool = False) -> None:
+        """"Banka Ödeme Planı" popup'ı: yeni kayıt ekler, ya da seçili satırı önceden doldurarak düzenler."""
+        t = getattr(self, "tbl_banka_odeme", None)
+        if not t:
+            return
+        mevcut = None
+        row = t.currentRow()
+        if duzenle:
+            if row < 0:
+                QMessageBox.warning(self, "Uyarı", "Lütfen düzenlemek istediğiniz satırı seçin.")
+                return
+            mevcut = {
+                "kod": t.item(row, 0).text() if t.item(row, 0) else "",
+                "aciklama": t.item(row, 1).text() if t.item(row, 1) else "",
+                "hesap": t.item(row, 2).text() if t.item(row, 2) else "",
+                "taksit": t.item(row, 3).text() if t.item(row, 3) else "1",
+                "komisyon": t.item(row, 4).text() if t.item(row, 4) else "0",
+                "bsmv": t.item(row, 5).text() if t.item(row, 5) else "5",
+                "hizmet": t.item(row, 6).text() if t.item(row, 6) else "0",
+                "aktif": t.item(row, 7).text() if t.item(row, 7) else "Aktif",
+            }
+        dlg = BankaOdemePlaniEkleDialog(self._hedef_hesap_secenekleri(), deger=mevcut, parent=self)
+        if not dlg.exec():
+            return
+        d = dlg.deger()
+        vals = [d["kod"], d["aciklama"], d["hesap"], d["taksit"], d["komisyon"], d["bsmv"], d["hizmet"], d["aktif"]]
+        r = row if duzenle and row >= 0 else t.rowCount()
+        if not (duzenle and row >= 0):
+            t.insertRow(r)
+        for c, val in enumerate(vals):
+            t.setItem(r, c, QStandardItem(val))
+        t.selectRow(r)
 
     def build_fiyat_listeleri_panel(self) -> QWidget:
         """Fiyat Listeleri Paneli."""
@@ -3820,15 +4225,7 @@ class GeneralSettingsScreen(QWidget):
         lyt.setContentsMargins(12, 12, 12, 12)
         lyt.setSpacing(8)
 
-        lbl = QLabel("🏷️ Fiyat Listeleri")
-        lbl.setStyleSheet("font-size:14px; font-weight:800; color:#1e3a8a;")
-        lyt.addWidget(lbl)
-
-        lbl_info = QLabel(
-            "Toptan, perakende ve özel müşteri fiyat listesi tanımları.",
-        )
-        lbl_info.setStyleSheet("color:#64748b; font-size:11px;")
-        lyt.addWidget(lbl_info)
+        self._panel_baslik(lyt, "🏷️ Fiyat Listeleri", "Toptan, perakende ve özel müşteri fiyat listesi tanımları.")
 
         self.tbl_fiyat = self._new_grid('tbl_fiyat', ['Liste Kodu', 'Liste Adı', 'Para Birimi', 'KDV Durumu', 'Durum'], stretch=1)
 
@@ -3838,7 +4235,7 @@ class GeneralSettingsScreen(QWidget):
             ("OZEL_BAYI", "Özel Bayi Fiyatı", "USD", "KDV Hariç", "Aktif"),
         ]
         self._load_generic_table(self.tbl_fiyat, "fiyat_listeleri", default_fiyatlar)
-        lyt.addWidget(self.tbl_fiyat, 1)
+        lyt.addWidget(self.tbl_fiyat.container, 1)
         return w
 
     def build_stok_kategoriler_panel(self) -> QWidget:
@@ -3848,13 +4245,7 @@ class GeneralSettingsScreen(QWidget):
         lyt.setContentsMargins(12, 12, 12, 12)
         lyt.setSpacing(8)
 
-        lbl = QLabel("📦 Stok Kategori Tanımları")
-        lbl.setStyleSheet("font-size:14px; font-weight:800; color:#1e3a8a;")
-        lyt.addWidget(lbl)
-
-        lbl_info = QLabel("Ürün ve stok kartlarının hiyerarşik kategori ağacı.")
-        lbl_info.setStyleSheet("color:#64748b; font-size:11px;")
-        lyt.addWidget(lbl_info)
+        self._panel_baslik(lyt, "📦 Stok Kategori Tanımları", "Ürün ve stok kartlarının hiyerarşik kategori ağacı.")
 
         self.tbl_kategori = self._new_grid('tbl_kategori', ['Kategori Adı', 'Üst Kategori', 'Durum'], stretch=0)
 
@@ -3868,9 +4259,9 @@ class GeneralSettingsScreen(QWidget):
             r = self.tbl_kategori.rowCount()
             self.tbl_kategori.insertRow(r)
             for c, val in enumerate(row_data):
-                self.tbl_kategori.setItem(r, c, QTableWidgetItem(val))
+                self.tbl_kategori.setItem(r, c, QStandardItem(val))
 
-        lyt.addWidget(self.tbl_kategori, 1)
+        lyt.addWidget(self.tbl_kategori.container, 1)
         self._load_kategoriler_from_db()
         return w
 
@@ -3881,13 +4272,7 @@ class GeneralSettingsScreen(QWidget):
         lyt.setContentsMargins(12, 12, 12, 12)
         lyt.setSpacing(8)
 
-        lbl = QLabel("🏷️ Stok Marka Tanımları")
-        lbl.setStyleSheet("font-size:14px; font-weight:800; color:#1e3a8a;")
-        lyt.addWidget(lbl)
-
-        lbl_info = QLabel("Stok kartlarında seçilecek marka ve üretici listesi.")
-        lbl_info.setStyleSheet("color:#64748b; font-size:11px;")
-        lyt.addWidget(lbl_info)
+        self._panel_baslik(lyt, "🏷️ Stok Marka Tanımları", "Stok kartlarında seçilecek marka ve üretici listesi.")
 
         self.tbl_marka = self._new_grid('tbl_marka', ['Marka Kodu', 'Marka Adı', 'Ülke / Üretici', 'Durum'], stretch=1)
 
@@ -3899,7 +4284,7 @@ class GeneralSettingsScreen(QWidget):
             ("MRK-05", "Yerli Üretim", "Türkiye", "Aktif"),
         ]
         self._load_generic_table(self.tbl_marka, "stok_markalar", default_markalar)
-        lyt.addWidget(self.tbl_marka, 1)
+        lyt.addWidget(self.tbl_marka.container, 1)
         return w
 
     def build_birim_panel(self) -> QWidget:
@@ -3909,75 +4294,21 @@ class GeneralSettingsScreen(QWidget):
         lyt.setContentsMargins(12, 12, 12, 12)
         lyt.setSpacing(8)
 
-        lbl = QLabel("📏 Birim Tanımları")
-        lbl.setStyleSheet("font-size:14px; font-weight:800; color:#1e3a8a;")
-        lyt.addWidget(lbl)
-
-        lbl_info = QLabel(
-            "Stok Kartı ve Evrak satırlarında kullanılan ölçü birimleri.",
-        )
-        lbl_info.setStyleSheet("color:#64748b; font-size:11px;")
-        lyt.addWidget(lbl_info)
+        self._panel_baslik(lyt, "📏 Birim Tanımları", "Stok Kartı ve Evrak satırlarında kullanılan ölçü birimleri.")
 
         self.tbl_birim = self._new_grid('tbl_birim', ['Kod', 'Açıklama', 'Durum'], stretch=1)
-
-        default_units = [
-            ("ADET", "Adet", "Aktif"),
-            ("KG", "Kilogram", "Aktif"),
-            ("GR", "Gram", "Aktif"),
-            ("LT", "Litre", "Aktif"),
-            ("MT", "Metre", "Aktif"),
-            ("M2", "Metrekare", "Aktif"),
-            ("M3", "Metreküp", "Aktif"),
-            ("PKT", "Paket", "Aktif"),
-            ("KTN", "Karton", "Aktif"),
-            ("KLI", "Koli", "Aktif"),
-            ("HZM", "Hizmet", "Aktif"),
-            ("SFR", "Sefer", "Aktif"),
-        ]
-        for row_data in default_units:
-            r = self.tbl_birim.rowCount()
-            self.tbl_birim.insertRow(r)
-            for c, val in enumerate(row_data):
-                self.tbl_birim.setItem(r, c, QTableWidgetItem(val))
-
-        lyt.addWidget(self.tbl_birim, 1)
+        lyt.addWidget(self.tbl_birim.container, 1)
         self._load_birimler_from_db()
         return w
 
-    def build_depo_panel(self) -> QWidget:
-        """Depo Tanımları Paneli."""
-        w = QWidget()
-        lyt = QVBoxLayout(w)
-        lyt.setContentsMargins(12, 12, 12, 12)
-        lyt.setSpacing(8)
-
-        lbl = QLabel("🏭 Depo Tanımları")
-        lbl.setStyleSheet("font-size:14px; font-weight:800; color:#1e3a8a;")
-        lyt.addWidget(lbl)
-
-        lbl_info = QLabel(
-            "Teklif, Fatura ve Stok hareketlerinde kullanılan depo lokasyonları.",
-        )
-        lbl_info.setStyleSheet("color:#64748b; font-size:11px;")
-        lyt.addWidget(lbl_info)
-
-        self.tbl_depo = self._new_grid('tbl_depo', ['Depo Kodu', 'Depo Adı', 'Adres', 'Durum'], stretch=1)
-
-        default_depolar = [
-            ("2001", "MERKEZ DEPO", "Merkez", "Aktif"),
-            ("2002", "ŞUBE DEPOSU", "Şube", "Aktif"),
-            ("2003", "TEŞHİR DEPOSU", "Mağaza", "Aktif"),
-        ]
-        for row_data in default_depolar:
-            r = self.tbl_depo.rowCount()
-            self.tbl_depo.insertRow(r)
-            for c, val in enumerate(row_data):
-                self.tbl_depo.setItem(r, c, QTableWidgetItem(val))
-
-        lyt.addWidget(self.tbl_depo, 1)
-        self._load_depolar_from_db()
-        return w
+    #: Bir firmanın hiç birimi yoksa (yeni firma) ekrana ilk açılışta örnek olarak önerilir — henüz
+    #: kaydedilmez, kullanıcı "Kaydet" demeden DB'ye yazılmaz.
+    _VARSAYILAN_BIRIMLER = [
+        ("ADET", "Adet", "Aktif"), ("KG", "Kilogram", "Aktif"), ("GR", "Gram", "Aktif"),
+        ("LT", "Litre", "Aktif"), ("MT", "Metre", "Aktif"), ("M2", "Metrekare", "Aktif"),
+        ("M3", "Metreküp", "Aktif"), ("PKT", "Paket", "Aktif"), ("KTN", "Karton", "Aktif"),
+        ("KLI", "Koli", "Aktif"), ("HZM", "Hizmet", "Aktif"), ("SFR", "Sefer", "Aktif"),
+    ]
 
     def build_ozel_alan_panel(self, modul: str = "stok") -> QWidget:
         """Özel Alan Etiket Tanımları Paneli (Stok veya Cari)."""
@@ -3987,17 +4318,8 @@ class GeneralSettingsScreen(QWidget):
         lyt.setSpacing(10)
 
         modul_title = "Stok Kartı" if modul == "stok" else "Cari Hesap"
-        lbl = QLabel(f"🏷️ {modul_title} Özel Alan Tanımları")
-        lbl.setStyleSheet("font-size:14px; font-weight:800; color:#1e3a8a;")
-        lyt.addWidget(lbl)
-
-        lbl_info = QLabel(
-            f"Özel kod ve alan etiketlerini sektörünüze göre özelleştirin.\n"
-            f"Değişiklikler {modul_title} formunda anında yansır.",
-        )
-        lbl_info.setStyleSheet("color:#64748b; font-size:11px;")
-        lbl_info.setWordWrap(True)
-        lyt.addWidget(lbl_info)
+        self._panel_baslik(lyt, f"🏷️ {modul_title} Özel Alan Tanımları",
+                           f"Özel kod ve alan etiketlerini sektörünüze göre özelleştirin.\nDeğişiklikler {modul_title} formunda anında yansır.")
 
         form = QGridLayout()
         form.setSpacing(8)
@@ -4051,15 +4373,7 @@ class GeneralSettingsScreen(QWidget):
         lyt.setContentsMargins(12, 12, 12, 12)
         lyt.setSpacing(8)
 
-        lbl = QLabel("👥 Cari Grup Tanımları")
-        lbl.setStyleSheet("font-size:14px; font-weight:800; color:#1e3a8a;")
-        lyt.addWidget(lbl)
-
-        lbl_info = QLabel(
-            "Cari hesapların sınıflandırılması ve grup iskonto / vade tanımları.",
-        )
-        lbl_info.setStyleSheet("color:#64748b; font-size:11px;")
-        lyt.addWidget(lbl_info)
+        self._panel_baslik(lyt, "👥 Cari Grup Tanımları", "Cari hesapların sınıflandırılması ve grup iskonto / vade tanımları.")
 
         self.tbl_cari_grup = self._new_grid('tbl_cari_grup', ['Grup Kodu', 'Grup Adı', 'İskonto (%)', 'Vade (Gün)', 'Durum'], stretch=1)
 
@@ -4070,7 +4384,7 @@ class GeneralSettingsScreen(QWidget):
             ("GRP-04", "TEDARİKÇİLER", "0.00", "45", "Aktif"),
         ]
         self._load_generic_table(self.tbl_cari_grup, "cari_gruplari", default_gruplar)
-        lyt.addWidget(self.tbl_cari_grup, 1)
+        lyt.addWidget(self.tbl_cari_grup.container, 1)
         return w
 
 
@@ -4080,22 +4394,83 @@ class GeneralSettingsScreen(QWidget):
         lyt = QVBoxLayout(w)
         lyt.setContentsMargins(12, 12, 12, 12)
         lyt.setSpacing(8)
-        lbl = QLabel("🧾 KDV Oranları")
-        lbl.setStyleSheet("font-size:14px; font-weight:800; color:#1e3a8a;")
-        lyt.addWidget(lbl)
-        info = QLabel("Programda genel olarak kullanılacak KDV oranı tanımları. Oran yüzde olarak girilir (ör. 20).")
-        info.setStyleSheet("color:#64748b; font-size:11px;")
-        lyt.addWidget(info)
+        self._panel_baslik(lyt, "🧾 KDV Oranları", "Aktif firmanızda kullanılacak KDV oranı tanımları. Oran yüzde olarak girilir (ör. 20).")
         self.tbl_kdv = self._new_grid("tbl_kdv", ["Kod", "Açıklama", "Oran (%)", "Durum"], stretch=1)
-        default_kdv = [
-            ("KDV0", "KDV %0 (İstisna)", "0", "Aktif"),
-            ("KDV1", "KDV %1", "1", "Aktif"),
-            ("KDV10", "KDV %10", "10", "Aktif"),
-            ("KDV20", "KDV %20", "20", "Aktif"),
-        ]
-        self._load_generic_table(self.tbl_kdv, "kdv_oranlari", default_kdv)
-        lyt.addWidget(self.tbl_kdv, 1)
+        self._load_kdv_tablosu()
+        lyt.addWidget(self.tbl_kdv.container, 1)
         return w
+
+    #: Bir firmanın hiç KDV tanımı yoksa (yeni firma) ekrana ilk açılışta örnek olarak önerilir.
+    _VARSAYILAN_KDV = [
+        ("KDV0", "KDV %0 (İstisna)", "0", "Aktif"), ("KDV1", "KDV %1", "1", "Aktif"),
+        ("KDV10", "KDV %10", "10", "Aktif"), ("KDV20", "KDV %20", "20", "Aktif"),
+    ]
+
+    def _load_kdv_tablosu(self) -> None:
+        """Aktif firmanın KDV tanımlarını gerçek `KdvTanimi` tablosundan yükler (2026-09-30)."""
+        tbl = self.tbl_kdv
+        tbl.setRowCount(0)
+        if not self.db:
+            return
+        from src.core.models import KdvTanimi
+        from src.desktop.services.company_service import CompanyService
+        firma = CompanyService(self.db).aktif_firma()
+        kayitlar = self.db.scalars(
+            select(KdvTanimi).where(KdvTanimi.company_id == firma.id, KdvTanimi.is_deleted == False)  # noqa: E712
+            .order_by(KdvTanimi.code),
+        ).all() if firma else []
+        kaynak = [(k.code, k.description or "", f"{k.rate:g}", "Aktif" if k.is_active else "Pasif")
+                  for k in kayitlar] if kayitlar else (self._VARSAYILAN_KDV if firma else [])
+        for row_data in kaynak:
+            r = tbl.rowCount()
+            tbl.insertRow(r)
+            for c, val in enumerate(row_data):
+                tbl.setItem(r, c, QStandardItem(val))
+
+    def _save_kdv_tablosu(self) -> None:
+        if not self.db:
+            return
+        from src.core.models import KdvTanimi
+        from src.desktop.services.company_service import CompanyService
+        firma = CompanyService(self.db).aktif_firma()
+        if firma is None:
+            self._aktif_firma_uyar("KDV tanımlayabilmek")
+            return
+        try:
+            existing = {
+                k.code: k
+                for k in self.db.scalars(
+                    select(KdvTanimi).where(KdvTanimi.company_id == firma.id, KdvTanimi.is_deleted == False),  # noqa: E712
+                ).all()
+            }
+            gelen_kodlar: set[str] = set()
+            for r in range(self.tbl_kdv.rowCount()):
+                def hucre(c, _r=r):
+                    it = self.tbl_kdv.item(_r, c)
+                    return it.text().strip() if it else ""
+                code = hucre(0)
+                if not code:
+                    continue
+                gelen_kodlar.add(code)
+                try:
+                    rate = float(hucre(2).replace(",", "."))
+                except ValueError:
+                    rate = 0.0
+                is_act = hucre(3).lower() != "pasif"
+                if code in existing:
+                    k = existing[code]
+                    k.description, k.rate, k.is_active = hucre(1), rate, is_act
+                else:
+                    self.db.add(KdvTanimi(company_id=firma.id, code=code, description=hucre(1),
+                                           rate=rate, is_active=is_act))
+            for code, k in existing.items():
+                if code not in gelen_kodlar:
+                    k.is_deleted = True
+            self.db.commit()
+        except Exception as e:
+            self.db.rollback()
+            logger.error(f"KDV tanımları kaydedilemedi: {e}")
+            raise
 
     def build_gorunum_panel(self) -> QWidget:
         """Mevcut Görünüm Profilleri Paneli (kabuk içinde: yalnız içerik)."""
@@ -4107,10 +4482,124 @@ class GeneralSettingsScreen(QWidget):
         self.screen_defs_tab = ScreenDefinitionsManagerWidget(embedded=True)
         return self.screen_defs_tab
 
+    def build_form_tasarimlari_panel(self) -> QWidget:
+        """Baskı formu şablonları — diğer tanım tabloları gibi standart dbgrid; yeni ekleme/
+        tasarımcıda açma/silme İŞLEMLER panelinden ve sağ tıktan yapılır (bkz. `_panel_actions`)."""
+        w = QWidget()
+        lyt = QVBoxLayout(w)
+        lyt.setContentsMargins(12, 12, 12, 12)
+        lyt.setSpacing(8)
+
+        self._panel_baslik(
+            lyt, "🖨️ Form Tasarımları",
+            "Teklif / Sipariş / İrsaliye / Fatura baskı formları. Yeni form eklerken hangi modül "
+            "için tasarlandığı seçilir; belge ekranındaki şablon seçici o forma göre otomatik "
+            "öneride bulunur. Ekle / Tasarımcıda Aç / Sil işlemleri sağdaki İŞLEMLER'den ya da "
+            "satıra sağ tıklayarak yapılır.",
+        )
+
+        self.tbl_form_tasarim = self._new_grid(
+            "form_tasarim", ["Form Adı", "Modül", "Sayfa Boyutu", "Dosya"], stretch=0, editable=False,
+        )
+        self.tbl_form_tasarim.doubleClicked.connect(lambda _i: self._form_tasarim_ac())
+        self._load_form_tasarimlari()
+        lyt.addWidget(self.tbl_form_tasarim.container, 1)
+        return w
+
+    def _load_form_tasarimlari(self) -> None:
+        """`form_tasarimlari` dbgrid'ini şablon dosyalarından yeniden doldurur."""
+        from src.core.belge_turleri import BELGE_TURLERI
+        from src.desktop.designer.services.teklif_print_service import (
+            TeklifPrintService,
+        )
+
+        tbl = getattr(self, "tbl_form_tasarim", None)
+        if tbl is None:
+            return
+        salt_okunur = Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable
+        tbl.setRowCount(0)
+        for title, path_str, module in TeklifPrintService.available_templates_full():
+            path = Path(path_str)
+            try:
+                size = json.loads(path.read_text(encoding="utf-8")).get("page", {}).get("size", "A4")
+            except (OSError, ValueError):
+                size = "A4"
+            r = tbl.rowCount()
+            tbl.insertRow(r)
+            for c, text in enumerate((title, BELGE_TURLERI.get(module, module or "—"), size, path.name)):
+                it = QStandardItem(text)
+                it.setFlags(salt_okunur)
+                if c == 3:
+                    it.setData(str(path), Qt.ItemDataRole.UserRole)
+                tbl.setItem(r, c, it)
+
+    def _form_tasarim_secili_yol(self) -> Path | None:
+        tbl = getattr(self, "tbl_form_tasarim", None)
+        if tbl is None:
+            return None
+        row = tbl.currentRow()
+        if row < 0:
+            return None
+        it = tbl.item(row, 3)
+        data = it.data(Qt.ItemDataRole.UserRole) if it else None
+        return Path(data) if data else None
+
+    def _form_tasarim_ekle(self) -> None:
+        from src.desktop.ui.widgets.form_designs_widget import (
+            YeniFormDialog,
+            create_blank_form,
+        )
+
+        dlg = YeniFormDialog(self)
+        if not dlg.exec():
+            return
+        ad, modul, boyut = dlg.values()
+        path = create_blank_form(ad, modul, boyut)
+        self._load_form_tasarimlari()
+        self._form_tasarim_ac_yol(path)
+
+    def _form_tasarim_ac(self) -> None:
+        path = self._form_tasarim_secili_yol()
+        if path is None:
+            QMessageBox.information(self, "Form Tasarımları", "Önce bir form seçin.")
+            return
+        self._form_tasarim_ac_yol(path)
+
+    def _form_tasarim_ac_yol(self, path: Path) -> None:
+        from src.desktop.designer.ui.designer_window import ReportDesignerWindow
+
+        self._form_designer_win = ReportDesignerWindow(template_path=path, parent=self)
+        self._form_designer_win.setWindowModality(Qt.WindowModality.NonModal)
+        self._form_designer_win.destroyed.connect(self._load_form_tasarimlari)
+        self._form_designer_win.show()
+
+    def _form_tasarim_sil(self) -> None:
+        path = self._form_tasarim_secili_yol()
+        if path is None:
+            QMessageBox.information(self, "Form Tasarımları", "Önce bir form seçin.")
+            return
+        if QMessageBox.question(
+            self, "Formu Sil", f"'{path.name}' silinsin mi? Bu işlem geri alınamaz.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No, QMessageBox.StandardButton.No,
+        ) != QMessageBox.StandardButton.Yes:
+            return
+        try:
+            path.unlink()
+        except OSError as exc:
+            QMessageBox.critical(self, "Hata", f"Dosya silinemedi:\n{exc}")
+            return
+        self._load_form_tasarimlari()
+        self.toast_requested.emit(f"'{path.name}' silindi.", "info")
+
     def build_surum_panel(self) -> QWidget:
         """Sürüm & Git Takibi Paneli (kabuk içinde: yalnız içerik)."""
         self.git_tracker_tab = GitTrackerWidget(embedded=True, defer_load=True)
         return self.git_tracker_tab
+
+    def build_yardim_panel(self) -> QWidget:
+        """Yardım Paneli — bugüne kadar tamamlanan bölümlerin kullanıcıya yönelik kısa kılavuzu."""
+        self.yardim_tab = YardimWidget()
+        return self.yardim_tab
 
     def build_eposta_smtp_panel(self) -> QWidget:
         """E-Posta / SMTP giden sunucu ayarları."""
@@ -4127,10 +4616,17 @@ class GeneralSettingsScreen(QWidget):
         return w
 
     def build_portal_yayin_panel(self) -> QWidget:
-        """Portal güncelleme paketini üretip FTP ile cPanel'e gönderme."""
+        """Portal güncelleme paketini üretip FTP ile cPanel'e gönderme — birden çok site/sunucu profili
+        standart dbgrid'de listelenir; işlemler sağdaki İŞLEMLER'den ve sağ tıktan yapılır (bkz. `_panel_actions`)."""
         from src.desktop.ui.widgets.portal_deploy_widget import PortalDeployWidget
         w = PortalDeployWidget(self.db)
         w.toast_requested.connect(self.toast_requested)
+        tv = w.tbl_profil.table_view
+        tv.container = w.tbl_profil
+        tv.context_actions_provider = self._panel_context_actions
+        tv.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        tv.customContextMenuRequested.connect(lambda pos, t=tv: self._ayar_grid_menu(t, pos))
+        self.portal_deploy_tab = w
         return w
 
     def build_yedek_merkezi_panel(self) -> QWidget:
@@ -4165,9 +4661,7 @@ class GeneralSettingsScreen(QWidget):
         lyt.setContentsMargins(16, 14, 16, 14)
         lyt.setSpacing(10)
 
-        title = QLabel("🔐 Güvenlik & Giriş")
-        title.setStyleSheet("font-size:14px; font-weight:800; color:#1e3a8a;")
-        lyt.addWidget(title)
+        self._panel_baslik(lyt, "🔐 Güvenlik & Giriş", "")
 
         # --- Giriş kilidi ---
         self.chk_lockout_enabled = QCheckBox("Ard arda hatalı girişte geçici kilit uygula")
@@ -4178,22 +4672,24 @@ class GeneralSettingsScreen(QWidget):
 
         lyt.addWidget(QLabel("Kilit programı (hatalı deneme sayısı → kilit saniyesi):"))
         self.tbl_lockout = self._new_grid("tbl_lockout", ["Deneme Sayısı", "Kilit (sn)"])
-        self.tbl_lockout.setMaximumHeight(160)
+        self.tbl_lockout.container.setMaximumHeight(160)
         schedule = settings_store.get_json(self.db, KEY_LOCKOUT_SCHEDULE, DEFAULT_LOCKOUT_SCHEDULE)
         for pair in schedule:
             try:
                 r = self.tbl_lockout.rowCount()
                 self.tbl_lockout.insertRow(r)
-                self.tbl_lockout.setItem(r, 0, QTableWidgetItem(str(int(pair[0]))))
-                self.tbl_lockout.setItem(r, 1, QTableWidgetItem(str(int(pair[1]))))
+                self.tbl_lockout.setItem(r, 0, QStandardItem(str(int(pair[0]))))
+                self.tbl_lockout.setItem(r, 1, QStandardItem(str(int(pair[1]))))
             except (TypeError, ValueError, IndexError):
                 continue
-        lyt.addWidget(self.tbl_lockout)
+        lyt.addWidget(self.tbl_lockout.container)
 
         row_btns = QHBoxLayout()
         b_add = QPushButton("➕ Satır")
+        b_add.setStyleSheet(self.btn_style())
         b_add.clicked.connect(lambda: self._add_table_row(self.tbl_lockout, ["6", "600"]))
         b_del = QPushButton("🗑️ Sil")
+        b_del.setStyleSheet(self.btn_style(DANGER_BG, DANGER_FG))
         b_del.clicked.connect(lambda: self._delete_table_row(self.tbl_lockout))
         row_btns.addWidget(b_add)
         row_btns.addWidget(b_del)
@@ -4226,11 +4722,7 @@ class GeneralSettingsScreen(QWidget):
         lyt.addWidget(self.chk_recovery_email)
 
         b_save = QPushButton("💾 Kaydet")
-        b_save.setStyleSheet(
-            "QPushButton{background:#2563eb; color:white; border:none; border-radius:6px;"
-            " padding:6px 16px; font-weight:700;}"
-            "QPushButton:hover{background:#1d4ed8;}",
-        )
+        b_save.setStyleSheet(self.btn_style(PRIMARY, "#ffffff"))
         b_save.clicked.connect(self._save_guvenlik_panel)
         row_save = QHBoxLayout()
         row_save.addStretch()
@@ -4298,18 +4790,10 @@ class GeneralSettingsScreen(QWidget):
         lyt.setContentsMargins(16, 14, 16, 14)
         lyt.setSpacing(10)
 
-        title = QLabel("🔢 Sayı Biçimi")
-        title.setStyleSheet("font-size:14px; font-weight:800; color:#1e3a8a;")
-        lyt.addWidget(title)
-
-        lbl_info = QLabel(
-            "Fiyat/tutar alanlarında (Stok, Cari vb.) virgülden sonra kaç hane "
-            "girileceğini belirler. Değişiklik, bu tür tüm alanların maskesine "
-            "ve giriş davranışına otomatik yansır.",
-        )
-        lbl_info.setWordWrap(True)
-        lbl_info.setStyleSheet("color:#64748b; font-size:11px;")
-        lyt.addWidget(lbl_info)
+        self._panel_baslik(lyt, "🔢 Sayı Biçimi", "Fiyat/tutar alanlarında virgülden sonra kaç hane girileceğini belirler. "
+                          "'Genel' değer kartlardaki (Stok, Cari) fiyat alanlarına; 'Belge satırı' değerleri teklif / sipariş / "
+                          "irsaliye / fatura kalemlerindeki kur, birim fiyat, miktar ve tutar hücrelerine uygulanır "
+                          "(önerilen: kur 4, fiyat 4, miktar 2, toplam 2).")
 
         form = QFormLayout()
         self.spin_ondalik_hane = QSpinBox()
@@ -4321,7 +4805,17 @@ class GeneralSettingsScreen(QWidget):
             ),
         )
         self.spin_ondalik_hane.setSuffix(" hane")
-        form.addRow("Ondalık Hane Sayısı", self.spin_ondalik_hane)
+        form.addRow("Genel (kartlardaki fiyat alanları)", self.spin_ondalik_hane)
+        from src.desktop.services import sayi_bicimi
+        sayi_bicimi.yukle(self.db)
+        self.spin_hane = {}
+        for tur, (_anahtar, _varsayilan, ad) in sayi_bicimi.TURLER.items():
+            sp = QSpinBox()
+            sp.setRange(0, 6)
+            sp.setSuffix(" hane")
+            sp.setValue(sayi_bicimi.hane(tur))
+            self.spin_hane[tur] = sp
+            form.addRow(f"Belge satırı: {ad}", sp)
         lyt.addLayout(form)
 
         self.lbl_ondalik_ornek = QLabel()
@@ -4331,11 +4825,7 @@ class GeneralSettingsScreen(QWidget):
         lyt.addWidget(self.lbl_ondalik_ornek)
 
         b_save = QPushButton("💾 Kaydet")
-        b_save.setStyleSheet(
-            "QPushButton{background:#2563eb; color:white; border:none; border-radius:6px;"
-            " padding:6px 16px; font-weight:700;}"
-            "QPushButton:hover{background:#1d4ed8;}",
-        )
+        b_save.setStyleSheet(self.btn_style(PRIMARY, "#ffffff"))
         b_save.clicked.connect(self._save_sayi_bicimi_panel)
         row_save = QHBoxLayout()
         row_save.addStretch()
@@ -4356,6 +4846,8 @@ class GeneralSettingsScreen(QWidget):
                 self.db, settings_store.DECIMAL_PLACES_KEY,
                 self.spin_ondalik_hane.value(),
             )
+            from src.desktop.services import sayi_bicimi
+            sayi_bicimi.kaydet(self.db, {t: sp.value() for t, sp in self.spin_hane.items()})
         except Exception as exc:  # noqa: BLE001
             QMessageBox.critical(self, "Sayı Biçimi", f"Kaydedilemedi: {exc}")
             return
@@ -4371,36 +4863,43 @@ class GeneralSettingsScreen(QWidget):
     # ─────────────────────────────────────────────────────────────
 
     def _load_birimler_from_db(self) -> None:
-        """DB'den birim tanımlarını yükler."""
+        """Aktif firmanın birim tanımlarını yükler (2026-09-30: artık `company_id` ile firmaya bağlı).
+        Firmanın hiç birimi yoksa, kaydedilmeden ekrana örnek varsayılan liste önerilir."""
         if not self.db:
             return
+        from src.desktop.services.company_service import CompanyService
+        firma = CompanyService(self.db).aktif_firma()
+        self.tbl_birim.setRowCount(0)
         try:
             units = self.db.scalars(
-                select(UnitDefinition).where(UnitDefinition.is_deleted == False),
-            ).all()
-            if units:
-                self.tbl_birim.setRowCount(0)
-                for u in units:
-                    r = self.tbl_birim.rowCount()
-                    self.tbl_birim.insertRow(r)
-                    self.tbl_birim.setItem(r, 0, QTableWidgetItem(u.code or ""))
-                    self.tbl_birim.setItem(r, 1, QTableWidgetItem(u.name or ""))
-                    self.tbl_birim.setItem(
-                        r, 2, QTableWidgetItem("Aktif" if u.is_active else "Pasif"),
-                    )
+                select(UnitDefinition).where(UnitDefinition.is_deleted == False,  # noqa: E712
+                                              UnitDefinition.company_id == (firma.id if firma else None)),
+            ).all() if firma else []
+            kaynak = [(u.code or "", u.name or "", "Aktif" if u.is_active else "Pasif") for u in units] \
+                if units else self._VARSAYILAN_BIRIMLER
+            for row_data in kaynak:
+                r = self.tbl_birim.rowCount()
+                self.tbl_birim.insertRow(r)
+                for c, val in enumerate(row_data):
+                    self.tbl_birim.setItem(r, c, QStandardItem(val))
         except Exception as e:
             logger.warning(f"Birim listesi yüklenemedi: {e}")
 
     def _save_birimler(self) -> None:
-        """Birim tanımlarını DB'ye kaydeder."""
+        """Birim tanımlarını aktif firmaya bağlı olarak DB'ye kaydeder."""
         if not self.db:
+            return
+        from src.desktop.services.company_service import CompanyService
+        firma = CompanyService(self.db).aktif_firma()
+        if firma is None:
+            self._aktif_firma_uyar("Birim tanımlayabilmek")
             return
         try:
             existing = {
                 u.code: u
                 for u in self.db.scalars(
                     select(UnitDefinition).where(
-                        UnitDefinition.is_deleted == False,
+                        UnitDefinition.is_deleted == False, UnitDefinition.company_id == firma.id,  # noqa: E712
                     ),
                 ).all()
             }
@@ -4425,6 +4924,7 @@ class GeneralSettingsScreen(QWidget):
                     u.is_active = is_act
                 else:
                     new_u = UnitDefinition(
+                        company_id=firma.id,
                         code=code,
                         name=name,
                         is_active=is_act,
@@ -4434,81 +4934,6 @@ class GeneralSettingsScreen(QWidget):
         except Exception as e:
             self.db.rollback()
             logger.error(f"Birim tanımları kaydedilemedi: {e}")
-            raise
-
-    def _load_depolar_from_db(self) -> None:
-        """DB'den depo tanımlarını yükler."""
-        if not self.db:
-            return
-        try:
-            warehouses = self.db.scalars(
-                select(WarehouseDefinition).where(
-                    WarehouseDefinition.is_deleted == False,
-                ),
-            ).all()
-            if warehouses:
-                self.tbl_depo.setRowCount(0)
-                for w in warehouses:
-                    r = self.tbl_depo.rowCount()
-                    self.tbl_depo.insertRow(r)
-                    self.tbl_depo.setItem(r, 0, QTableWidgetItem(w.code or ""))
-                    self.tbl_depo.setItem(r, 1, QTableWidgetItem(w.name or ""))
-                    self.tbl_depo.setItem(
-                        r, 2, QTableWidgetItem(w.address or ""),
-                    )
-                    self.tbl_depo.setItem(
-                        r, 3, QTableWidgetItem("Aktif" if w.is_active else "Pasif"),
-                    )
-        except Exception as e:
-            logger.warning(f"Depo listesi yüklenemedi: {e}")
-
-    def _save_depolar(self) -> None:
-        """Depo tanımlarını DB'ye kaydeder."""
-        if not self.db:
-            return
-        try:
-            existing = {
-                w.code: w
-                for w in self.db.scalars(
-                    select(WarehouseDefinition).where(
-                        WarehouseDefinition.is_deleted == False,
-                    ),
-                ).all()
-            }
-            for r in range(self.tbl_depo.rowCount()):
-                code_item = self.tbl_depo.item(r, 0)
-                name_item = self.tbl_depo.item(r, 1)
-                addr_item = self.tbl_depo.item(r, 2)
-                status_item = self.tbl_depo.item(r, 3)
-
-                code = code_item.text().strip() if code_item else ""
-                if not code:
-                    continue
-                name = name_item.text().strip() if name_item else ""
-                addr = addr_item.text().strip() if addr_item else ""
-                is_act = (
-                    (status_item.text().strip().lower() != "pasif")
-                    if status_item
-                    else True
-                )
-
-                if code in existing:
-                    w = existing[code]
-                    w.name = name
-                    w.address = addr
-                    w.is_active = is_act
-                else:
-                    new_w = WarehouseDefinition(
-                        code=code,
-                        name=name,
-                        address=addr,
-                        is_active=is_act,
-                    )
-                    self.db.add(new_w)
-            self.db.commit()
-        except Exception as e:
-            self.db.rollback()
-            logger.error(f"Depo tanımları kaydedilemedi: {e}")
             raise
 
     def _load_odeme_planlari_from_db(self) -> None:
@@ -4524,18 +4949,29 @@ class GeneralSettingsScreen(QWidget):
                 for p in plans:
                     r = self.tbl_odeme.rowCount()
                     self.tbl_odeme.insertRow(r)
-                    self.tbl_odeme.setItem(r, 0, QTableWidgetItem(p.code or ""))
+                    tip_etiket = _ODEME_TIPI_KOD_TO_ETIKET.get(p.odeme_tipi or "", p.payment_type or "")
+                    hesap_metni = (
+                        f"{p.hedef_hesap.kod} — {p.hedef_hesap.ad}" if p.hedef_hesap else self._HEDEF_HESAP_BOS
+                    )
+                    banka_plani_metni = (
+                        f"{p.banka_odeme_plani.kod} — {p.banka_odeme_plani.aciklama or ''}".rstrip(" —")
+                        if p.banka_odeme_plani else self._BANKA_PLANI_BOS
+                    )
+                    self.tbl_odeme.setItem(r, 0, QStandardItem(p.code or ""))
                     self.tbl_odeme.setItem(
-                        r, 1, QTableWidgetItem(p.description or ""),
+                        r, 1, QStandardItem(p.description or ""),
                     )
                     self.tbl_odeme.setItem(
-                        r, 2, QTableWidgetItem(str(p.days or 0)),
+                        r, 2, QStandardItem(str(p.days or 0)),
+                    )
+                    self.tbl_odeme.setItem(r, 3, QStandardItem(tip_etiket))
+                    self.tbl_odeme.setItem(r, 4, QStandardItem(hesap_metni))
+                    self.tbl_odeme.setItem(r, 5, QStandardItem(banka_plani_metni))
+                    self.tbl_odeme.setItem(
+                        r, 6, QStandardItem("Evet" if p.otomatik_fis_olustur else "Hayır"),
                     )
                     self.tbl_odeme.setItem(
-                        r, 3, QTableWidgetItem(p.payment_type or ""),
-                    )
-                    self.tbl_odeme.setItem(
-                        r, 4, QTableWidgetItem("Aktif" if p.is_active else "Pasif"),
+                        r, 7, QStandardItem("Aktif" if p.is_active else "Pasif"),
                     )
         except Exception as e:
             logger.warning(f"Ödeme planları yüklenemedi: {e}")
@@ -4551,12 +4987,27 @@ class GeneralSettingsScreen(QWidget):
                     select(PaymentPlan).where(PaymentPlan.is_deleted == False),
                 ).all()
             }
+            hesap_by_kod = {
+                h.kod: h.id
+                for h in self.db.scalars(select(FinansHesap).where(FinansHesap.aktif == True))  # noqa: E712
+            }
+            banka_plani_by_kod = {
+                p.kod: p.id
+                for p in self.db.scalars(
+                    select(BankaOdemePlani).where(
+                        BankaOdemePlani.is_deleted == False, BankaOdemePlani.is_active == True,  # noqa: E712
+                    ),
+                )
+            }
             for r in range(self.tbl_odeme.rowCount()):
                 code_item = self.tbl_odeme.item(r, 0)
                 desc_item = self.tbl_odeme.item(r, 1)
                 days_item = self.tbl_odeme.item(r, 2)
                 type_item = self.tbl_odeme.item(r, 3)
-                status_item = self.tbl_odeme.item(r, 4)
+                hesap_item = self.tbl_odeme.item(r, 4)
+                banka_plani_item = self.tbl_odeme.item(r, 5)
+                oto_item = self.tbl_odeme.item(r, 6)
+                status_item = self.tbl_odeme.item(r, 7)
 
                 code = code_item.text().strip() if code_item else ""
                 if not code:
@@ -4568,7 +5019,19 @@ class GeneralSettingsScreen(QWidget):
                     )
                 except ValueError:
                     days_val = 0
-                ptype = type_item.text().strip() if type_item else ""
+                tip_etiket = type_item.text().strip() if type_item else ""
+                tip_kod = _ODEME_TIPI_ETIKET_TO_KOD.get(
+                    tip_etiket, _ODEME_TIPI_ESKI_ESLEME.get(tip_etiket.lower()),
+                )
+                hesap_metni = hesap_item.text().strip() if hesap_item else ""
+                hesap_kod = hesap_metni.split(" — ", 1)[0].strip() if " — " in hesap_metni else ""
+                hedef_hesap_id = hesap_by_kod.get(hesap_kod)
+                banka_plani_metni = banka_plani_item.text().strip() if banka_plani_item else ""
+                banka_plani_kod = (
+                    banka_plani_metni.split(" — ", 1)[0].strip() if " — " in banka_plani_metni else banka_plani_metni
+                )
+                banka_odeme_plani_id = banka_plani_by_kod.get(banka_plani_kod)
+                otomatik = (oto_item.text().strip().lower() != "hayır") if oto_item else True
                 is_act = (
                     (status_item.text().strip().lower() != "pasif")
                     if status_item
@@ -4579,14 +5042,22 @@ class GeneralSettingsScreen(QWidget):
                     p = existing[code]
                     p.description = desc
                     p.days = days_val
-                    p.payment_type = ptype
+                    p.payment_type = tip_etiket
+                    p.odeme_tipi = tip_kod
+                    p.hedef_finans_hesap_id = hedef_hesap_id
+                    p.banka_odeme_plani_id = banka_odeme_plani_id
+                    p.otomatik_fis_olustur = otomatik
                     p.is_active = is_act
                 else:
                     new_p = PaymentPlan(
                         code=code,
                         description=desc,
                         days=days_val,
-                        payment_type=ptype,
+                        payment_type=tip_etiket,
+                        odeme_tipi=tip_kod,
+                        hedef_finans_hesap_id=hedef_hesap_id,
+                        banka_odeme_plani_id=banka_odeme_plani_id,
+                        otomatik_fis_olustur=otomatik,
                         is_active=is_act,
                     )
                     self.db.add(new_p)
@@ -4594,6 +5065,85 @@ class GeneralSettingsScreen(QWidget):
         except Exception as e:
             self.db.rollback()
             logger.error(f"Ödeme planları kaydedilemedi: {e}")
+            raise
+
+    def _load_banka_odeme_planlari_from_db(self) -> None:
+        """DB'den banka ödeme planlarını yükler."""
+        if not self.db:
+            return
+        try:
+            planlar = self.db.scalars(
+                select(BankaOdemePlani).where(BankaOdemePlani.is_deleted == False),  # noqa: E712
+            ).all()
+            self.tbl_banka_odeme.setRowCount(0)
+            for p in planlar:
+                r = self.tbl_banka_odeme.rowCount()
+                self.tbl_banka_odeme.insertRow(r)
+                hesap_metni = (
+                    f"{p.finans_hesap.kod} — {p.finans_hesap.ad}" if p.finans_hesap else self._HEDEF_HESAP_BOS
+                )
+                vals = [
+                    p.kod or "", p.aciklama or "", hesap_metni, str(p.taksit_sayisi or 1),
+                    f"{p.komisyon_orani or 0:.2f}", f"{p.bsmv_orani or 0:.2f}", f"{p.hizmet_bedeli or 0:.2f}",
+                    "Aktif" if p.is_active else "Pasif",
+                ]
+                for c, val in enumerate(vals):
+                    self.tbl_banka_odeme.setItem(r, c, QStandardItem(val))
+        except Exception as e:
+            logger.warning(f"Banka ödeme planları yüklenemedi: {e}")
+
+    def _save_banka_odeme_planlari(self) -> None:
+        """Banka ödeme planlarını DB'ye kaydeder."""
+        if not self.db:
+            return
+        try:
+            existing = {
+                p.kod: p
+                for p in self.db.scalars(
+                    select(BankaOdemePlani).where(BankaOdemePlani.is_deleted == False),  # noqa: E712
+                ).all()
+            }
+            hesap_by_kod = {
+                h.kod: h.id
+                for h in self.db.scalars(select(FinansHesap).where(FinansHesap.aktif == True))  # noqa: E712
+            }
+            for r in range(self.tbl_banka_odeme.rowCount()):
+                def _metin(col: int, _r=r) -> str:
+                    it = self.tbl_banka_odeme.item(_r, col)
+                    return it.text().strip() if it else ""
+
+                kod = _metin(0)
+                if not kod:
+                    continue
+                hesap_metni = _metin(2)
+                hesap_kod = hesap_metni.split(" — ", 1)[0].strip() if " — " in hesap_metni else ""
+
+                def _sayi(col: int, varsayilan: float = 0.0, _r=r) -> float:
+                    it = self.tbl_banka_odeme.item(_r, col)
+                    try:
+                        return float((it.text() if it else "").strip().replace(",", ".") or varsayilan)
+                    except ValueError:
+                        return varsayilan
+
+                alanlar = {
+                    "aciklama": _metin(1),
+                    "finans_hesap_id": hesap_by_kod.get(hesap_kod),
+                    "taksit_sayisi": int(_sayi(3, 1)),
+                    "komisyon_orani": _sayi(4, 0.0),
+                    "bsmv_orani": _sayi(5, 5.0),
+                    "hizmet_bedeli": _sayi(6, 0.0),
+                    "is_active": _metin(7).lower() != "pasif",
+                }
+                if kod in existing:
+                    p = existing[kod]
+                    for alan, deger in alanlar.items():
+                        setattr(p, alan, deger)
+                else:
+                    self.db.add(BankaOdemePlani(kod=kod, **alanlar))
+            self.db.commit()
+        except Exception as e:
+            self.db.rollback()
+            logger.error(f"Banka ödeme planları kaydedilemedi: {e}")
             raise
 
     def _load_ozel_alanlar(self, modul: str) -> None:
@@ -4659,12 +5209,12 @@ class GeneralSettingsScreen(QWidget):
                         cat_dict.get(c.parent_id, "-") if c.parent_id else "-"
                     )
                     self.tbl_kategori.setItem(
-                        r, 0, QTableWidgetItem(c.name or ""),
+                        r, 0, QStandardItem(c.name or ""),
                     )
                     self.tbl_kategori.setItem(
-                        r, 1, QTableWidgetItem(parent_name),
+                        r, 1, QStandardItem(parent_name),
                     )
-                    self.tbl_kategori.setItem(r, 2, QTableWidgetItem("Aktif"))
+                    self.tbl_kategori.setItem(r, 2, QStandardItem("Aktif"))
         except Exception as e:
             logger.warning(f"Kategoriler yüklenemedi: {e}")
 
@@ -4713,7 +5263,7 @@ class GeneralSettingsScreen(QWidget):
                             r = tbl.rowCount()
                             tbl.insertRow(r)
                             for c, val in enumerate(row_data):
-                                tbl.setItem(r, c, QTableWidgetItem(str(val)))
+                                tbl.setItem(r, c, QStandardItem(str(val)))
                         return
             except Exception as e:
                 logger.warning(f"Tablo yüklenemedi ({setting_key}): {e}")
@@ -4724,7 +5274,7 @@ class GeneralSettingsScreen(QWidget):
             r = tbl.rowCount()
             tbl.insertRow(r)
             for c, val in enumerate(row_data):
-                tbl.setItem(r, c, QTableWidgetItem(str(val)))
+                tbl.setItem(r, c, QStandardItem(str(val)))
 
     def _save_generic_table(self, tbl: QTableWidget, setting_key: str) -> None:
         """Genel tablo verisini SystemSetting içine JSON olarak kaydeder."""
@@ -4767,17 +5317,11 @@ class GeneralSettingsScreen(QWidget):
         panel_save_map = {
             "doviz_kur": self._save_doviz,
             "birim_tanimlari": self._save_birimler,
-            "depo_tanimlari": self._save_depolar,
             "odeme_planlari": self._save_odeme_planlari,
+            "banka_odeme_planlari": self._save_banka_odeme_planlari,
             "stok_ozel_alanlar": lambda: self._save_ozel_alanlar("stok"),
             "cari_ozel_alanlar": lambda: self._save_ozel_alanlar("cari"),
             "stok_kategoriler": self._save_kategoriler,
-            "sube_tanimlari": lambda: self._save_generic_table(
-                self.tbl_sube, "subeler",
-            ),
-            "calisma_donemi": lambda: self._save_generic_table(
-                self.tbl_donem, "calisma_donemleri",
-            ),
             # roller / yetkiler: kayıt kendi editör diyaloglarında; panelde Kaydet no-op
             "roller": lambda: None,
             "yetkiler": lambda: None,
@@ -4785,7 +5329,7 @@ class GeneralSettingsScreen(QWidget):
             "fiyat_listeleri": lambda: self._save_generic_table(
                 self.tbl_fiyat, "fiyat_listeleri",
             ),
-            "kdv_oranlari": lambda: self._save_generic_table(self.tbl_kdv, "kdv_oranlari"),
+            "kdv_oranlari": self._save_kdv_tablosu,
             "stok_markalar": lambda: self._save_generic_table(
                 self.tbl_marka, "stok_markalar",
             ),
@@ -4841,15 +5385,18 @@ class GeneralSettingsScreen(QWidget):
         if self.active_panel_id == "doviz_kur":
             self._open_yeni_doviz_dialog()
             return
+        if self.active_panel_id == "odeme_planlari":
+            self._yeni_odeme_plani_ekle()
+            return
+        if self.active_panel_id == "banka_odeme_planlari":
+            self._yeni_banka_odeme_plani_ekle()
+            return
 
         panel_table_map = {
-            "sube_tanimlari": "tbl_sube",
-            "odeme_planlari": "tbl_odeme",
             "fiyat_listeleri": "tbl_fiyat",
             "stok_kategoriler": "tbl_kategori",
             "stok_markalar": "tbl_marka",
             "birim_tanimlari": "tbl_birim",
-            "depo_tanimlari": "tbl_depo",
             "cari_gruplari": "tbl_cari_grup",
         }
         tbl_attr = panel_table_map.get(self.active_panel_id)
@@ -4858,7 +5405,7 @@ class GeneralSettingsScreen(QWidget):
             r = tbl.rowCount()
             tbl.insertRow(r)
             for c in range(tbl.columnCount()):
-                tbl.setItem(r, c, QTableWidgetItem(""))
+                tbl.setItem(r, c, QStandardItem(""))
             tbl.selectRow(r)
 
     def delete_current_panel(self) -> None:
@@ -4881,13 +5428,12 @@ class GeneralSettingsScreen(QWidget):
             return
 
         panel_table_map = {
-            "sube_tanimlari": "tbl_sube",
             "odeme_planlari": "tbl_odeme",
+            "banka_odeme_planlari": "tbl_banka_odeme",
             "fiyat_listeleri": "tbl_fiyat",
             "stok_kategoriler": "tbl_kategori",
             "stok_markalar": "tbl_marka",
             "birim_tanimlari": "tbl_birim",
-            "depo_tanimlari": "tbl_depo",
             "cari_gruplari": "tbl_cari_grup",
         }
         tbl_attr = panel_table_map.get(self.active_panel_id)

@@ -11,15 +11,32 @@ import logging
 from PyQt6.QtCore import QDate, Qt
 from PyQt6.QtGui import QAction, QBrush, QColor, QStandardItem
 from PyQt6.QtWidgets import (
-    QCheckBox, QComboBox, QDateEdit, QFileDialog, QFrame, QLabel, QLineEdit, QMenu, QMessageBox, QPushButton,
+    QApplication,
+    QCheckBox,
+    QComboBox,
+    QDateEdit,
+    QFileDialog,
+    QFrame,
+    QLabel,
+    QLineEdit,
+    QMenu,
+    QMessageBox,
+    QPushButton,
     QVBoxLayout,
 )
 from sqlalchemy import select
 
 from src.core.models import CariHareket, Customer
+from src.desktop.services import money_service
 from src.desktop.services.cari_hareket_service import (
-    FIS_TIPLERI, TURLER, YONLER, CariHareketService, HareketFiltre, arac_etiket,
+    FIS_TIPLERI,
+    TURLER,
+    YONLER,
+    CariHareketService,
+    HareketFiltre,
+    arac_etiket,
 )
+from src.desktop.ui.components.button_style import btn_style
 from src.desktop.ui.components.collapsible_section import CollapsibleSection
 from src.desktop.ui.components.grid_delegates import apply_calendar_style
 from src.desktop.ui.components.three_panel_base import ThreePanelBaseWidget
@@ -30,12 +47,6 @@ from src.desktop.ui.widgets.pagination_widget import PaginationWidget
 logger = logging.getLogger(__name__)
 
 _KIRMIZI, _YESIL = QColor("#dc2626"), QColor("#16a34a")
-_BTN = """
-    QPushButton { background-color: %s; color: %s; border: 1px solid #cbd5e1; border-radius: 6px; padding: 6px 10px;
-                  font-size: 11px; font-weight: 600; text-align: left; font-family: 'Segoe UI'; }
-    QPushButton:hover { background-color: #f1f5f9; }
-    QPushButton:disabled { color: #94a3b8; background-color: #f8fafc; border-color: #e2e8f0; }
-"""
 _INPUT = ("QComboBox, QLineEdit, QDateEdit { border: 1px solid #cbd5e1; border-radius: 6px; padding: 5px 8px;"
           " background-color: white; color: #0f172a; font-size: 11px; }")
 
@@ -45,8 +56,13 @@ def _tl(v: float) -> str:
 
 
 class CariHareketScreen(ThreePanelBaseWidget):
+    PROFIL_BOLUMU = True
+
+    BUS_KONULARI = ("cari",)
     def __init__(self, db_session=None, parent=None, embedded: bool = False) -> None:
         self._kayitlar: list[CariHareket] = []
+        self._yerel = money_service.yerel_para(db_session) if db_session is not None else "TRY"
+        self._pb = "TL" if self._yerel == "TRY" else self._yerel
         super().__init__(db_session=db_session, profile_key="cari_hareket", module_name="Cari Hareketleri",
                          parent=parent, embedded=embedded)
         self.setObjectName("CariHareketCanvas")
@@ -73,7 +89,7 @@ class CariHareketScreen(ThreePanelBaseWidget):
             0: ("☑", "select"), 1: ("Tarih", "tarih"), 2: ("Fiş No", "fis_no"), 3: ("Tür", "tur"),
             4: ("Cari Kodu", "kod"), 5: ("Cari Ünvanı", "cari"), 6: ("Belge No", "belge_no"),
             7: ("Açıklama", "aciklama"), 8: ("Araç / Hesap", "arac"), 9: ("Vade", "vade"), 10: ("P.B.", "para_birimi"),
-            11: ("Kur", "kur"), 12: ("Tutar", "tutar"), 13: ("Borç (TL)", "borc"), 14: ("Alacak (TL)", "alacak"),
+            11: ("Kur", "kur"), 12: ("Tutar", "tutar"), 13: (f"Borç ({self._pb})", "borc"), 14: (f"Alacak ({self._pb})", "alacak"),
         }
 
     def setup_left_panel_content(self, container: QFrame, layout: QVBoxLayout) -> None:
@@ -87,12 +103,12 @@ class CariHareketScreen(ThreePanelBaseWidget):
             b = QPushButton(f"{ikon} {etiket}" + (f" ({kisayol[tur]})" if tur in kisayol else ""))
             if tur in kisayol:
                 b.setShortcut(kisayol[tur])
-            b.setStyleSheet(_BTN % ("#2563eb" if tur == "tahsilat" else "#ffffff", "#ffffff" if tur == "tahsilat" else "#1e293b"))
+            b.setStyleSheet(btn_style("#2563eb" if tur == "tahsilat" else "#ffffff", "#ffffff" if tur == "tahsilat" else "#1e293b"))
             b.clicked.connect(lambda _=False, t=tur: self.on_new_clicked(t))
             sec.add_widget(b)
             self.btn_tur[tur] = b
         self.btn_edit = QPushButton("✏️ Fişi / Hareketi Aç")
-        self.btn_edit.setStyleSheet(_BTN % ("#ffffff", "#1e293b"))
+        self.btn_edit.setStyleSheet(btn_style("#ffffff", "#1e293b"))
         self.btn_edit.clicked.connect(self.on_edit_clicked)
         sec.add_widget(self.btn_edit)
         layout.addWidget(sec)
@@ -135,7 +151,7 @@ class CariHareketScreen(ThreePanelBaseWidget):
         for w in (self.search_box, self.cmb_cari, self.cmb_tur, self.cmb_para, self.chk_tarih, self.dt_bas, self.dt_bit):
             sec_f.add_widget(w)
         btn_temizle = QPushButton("🧹 Filtreleri Temizle")
-        btn_temizle.setStyleSheet(_BTN % ("#ffffff", "#1e293b"))
+        btn_temizle.setStyleSheet(btn_style("#ffffff", "#1e293b"))
         btn_temizle.clicked.connect(self.clear_filters)
         sec_f.add_widget(btn_temizle)
         layout.addWidget(sec_f)
@@ -159,12 +175,16 @@ class CariHareketScreen(ThreePanelBaseWidget):
         self.btn_excel = QPushButton("📊 Excel'e Aktar")
         self.btn_hide = QPushButton("🗑️ Seçilileri Gizle")
         self.btn_hesaplar = QPushButton("🏦 Finans Hesapları (Kasa / Banka / KK / POS)")
+        self.btn_portal = QPushButton("🌐 Hesap Özetini Portala Gönder")
+        self.btn_genel_tahsilat = QPushButton("💰 Cariye Genel Tahsilat (FIFO)")
         self.btn_hesaplar.clicked.connect(self.on_hesaplar_clicked)
         self.btn_ekstre.clicked.connect(self.on_ekstre_clicked)
         self.btn_excel.clicked.connect(self.on_excel_clicked)
         self.btn_hide.clicked.connect(self.on_hide_clicked)
-        for b in (self.btn_ekstre, self.btn_excel, self.btn_hide, self.btn_hesaplar):
-            b.setStyleSheet(_BTN % ("#ffffff", "#1e293b"))
+        self.btn_portal.clicked.connect(self.on_portal_gonder_clicked)
+        self.btn_genel_tahsilat.clicked.connect(self.on_genel_tahsilat_clicked)
+        for b in (self.btn_ekstre, self.btn_excel, self.btn_hide, self.btn_hesaplar, self.btn_portal, self.btn_genel_tahsilat):
+            b.setStyleSheet(btn_style("#ffffff", "#1e293b"))
             sec_i.add_widget(b)
         layout.addWidget(sec_i)
         layout.addStretch()
@@ -177,6 +197,8 @@ class CariHareketScreen(ThreePanelBaseWidget):
         gate(self.btn_hide, "cari.delete", hide=True)
         gate(self.btn_excel, "cari.view", hide=True)
         gate(self.btn_ekstre, "cari.balance", hide=True)
+        gate(self.btn_portal, "cari.balance", hide=True)
+        gate(self.btn_genel_tahsilat, "cari.create", hide=True)
 
     def _cari_listesini_doldur(self) -> None:
         self.cmb_cari.blockSignals(True)
@@ -239,10 +261,10 @@ class CariHareketScreen(ThreePanelBaseWidget):
             borc = h.tutar_tl if h.yon == "borc" else 0.0
             alacak = h.tutar_tl if h.yon == "alacak" else 0.0
             cells = [
-                "☐", h.tarih.strftime("%d.%m.%Y"), h.fis.fis_no if h.fis else "", TURLER.get(h.tur, (h.tur,))[0],
+                "", h.tarih.strftime("%d.%m.%Y"), h.fis.fis_no if h.fis else "", TURLER.get(h.tur, (h.tur,))[0],
                 c.customer_code or "", c.fullname,
                 h.belge_no or "", h.aciklama or "", arac, h.vade.strftime("%d.%m.%Y") if h.vade else "",
-                h.para_birimi, "" if h.para_birimi == "TRY" else f"{h.kur:.4f}", _tl(h.tutar),
+                h.para_birimi, "" if h.para_birimi == self._yerel else f"{h.kur:.4f}", _tl(h.tutar),
                 _tl(borc) if borc else "", _tl(alacak) if alacak else "",
             ]
             items = [QStandardItem(t) for t in cells]
@@ -259,12 +281,12 @@ class CariHareketScreen(ThreePanelBaseWidget):
         self.pagination_widget.set_total(self.total_records)
         o = self.svc.ozet(f)
         self.lbl_adet.setText(f"Hareket: {o.adet}")
-        self.lbl_borc.setText(f"Borç: {_tl(o.borc)} TL")
+        self.lbl_borc.setText(f"Borç: {_tl(o.borc)} {self._pb}")
         self.lbl_borc.setStyleSheet("font-size: 12px; font-weight: 600; color: #dc2626;")
-        self.lbl_alacak.setText(f"Alacak: {_tl(o.alacak)} TL")
+        self.lbl_alacak.setText(f"Alacak: {_tl(o.alacak)} {self._pb}")
         self.lbl_alacak.setStyleSheet("font-size: 12px; font-weight: 600; color: #16a34a;")
         yon = "Borçlu" if o.bakiye > 0 else "Alacaklı" if o.bakiye < 0 else "Kapalı"
-        self.lbl_bakiye.setText(f"Bakiye: {_tl(abs(o.bakiye))} TL ({yon})")
+        self.lbl_bakiye.setText(f"Bakiye: {_tl(abs(o.bakiye))} {self._pb} ({yon})")
         self.lbl_detay.setText("Bir hareket seçin.")
 
     # ---- seçim / işlemler --------------------------------------------------
@@ -288,7 +310,7 @@ class CariHareketScreen(ThreePanelBaseWidget):
         self.lbl_detay.setText(
             f"<b>{TURLER.get(h.tur, (h.tur,))[0]}</b> — {YONLER.get(h.yon, h.yon)}<br>{h.customer.fullname}<br>"
             f"{h.tarih:%d.%m.%Y} · {h.para_birimi} {_tl(h.tutar)}"
-            + (f" (kur {h.kur:.4f} → {_tl(h.tutar_tl)} TL)" if h.para_birimi != "TRY" else "")
+            + (f" (kur {h.kur:.4f} → {_tl(h.tutar_tl)} {self._pb})" if h.para_birimi != self._yerel else "")
             + (f"<br>Belge: {h.belge_no}" if h.belge_no else "") + (f"<br>{h.aciklama}" if h.aciklama else "")
         )
 
@@ -332,6 +354,39 @@ class CariHareketScreen(ThreePanelBaseWidget):
             return
         from src.desktop.ui.widgets.cari_ekstre_dialog import CariEkstreDialog
         CariEkstreDialog(self.db, customer_id=cid, parent=self).exec()
+
+    def on_portal_gonder_clicked(self) -> None:
+        h = self._secili()
+        cid = h.customer_id if h else self.cmb_cari.currentData()
+        if not cid:
+            QMessageBox.information(self, "Hesap Özetini Portala Gönder", "Bir hareket seçin veya cari filtresi belirleyin.")
+            return
+        customer = self.db.get(Customer, cid)
+        if QMessageBox.question(
+            self, "Hesap Özetini Portala Gönder",
+            f"{customer.fullname} carisinin güncel bakiyesi ve hareket dökümü portalda yayınlanacak; "
+            "bağlantıyı bilen herkes görebilir. Devam edilsin mi?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No, QMessageBox.StandardButton.No,
+        ) != QMessageBox.StandardButton.Yes:
+            return
+        from src.desktop.services import portal_sync_service
+        r = portal_sync_service.publish_customer_account(self.db, cid)
+        if not r.success:
+            QMessageBox.warning(self, "Portal", r.message)
+            return
+        QApplication.clipboard().setText(r.url)
+        QMessageBox.information(self, "Portal", f"{r.message}\n\nBağlantı panoya kopyalandı:\n{r.url}")
+
+    def on_genel_tahsilat_clicked(self) -> None:
+        h = self._secili()
+        cid = h.customer_id if h else self.cmb_cari.currentData()
+        if not cid:
+            QMessageBox.information(self, "Cariye Genel Tahsilat", "Bir hareket seçin veya cari filtresi belirleyin.")
+            return
+        from src.desktop.ui.widgets.belge_zinciri_dialogs import GenelTahsilatDialog
+        if GenelTahsilatDialog(self.db, customer_id=cid, parent=self).exec():
+            self.load_data()
+            self.data_changed.emit()
 
     def on_excel_clicked(self) -> None:
         try:

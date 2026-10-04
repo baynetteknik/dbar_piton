@@ -4,9 +4,8 @@ import logging
 import os
 
 from PyQt6.QtCore import Qt, pyqtSignal
-from PyQt6.QtGui import QAction, QStandardItem, QStandardItemModel
+from PyQt6.QtGui import QAction, QBrush, QColor, QStandardItem, QStandardItemModel
 from PyQt6.QtWidgets import (
-    QComboBox,
     QDialog,
     QFileDialog,
     QHBoxLayout,
@@ -20,11 +19,13 @@ from PyQt6.QtWidgets import (
 )
 from sqlalchemy import or_, select
 
+from src.core import belge_turleri
 from src.core.models import Quotation
 from src.desktop.managers.profile_manager import ProfileManager
 from src.desktop.services.excel_exporter import ExcelExporter
 from src.desktop.services.quotation_save_service import QuotationSaveService
 from src.desktop.services.quotation_service import QuotationService
+from src.desktop.ui.components.button_style import btn_style
 from src.desktop.ui.components.collapsible_section import CollapsibleSection
 from src.desktop.ui.components.filterable_table import (
     FilterableTableView,
@@ -34,6 +35,10 @@ from src.desktop.ui.components.layout_hint_helper import register_layout_hint
 from src.desktop.ui.components.three_panel_base import ThreePanelBaseWidget
 from src.desktop.ui.dialogs.transaction_document_dialog import TransactionDocumentDialog
 from src.desktop.ui.widgets.action_bar_widget import ActionBarWidget
+from src.desktop.services.belge_kilit_servisi import BelgeKilitServisi, KilitHatasi
+from src.desktop.ui.components import dialog_style
+from src.desktop.ui.widgets.belge_zinciri_bolumu import BelgeZinciriBolumu
+from src.desktop.ui.widgets.gorunum_profilleri_bolumu import GorunumProfilleriBolumu
 from src.desktop.ui.widgets.export_widget import ExportWidget
 from src.desktop.ui.widgets.filter_widget import FilterWidget
 from src.desktop.ui.widgets.pagination_widget import PaginationWidget
@@ -52,14 +57,24 @@ logger.info(
 )
 
 
+_DURUM_TR = {
+    "draft": "Taslak", "sent": "Gönderildi", "accepted": "Kabul Edildi", "rejected": "Reddedildi",
+    "converted": "Dönüştürüldü", "expired": "Süresi Doldu",
+}
+#: Durum -> (satır zemini, yazı rengi): kabul yeşil, ret kırmızı, beklemede (gönderildi) sarı, süresi dolan gri, dönüştürülen mavi
+_DURUM_RENK = {
+    "Kabul Edildi": ("#dcfce7", "#14532d"), "Reddedildi": ("#fee2e2", "#7f1d1d"), "Gönderildi": ("#fef9c3", "#713f12"),
+    "Süresi Doldu": ("#e2e8f0", "#475569"), "Dönüştürüldü": ("#dbeafe", "#1e3a8a"),
+}
+_HAREKET_TR = {"islenmedi": "İşlenmedi", "islendi": "İşlendi", "geri_alindi": "Geri alındı"}
 _MODULE_LABELS = {
-    "Quotation": "Teklif Yönetimi", "Order": "Sipariş Yönetimi", "Invoice": "Fatura Yönetimi",
+    "Quotation": "Teklif Yönetimi", "Order": "Sipariş Yönetimi", "Waybill": "İrsaliye Yönetimi", "Invoice": "Fatura Yönetimi",
 }
 _ACTION_TITLES = {
-    "Quotation": "TEKLİF İŞLEMLERİ", "Order": "SİPARİŞ İŞLEMLERİ", "Invoice": "FATURA İŞLEMLERİ",
+    "Quotation": "TEKLİF İŞLEMLERİ", "Order": "SİPARİŞ İŞLEMLERİ", "Waybill": "İRSALİYE İŞLEMLERİ", "Invoice": "FATURA İŞLEMLERİ",
 }
 _CONVERT_LABELS = {
-    "Quotation": "🔄 Siparişe Dönüştür", "Order": "🔄 Faturaya Dönüştür",
+    "Quotation": "🔄 Siparişe Dönüştür",          # sipariş → irsaliye → fatura adımları "BELGE ZİNCİRİ" bölümündedir (belge_zinciri_bolumu.py)
 }
 _DEMO_ROWS = {
     "Quotation": [
@@ -95,6 +110,7 @@ class BaseQuotationOrderWidget(ThreePanelBaseWidget):
     """Base class for 3-Panel Quotations, Orders and Invoices management widgets."""
 
     status_message = pyqtSignal(str)
+    BUS_KONULARI = ("belge",)
 
     def __init__(self, db_session=None, quotation_type: str = "Quotation", profile_key: str = "quotations"):
         self.quotation_type = quotation_type
@@ -129,24 +145,12 @@ class BaseQuotationOrderWidget(ThreePanelBaseWidget):
             7: (self.tr("Genel Toplam"), "grand_total"),
             8: (self.tr("Para Birimi"), "currency"),
             9: (self.tr("Durum"), "status"),
+            **({10: (self.tr("Belge Türü"), "belge_turu"), 11: (self.tr("Hareket"), "hareket"), 12: (self.tr("e-Devlet"), "resmi")}
+               if self.quotation_type in ("Waybill", "Invoice") else {}),
         }
 
     def toolbar_btn_style(self, bg_color="#ffffff", text_color="#1e293b"):
-        return f"""
-            QPushButton {{
-                background-color: {bg_color};
-                color: {text_color};
-                border: 1px solid #cbd5e1;
-                border-radius: 6px;
-                padding: 6px 10px;
-                font-size: 11px;
-                font-weight: 600;
-                text-align: left;
-                font-family: 'Segoe UI';
-            }}
-            QPushButton:hover {{ background-color: #f1f5f9; }}
-            QPushButton:disabled {{ color: #94a3b8; background-color: #f8fafc; border-color: #e2e8f0; }}
-        """
+        return btn_style(bg_color, text_color)
 
     def init_base_ui(self):
         # Profil Yöneticisi
@@ -167,12 +171,15 @@ class BaseQuotationOrderWidget(ThreePanelBaseWidget):
                 color: #0f172a;
                 font-size: 12px;
             }
+            QComboBox {
+                combobox-popup: 0;
+            }
             QComboBox QAbstractItemView {
                 border: 1px solid #94a3b8;
                 background-color: #ffffff;
                 color: #0f172a;
                 outline: none;
-                padding: 2px 0px;
+                padding: 0px;
             }
             QComboBox QAbstractItemView::item {
                 min-height: 26px;
@@ -229,30 +236,6 @@ class BaseQuotationOrderWidget(ThreePanelBaseWidget):
         self.btn_excel = self.action_bar.btn_excel
         self.btn_refresh = self.action_bar.btn_refresh
 
-        # 2. GRUP: GÖRÜNÜM PROFİLLERİ (Sol Panele Ek Akordiyon Olarak Eklenir)
-        self.sec_profiles = CollapsibleSection("GÖRÜNÜM PROFİLLERİ", is_expanded=True)
-        lbl_prof = QLabel("Aktif Profil:")
-        lbl_prof.setStyleSheet("font-weight: bold; color: #475569; font-size: 11px;")
-        self.combo_sidebar_profiles = QComboBox()
-        self.combo_sidebar_profiles.setStyleSheet(combo_style)
-        self.combo_sidebar_profiles.currentTextChanged.connect(self._on_sidebar_profile_changed)
-
-        prof_btn_lyt = QHBoxLayout()
-        prof_btn_lyt.setSpacing(4)
-        btn_save_prof = QPushButton("💾 Kaydet")
-        btn_save_prof.setStyleSheet(self.toolbar_btn_style())
-        btn_save_prof.clicked.connect(self.save_current_profile)
-        btn_manage_prof = QPushButton("⚙️ Sütunlar")
-        btn_manage_prof.setStyleSheet(self.toolbar_btn_style())
-        btn_manage_prof.clicked.connect(self.open_column_manager)
-        prof_btn_lyt.addWidget(btn_save_prof)
-        prof_btn_lyt.addWidget(btn_manage_prof)
-
-        self.sec_profiles.add_widget(lbl_prof)
-        self.sec_profiles.add_widget(self.combo_sidebar_profiles)
-        self.sec_profiles.add_layout(prof_btn_lyt)
-        self.action_bar.add_custom_section(self.sec_profiles)
-
         main_layout.addWidget(self.action_bar)
 
         # ----------------------------------------------------
@@ -289,33 +272,12 @@ class BaseQuotationOrderWidget(ThreePanelBaseWidget):
         self.table_view.selectionModel().selectionChanged.connect(self.on_selection_changed)
         self.table_view.doubleClicked.connect(self.on_edit_clicked)
 
-        self.table_view.setStyleSheet("""
-            QTableView {
-                border: 1px solid #cbd5e1;
-                background-color: white;
-                gridline-color: #f1f5f9;
-                border-radius: 6px;
-                font-family: 'Segoe UI';
-                font-size: 12px;
-                color: #334155;
-            }
-            QTableView::item { padding: 6px; }
-            QTableView::item:selected {
-                background-color: #eff6ff;
-                color: #1d4ed8;
-                font-weight: 600;
-            }
-            QHeaderView::section {
-                background-color: #f8fafc;
-                color: #475569;
-                padding: 8px;
-                border: none;
-                border-right: 1px solid #cbd5e1;
-                border-bottom: 2px solid #cbd5e1;
-                font-weight: bold;
-            }
-        """)
 
+        if self.quotation_type in ("Order", "Waybill", "Invoice"):
+            self.sec_zincir = BelgeZinciriBolumu(self)
+            self.action_bar.add_custom_section(self.sec_zincir)
+        self.sec_profiles = GorunumProfilleriBolumu(self.filterable_table)
+        self.action_bar.add_custom_section(self.sec_profiles)
         center_layout.addWidget(self.filterable_table, 1)
 
         # Bağımsız Sayfalama Barı (PaginationWidget)
@@ -347,6 +309,7 @@ class BaseQuotationOrderWidget(ThreePanelBaseWidget):
                 "Onaylandı (Accepted)",
                 "Reddedildi (Rejected)",
                 "Dönüştürüldü (Converted)",
+                "Süresi Doldu (Expired)",
             ],
             initial_open=False,
             panel_width=220,
@@ -400,9 +363,6 @@ class BaseQuotationOrderWidget(ThreePanelBaseWidget):
 
         main_layout.addWidget(self.filter_widget)
 
-        # Sidebar profilleri yükle
-        self.load_sidebar_profiles()
-
         # Rol yetkilerine göre buton görünürlüğü
         self._apply_permissions()
 
@@ -425,38 +385,6 @@ class BaseQuotationOrderWidget(ThreePanelBaseWidget):
         self.current_page = 1
         self.refresh_table()
 
-
-    def load_sidebar_profiles(self):
-        if not hasattr(self, "combo_sidebar_profiles"):
-            return
-        self.combo_sidebar_profiles.blockSignals(True)
-        self.combo_sidebar_profiles.clear()
-        profiles = self.profile_manager.load_profiles()
-        for name in profiles.keys():
-            self.combo_sidebar_profiles.addItem(name)
-        active = self.profile_manager.get_active_profile_name()
-        idx = self.combo_sidebar_profiles.findText(active)
-        if idx >= 0:
-            self.combo_sidebar_profiles.setCurrentIndex(idx)
-        self.combo_sidebar_profiles.blockSignals(False)
-
-    def _on_sidebar_profile_changed(self, profile_name):
-        if not profile_name:
-            return
-        p = self.profile_manager.get_profile(profile_name)
-        if p and hasattr(self, "filterable_table"):
-            self.filterable_table.apply_view_profile(p)
-
-    def save_current_profile(self):
-        active_name = self.combo_sidebar_profiles.currentText()
-        if not active_name:
-            active_name = "Varsayılan"
-        current_p = self.filterable_table.get_current_view_as_profile(active_name)
-        self.profile_manager.save_profile(active_name, current_p)
-        QMessageBox.information(self, "Profil Kaydedildi", f"'{active_name}' görünüm profili kaydedildi.")
-
-    def open_column_manager(self):
-        self.filterable_table.open_column_manager_dialog()
 
     def close_tab(self):
         parent_tab = self.parentWidget()
@@ -551,7 +479,10 @@ class BaseQuotationOrderWidget(ThreePanelBaseWidget):
             "expiry_date": v_date,
             "grand_total": float(q.grand_total or 0),
             "currency": q.currency or "TRY",
-            "status": q.status or "draft",
+            "status": _DURUM_TR.get(q.status or "draft", q.status or "draft"),
+            "belge_turu": belge_turleri.BELGE_TURLERI.get(q.belge_turu or "", "") + (" (Alış)" if q.yon == "alis" else ""),
+            "hareket": _HAREKET_TR.get(q.hareket_durumu or "islenmedi", ""),
+            "resmi": ("Gönderildi " + q.resmi_tarih.strftime("%d.%m.%Y")) if q.resmi_gonderildi and q.resmi_tarih else ("Gönderildi" if q.resmi_gonderildi else "—"),
         }
 
     def _passes_column_filters(self, field_values: dict, column_filters: dict[str, str]) -> bool:
@@ -581,19 +512,19 @@ class BaseQuotationOrderWidget(ThreePanelBaseWidget):
                 self.lbl_page_info.setText(f"Sayfa 1 / 1 (Toplam: {self.total_records})")
             return
 
+        # Liste türü: yeni `belge_turu` alanına bakar; alanı henüz boş (eski) kayıtlar için eski `quotation_type` kuralları geçerlidir.
+        turler = belge_turleri.LISTE_TURLERI.get(self.quotation_type, ())
         if self.quotation_type == "Quotation":
-            type_condition = or_(
+            eski = or_(
                 Quotation.quotation_type == "Quotation",
                 Quotation.quotation_type == None,  # noqa: E711
                 Quotation.quotation_type.ilike("%teklif%"),
             )
         elif self.quotation_type == "Order":
-            type_condition = or_(
-                Quotation.quotation_type == "Order",
-                Quotation.quotation_type.ilike("%sipari%"),
-            )
+            eski = or_(Quotation.quotation_type == "Order", Quotation.quotation_type.ilike("%sipari%"))
         else:
-            type_condition = (Quotation.quotation_type == self.quotation_type)
+            eski = (Quotation.quotation_type == self.quotation_type)
+        type_condition = or_(Quotation.belge_turu.in_(list(turler)), (Quotation.belge_turu.is_(None) & eski)) if turler else eski
 
         stmt = (
             select(Quotation)
@@ -614,7 +545,7 @@ class BaseQuotationOrderWidget(ThreePanelBaseWidget):
 
         st_filter = self.cmb_status.currentText()
         if st_filter != "Tümü":
-            st_key = st_filter.split()[0].lower()
+            st_key = st_filter[st_filter.rindex("(") + 1:-1].lower() if "(" in st_filter else st_filter.split()[0].lower()
             stmt = stmt.where(Quotation.status == st_key)
 
         records = self.db.scalars(stmt).all()
@@ -667,8 +598,12 @@ class BaseQuotationOrderWidget(ThreePanelBaseWidget):
             id_item = QStandardItem(str(fv["id"]))
             id_item.setData(int(fv["id"]), Qt.ItemDataRole.UserRole)
 
-            tot_item = QStandardItem(f"{fv['grand_total']:,.2f} ₺")
+            # Tutar: diğer liste ekranlarıyla (cari/kasa hareketleri) aynı Türkçe biçim (1.250,00) ve sağa hizalı; para birimi ayrı sütunda
+            from src.desktop.services import sayi_bicimi
+            from src.desktop.ui.widgets.money_edit import bicimle
+            tot_item = QStandardItem(bicimle(fv["grand_total"], sayi_bicimi.hane("tutar")))
             tot_item.setData(fv["grand_total"], Qt.ItemDataRole.UserRole)
+            tot_item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
 
             row = [
                 chk_item,
@@ -681,7 +616,14 @@ class BaseQuotationOrderWidget(ThreePanelBaseWidget):
                 tot_item,
                 QStandardItem(fv["currency"]),
                 QStandardItem(fv["status"]),
+                *([QStandardItem(fv["belge_turu"]), QStandardItem(fv["hareket"]), QStandardItem(fv["resmi"])]
+                  if self.quotation_type in ("Waybill", "Invoice") else []),
             ]
+            renk = _DURUM_RENK.get(fv["status"])
+            if renk:
+                for it in row:
+                    it.setBackground(QBrush(QColor(renk[0])))
+                    it.setForeground(QBrush(QColor(renk[1])))
             self.table_model.appendRow(row)
 
     def _get_selected_id(self) -> int | None:
@@ -711,6 +653,12 @@ class BaseQuotationOrderWidget(ThreePanelBaseWidget):
         }
         return type_map.get(self.quotation_type, 5)
 
+    def _yeni_belge_indeksi(self) -> int:
+        """Bu listenin (teklif / sipariş / irsaliye / fatura) satış türünün belge ekranındaki tür seçimi indeksi."""
+        turler = belge_turleri.LISTE_TURLERI.get(self.quotation_type, ("teklif",))
+        anahtarlar = list(belge_turleri.EKRAN_TURLERI.values())
+        return anahtarlar.index((turler[0], "satis")) if (turler[0], "satis") in anahtarlar else 0
+
     def _open_new_document_screen(self, doc_id=None):
         """Yeni DocumentDetailScreen'i maksimize dialog içinde açar."""
         from src.desktop.ui.screens.document_detail_screen import DocumentDetailScreen
@@ -718,7 +666,7 @@ class BaseQuotationOrderWidget(ThreePanelBaseWidget):
             parent=self,
             db_session=self.db,
             doc_id=doc_id,
-            initial_type_idx=0,
+            initial_type_idx=self._yeni_belge_indeksi(),
             company_id=self.company_id,
         )
         dlg.screen.document_saved.connect(self._on_document_saved)
@@ -752,6 +700,14 @@ class BaseQuotationOrderWidget(ThreePanelBaseWidget):
         selected_id = self._get_selected_id()
         if not selected_id:
             QMessageBox.information(self, "Uyarı", "Düzenlenecek kaydı seçin.")
+            return
+
+        try:
+            uyari = BelgeKilitServisi(self.db).duzenleme_uyarisi(self.db.get(Quotation, selected_id))
+        except KilitHatasi as e:
+            dialog_style.uyari(self, "Düzenlenemez", str(e))
+            return
+        if uyari and not dialog_style.onay(self, "Dönüşmüş Teklif", uyari + "\n\nYine de düzenlemek istiyor musunuz?"):
             return
 
         if USE_NEW_DOCUMENT_SCREEN:
@@ -823,6 +779,12 @@ class BaseQuotationOrderWidget(ThreePanelBaseWidget):
         one = self._get_selected_id()
         return [one] if one else []
 
+    def _uc_yol_sor(self, baslik: str, metin: str) -> bool | None:
+        """Evet → True, Hayır → False, İptal → None."""
+        Y, N, C = QMessageBox.StandardButton.Yes, QMessageBox.StandardButton.No, QMessageBox.StandardButton.Cancel
+        c = QMessageBox.question(self, baslik, metin, Y | N | C, C)
+        return None if c == C else c == Y
+
     def on_delete_clicked(self):
         if not self.db:
             return
@@ -844,15 +806,43 @@ class BaseQuotationOrderWidget(ThreePanelBaseWidget):
         if confirm != QMessageBox.StandardButton.Yes:
             return
 
-        deleted = 0
+        deleted, hatalar = 0, []
+        ks = BelgeKilitServisi(self.db)
         for q_id in target_ids:
-            q = self.service.get_quotation(q_id)
-            if q:
-                q.is_deleted = True
-                deleted += 1
+            try:
+                plan = ks.silme_plani(q_id)
+            except KilitHatasi as e:
+                hatalar.append(str(e))
+                continue
+            no = plan.belge.quotation_number
+            if plan.engel:
+                hatalar.append(plan.engel)
+                continue
+            alt_de = ust_de = False
+            if plan.altlar:
+                c = self._uc_yol_sor("Bağlı Belgeler", f"{no} belgesinden türeyen belgeler var: {', '.join(q.quotation_number for q in plan.altlar)}.\n\n"
+                                     "Evet: bağlı belgeler de silinir.\nHayır: yalnız bu belge silinir, bağlar kopar.\nİptal: vazgeç.")
+                if c is None:
+                    ks.logla(plan.belge, "sil", "onay_hayir", "bagli_belge_silme", "kullanıcı vazgeçti")
+                    self.db.commit()
+                    continue
+                alt_de = c
+            if plan.ustler:
+                c = self._uc_yol_sor("Kaynak Belgeler", f"{no} şu belgelerden oluşturulmuştu: {', '.join(q.quotation_number for q in plan.ustler)}.\n\n"
+                                     "Evet: kaynak belgeler de silinir.\nHayır: kaynak belgeler serbest kalır (yeniden faturalanabilir/dönüştürülebilir).\nİptal: vazgeç.")
+                if c is None:
+                    continue
+                ust_de = c
+            if plan.uyarilar and not plan.altlar and not dialog_style.onay(self, "Silme Uyarısı", "\n".join(plan.uyarilar) + "\n\nYine de silinsin mi?"):
+                continue
+            try:
+                deleted += len(ks.sil(q_id, alt_belgeleri_de_sil=alt_de, ust_belgeleri_de_sil=ust_de))
+            except KilitHatasi as e:
+                hatalar.append(str(e))
+        if hatalar:
+            dialog_style.uyari(self, "Silinemedi", "\n\n".join(hatalar))
         if deleted:
-            self.db.commit()
-        QMessageBox.information(self, "Başarılı", f"{deleted} kayıt silindi.")
+            QMessageBox.information(self, "Başarılı", f"{deleted} kayıt silindi.")
         self.refresh_table()
 
     def on_duplicate_clicked(self):
@@ -1039,6 +1029,7 @@ class BaseQuotationOrderWidget(ThreePanelBaseWidget):
             menu.addAction(act_del)
             menu.addSeparator()
             menu.addAction(act_dup)
+            act_conv = None
             conv_txt = _CONVERT_LABELS.get(self.quotation_type)
             if conv_txt:
                 # Fatura gibi zincirin son halkası olan belge türlerinde bir
@@ -1093,8 +1084,10 @@ class BaseQuotationOrderWidget(ThreePanelBaseWidget):
             _perm.update({
                 id(act_edit): f"{p}.edit",
                 id(act_del): f"{p}.delete", id(act_dup): f"{p}.create",
-                id(act_conv): f"{p}.convert", id(act_xls): f"{p}.print",
+                id(act_xls): f"{p}.print",
             })
+            if act_conv is not None:
+                _perm[id(act_conv)] = f"{p}.convert"
         for a in menu.actions():
             code = _perm.get(id(a))
             if code and not can(code):
@@ -1137,6 +1130,13 @@ class OrdersWidget(BaseQuotationOrderWidget):
 
     def __init__(self, db_session=None):
         super().__init__(db_session=db_session, quotation_type="Order", profile_key="orders")
+
+
+class WaybillWidget(BaseQuotationOrderWidget):
+    """İrsaliye Yönetimi Paneli (Waybill)."""
+
+    def __init__(self, db_session=None):
+        super().__init__(db_session=db_session, quotation_type="Waybill", profile_key="waybills")
 
 
 class InvoicesWidget(BaseQuotationOrderWidget):

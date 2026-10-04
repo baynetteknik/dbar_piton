@@ -11,25 +11,40 @@ import logging
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QAction, QBrush, QColor, QStandardItem
 from PyQt6.QtWidgets import (
-    QComboBox, QFileDialog, QFrame, QLabel, QLineEdit, QMenu, QMessageBox, QPushButton, QVBoxLayout,
+    QComboBox,
+    QFileDialog,
+    QFrame,
+    QLabel,
+    QLineEdit,
+    QMenu,
+    QMessageBox,
+    QPushButton,
+    QVBoxLayout,
 )
 
-from src.desktop.services.finans_hesap_service import HESAP_TURLERI, FinansHesapService, hesap_bakiyeleri
+from src.desktop.services.finans_fis_service import FIS_TIPLERI
+from src.desktop.services.finans_hesap_service import (
+    HESAP_TURLERI,
+    FinansHesapService,
+    hesap_bakiyeleri,
+)
+from src.desktop.ui.components.button_style import btn_style
 from src.desktop.ui.components.collapsible_section import CollapsibleSection
 from src.desktop.ui.components.three_panel_base import ThreePanelBaseWidget
-from src.desktop.ui.screens.finans_hesap_editor import BANKA_TURLERI, FinansHesapEditorDialog
-from src.desktop.ui.widgets.hareket_alt_paneli import HESAP_KOLONLAR, HareketAltPaneli, hesap_saglayici
+from src.desktop.ui.screens.finans_hesap_editor import (
+    BANKA_TURLERI,
+    FinansHesapEditorDialog,
+)
+from src.desktop.ui.widgets.hareket_alt_paneli import (
+    HESAP_KOLONLAR,
+    HareketAltPaneli,
+    hesap_saglayici,
+)
 from src.desktop.ui.widgets.money_edit import bicimle
 from src.desktop.ui.widgets.pagination_widget import PaginationWidget
 
 logger = logging.getLogger(__name__)
 
-_BTN = """
-    QPushButton { background-color: %s; color: %s; border: 1px solid #cbd5e1; border-radius: 6px; padding: 6px 10px;
-                  font-size: 11px; font-weight: 600; text-align: left; font-family: 'Segoe UI'; }
-    QPushButton:hover { background-color: #f1f5f9; }
-    QPushButton:disabled { color: #94a3b8; background-color: #f8fafc; border-color: #e2e8f0; }
-"""
 _INPUT = ("QComboBox, QLineEdit { border: 1px solid #cbd5e1; border-radius: 6px; padding: 5px 8px;"
           " background-color: white; color: #0f172a; font-size: 11px; }")
 
@@ -49,6 +64,9 @@ GRUPLAR = {
 
 
 class FinansHesapListScreen(ThreePanelBaseWidget):
+    PROFIL_BOLUMU = True
+
+    BUS_KONULARI = ("finans", "finans_hesap")
     def __init__(self, db_session=None, grup: str = "kasa", parent=None, embedded: bool = False) -> None:
         self.grup = grup
         self.cfg = GRUPLAR[grup]
@@ -88,17 +106,29 @@ class FinansHesapListScreen(ThreePanelBaseWidget):
             b = QPushButton(etiket + (" (F2)" if i == 0 else ""))
             if i == 0:
                 b.setShortcut("F2")
-            b.setStyleSheet(_BTN % ("#2563eb" if i == 0 else "#ffffff", "#ffffff" if i == 0 else "#1e293b"))
+            b.setStyleSheet(btn_style("#2563eb" if i == 0 else "#ffffff", "#ffffff" if i == 0 else "#1e293b"))
             b.clicked.connect(lambda _=False, t=tur: self.on_new_clicked(t))
             sec.add_widget(b)
             self.btn_yeni.append(b)
         self.btn_edit = QPushButton("✏️ Düzenle")
         self.btn_pasif = QPushButton("⏸ Pasife Al / Aktife Al")
         for b, fn in ((self.btn_edit, self.on_edit_clicked), (self.btn_pasif, self.on_pasif_clicked)):
-            b.setStyleSheet(_BTN % ("#ffffff", "#1e293b"))
+            b.setStyleSheet(btn_style("#ffffff", "#1e293b"))
             b.clicked.connect(fn)
             sec.add_widget(b)
         layout.addWidget(sec)
+
+        # Hareket girişi: seçili hesap fişte varsayılan hesap olur (kasa/banka fiş penceresi; menüdeki hareket ekranıyla aynı pencere)
+        sec_h = CollapsibleSection("HAREKET GİRİŞİ", is_expanded=True)
+        sec_h.setObjectName(f"cmp.act.finans_{self.grup}_hareket")
+        self.btn_hareket: dict[str, QPushButton] = {}
+        for tur, etiket in FIS_TIPLERI[self.grup].items():
+            b = QPushButton(f"➕ {etiket}")
+            b.setStyleSheet(btn_style("#ffffff", "#1e293b"))
+            b.clicked.connect(lambda _=False, t=tur: self.on_hareket_clicked(t))
+            sec_h.add_widget(b)
+            self.btn_hareket[tur] = b
+        layout.addWidget(sec_h)
         layout.addStretch()
 
     def setup_right_panel_content(self, container: QFrame, layout: QVBoxLayout) -> None:
@@ -122,7 +152,7 @@ class FinansHesapListScreen(ThreePanelBaseWidget):
             sec_f.add_widget(self.cmb_tur)
         sec_f.add_widget(self.cmb_durum)
         btn_temizle = QPushButton("🧹 Filtreleri Temizle")
-        btn_temizle.setStyleSheet(_BTN % ("#ffffff", "#1e293b"))
+        btn_temizle.setStyleSheet(btn_style("#ffffff", "#1e293b"))
         btn_temizle.clicked.connect(self.clear_filters)
         sec_f.add_widget(btn_temizle)
         layout.addWidget(sec_f)
@@ -148,7 +178,7 @@ class FinansHesapListScreen(ThreePanelBaseWidget):
         self.btn_excel.clicked.connect(self.on_excel_clicked)
         self.btn_hide.clicked.connect(self.on_hide_clicked)
         for b in (self.btn_excel, self.btn_hide):
-            b.setStyleSheet(_BTN % ("#ffffff", "#1e293b"))
+            b.setStyleSheet(btn_style("#ffffff", "#1e293b"))
             sec_i.add_widget(b)
         layout.addWidget(sec_i)
         layout.addStretch()
@@ -158,6 +188,8 @@ class FinansHesapListScreen(ThreePanelBaseWidget):
         izin = self.cfg["izin"]
         for b in self.btn_yeni:
             gate(b, f"{izin}.create", hide=True)
+        for b in self.btn_hareket.values():
+            gate(b, f"{izin}.movement", hide=True)
         gate(self.btn_edit, f"{izin}.edit", hide=True)
         gate(self.btn_pasif, f"{izin}.edit", hide=True)
         gate(self.btn_hide, f"{izin}.delete", hide=True)
@@ -224,7 +256,7 @@ class FinansHesapListScreen(ThreePanelBaseWidget):
         for h in self._kayitlar:
             items = []
             for alan in alanlar:
-                it = QStandardItem("☐" if alan == "select" else self._hucre(h, alan))
+                it = QStandardItem("" if alan == "select" else self._hucre(h, alan))
                 if alan in ("bakiye", "komisyon", "valor"):
                     it.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
                 if alan == "durum" and not h.aktif:
@@ -286,6 +318,15 @@ class FinansHesapListScreen(ThreePanelBaseWidget):
             self.load_data()
             self.data_changed.emit()
 
+    def on_hareket_clicked(self, tur: str) -> None:
+        """Seçili hesaba kasa/banka hareket fişi açar; fiş kaydedilince kart listesi (bakiye) ve alt panel yenilenir."""
+        from src.desktop.ui.widgets.finans_fis_dialog import FinansFisDialog
+        h = self._secili()
+        if FinansFisDialog(self.db, grup=self.grup, tur=tur, hesap_id=h.id if h is not None else None, parent=self).exec():
+            self.load_data()
+            self.alt_panel.yenile()
+            self.data_changed.emit()
+
     def on_edit_clicked(self) -> None:
         h = self._secili()
         if h is None:
@@ -345,6 +386,11 @@ class FinansHesapListScreen(ThreePanelBaseWidget):
             menu.addAction(a)
         if idx.isValid():
             self.table_view.selectRow(idx.row())
+            menu.addSeparator()
+            for tur, etiket in FIS_TIPLERI[self.grup].items():
+                a = QAction(f"➕ {etiket}", self)
+                a.triggered.connect(lambda _=False, t=tur: self.on_hareket_clicked(t))
+                menu.addAction(a)
             menu.addSeparator()
             for text, fn in (("✏️ Düzenle", self.on_edit_clicked), ("⏸ Pasife Al / Aktife Al", self.on_pasif_clicked),
                              ("🗑️ Gizle", self.on_hide_clicked)):

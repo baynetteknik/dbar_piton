@@ -15,6 +15,7 @@ from pathlib import Path
 from PyQt6.QtWidgets import QMainWindow, QTabWidget, QWidget
 
 from src.desktop.designer.ui.designer_widget import ReportDesignerWidget
+from src.desktop.ui.components.window_fit_helper import ekrana_sigdir
 
 logger = logging.getLogger(__name__)
 
@@ -52,7 +53,7 @@ class ReportDesignerWindow(QMainWindow):
         self.designer.title_changed.connect(self.setWindowTitle)
         self.setCentralWidget(self.tabs)
         self.setWindowTitle(self.designer.window_title())
-        self.resize(1380, 900)
+        ekrana_sigdir(self, 1380, 900)   # 1366x768 gibi düşük çözünürlüklerde pencere ekran dışına taşmasın
         self.setMinimumSize(950, 650)
 
     # ── Geriye dönük uyum proxy'leri (eski çağıranlar .template/.canvas okuyor) ──

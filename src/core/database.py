@@ -66,8 +66,24 @@ class DatabaseManager:
         Base.metadata.create_all(self.engine)
         self._ensure_compatibility_columns()
         self._fix_legacy_not_null_columns()
+        self._belge_turlerini_doldur()
         self._ensure_default_admin()
         logger.info("Database schemas ensured and initialized.")
+
+    def _belge_turlerini_doldur(self):
+        """Eski belgelerde (yalnızca `quotation_type` olan) `belge_turu`/`yon` alanlarını bir kez doldurur (idempotent)."""
+        from src.core.belge_turleri import geriye_doldur
+
+        session = self.SessionLocal()
+        try:
+            n = geriye_doldur(session)
+            if n:
+                logger.info("%d belgenin türü/yönü eski alandan dolduruldu.", n)
+        except Exception as e:  # noqa: BLE001 - geçiş hatası açılışı engellememeli
+            session.rollback()
+            logger.warning("Belge türleri doldurulamadı: %s", e)
+        finally:
+            session.close()
 
     def _ensure_default_admin(self):
         """Veritabanında hiç kullanıcı yoksa varsayılan admin kullanıcısını oluşturur."""

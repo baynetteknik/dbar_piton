@@ -124,6 +124,11 @@ def test_quotations_context_menu_has_no_deneme_items(qapp, db):
 
 def test_main_window_blocks_denied_module(qapp, db):
     _teklif_only_user(db)
+    from src.desktop.services.company_service import CompanyService
+    firma_svc = CompanyService(db)
+    firma_id = firma_svc.save({**CompanyService.blank_company(), "code": "TST", "short_name": "Test A.Ş."}).company_id
+    firma_svc.aktif_firma_sec(firma_id)  # 2026-09-30: modüller aktif firma gerektiriyor
+
     from src.desktop.ui.main_window import MainWindow
     mw = MainWindow(db, user_config={"username": "tk"})
     n0 = mw.tab_widget.count()
@@ -166,3 +171,17 @@ def test_switch_user_dialog_verifies_password(qapp, db):
     dlg.txt_pass.setText("gizli")
     dlg._try_switch()
     assert dlg.selected_user is not None and dlg.selected_user.username == "ayse"
+
+
+def test_dashboard_tiles_include_waybills_and_fixed_kasa_banka_targets(qapp, db):
+    """Ana ekrandaki modül kartları: İrsaliyeler kartı var; Kasa/Banka kartlarının hedefi gerçek ekran adlarıyla (menu_structure/IMPLEMENTED_MODULES) eşleşir."""
+    _admin(db)
+    from src.desktop.ui.widgets.menu_grid_widget import MenuGridWidget
+    g = MenuGridWidget()
+    assert "İrsaliyeler" in g._buttons and not g._buttons["İrsaliyeler"].isHidden()
+    assert "Kasa Kartları" in g._buttons and "Banka & POS Kartları" in g._buttons
+    assert "Kasa Yönetimi" not in g._buttons and "Banka Hesapları" not in g._buttons       # eski, hiçbir ekrana bağlanmayan hedefler
+    g.set_implemented(frozenset({"İrsaliyeler", "Kasa Kartları", "Banka & POS Kartları"}))
+    for hedef in ("İrsaliyeler", "Kasa Kartları", "Banka & POS Kartları"):
+        assert g._buttons[hedef].isEnabled() is True
+    assert g._buttons["Faturalar"].isEnabled() is False

@@ -736,3 +736,33 @@ class GitWorker(QThread):
             self.finished.emit(True, "Stash'teki değişiklikler geri yüklendi.")
         else:
             self.finished.emit(False, f"Stash pop hatası: {out}")
+
+
+def create_git_tag(tag_name: str, message: str = "") -> tuple[bool, str]:
+    """Creates an annotated Git release tag using git CLI."""
+    if not is_git_available():
+        return False, "Git komut satırı aracı sistemde bulunamadı."
+
+    clean_tag = tag_name.strip()
+    if not clean_tag:
+        return False, "Sürüm etiketi (tag) adı boş olamaz."
+
+    args = ["tag", "-a", clean_tag, "-m", message or f"Sürüm {clean_tag} yayını"] if message else ["tag", clean_tag]
+    res = run_git_cmd(args)
+    if res is None:
+        return False, "Git tag komutu çalıştırılamadı."
+    if res.returncode != 0:
+        err = (res.stderr or res.stdout or "").strip()
+        return False, f"Git tag oluşturulamadı: {err}"
+    return True, f"'{clean_tag}' sürüm etiketi başarıyla oluşturuldu."
+
+
+def get_git_tags() -> list[str]:
+    """Returns a list of Git tags sorted by version/tag date."""
+    if not is_git_available():
+        return []
+    res = run_git_cmd(["tag", "-l", "--sort=-v:refname"])
+    if res and res.returncode == 0 and res.stdout:
+        return [t.strip() for t in res.stdout.strip().splitlines() if t.strip()]
+    return []
+

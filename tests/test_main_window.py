@@ -1,6 +1,5 @@
 """Unit tests for MainWindow 3-column vertical dashboard and footer navigation."""
 
-import pytest
 from PyQt6.QtWidgets import QApplication
 
 from src.desktop.ui.main_window import MainWindow
@@ -8,6 +7,11 @@ from src.desktop.ui.main_window import MainWindow
 
 def test_main_window_tabs_and_dashboard(qapp, db_session):
     """Verify 3-column vertical Dashboard, footer menu navigation, and dynamic tabs."""
+    from src.desktop.services.company_service import CompanyService
+    firma_svc = CompanyService(db_session)
+    firma_id = firma_svc.save({**CompanyService.blank_company(), "code": "TST", "short_name": "Test A.Ş."}).company_id
+    firma_svc.aktif_firma_sec(firma_id)  # 2026-09-30: modül gridindeki ilk öğe artık aktif firma gerektiriyor
+
     window = MainWindow(db_session=db_session)
     window.show()
 
@@ -16,23 +20,26 @@ def test_main_window_tabs_and_dashboard(qapp, db_session):
     assert "Ana Panel" in window.tab_widget.tabText(0)
     assert window.tab_widget.currentIndex() == 0
 
-    # 2. 3-Column Vertical Layout Verification
-    assert hasattr(window, "fav_screens_frame")
-    assert hasattr(window, "fav_reports_frame")
-    assert hasattr(window, "main_icons_frame")
+    # 2. 3-Panel Splitter Dashboard Layout Verification
+    assert hasattr(window, "dash_splitter")
+    assert window.dash_splitter.count() == 3
+    assert hasattr(window, "fav_widget")
+    assert hasattr(window, "bugun_gorevleri")
+    assert hasattr(window, "bildirimler_karti")
+    assert hasattr(window, "menu_grid_widget")
 
-    # Left: Favori Ek İşlemler List
+    # Left: Favori İşlemler & Kısayollar
+    assert hasattr(window, "fav_screens_list")
     assert window.fav_screens_list.count() > 0
     first_fav = window.fav_screens_list.item(0)
-    assert any(icon in first_fav.text() for icon in ["📦", "💾", "📄", "👥", "⭐"])
+    assert any(name in first_fav.text() for name in ["Ürün", "Görev", "Teklif", "Müşteri", "Cari"])
 
-    # Middle: Favori Raporlar List
-    assert window.fav_reports_list.count() >= 3
-    first_rep = window.fav_reports_list.item(0)
-    assert "📊" in first_rep.text() or "Sipariş" in first_rep.text()
+    # Middle: Bugünün Görevleri & Bildirimler Kartları
+    assert window.bugun_gorevleri is not None
+    assert window.bildirimler_karti is not None
 
-    # Right: Ana İkonlar Grid
-    assert window.grid_layout.count() >= 7
+    # Right: Ana Menüler Modül Gridi
+    assert window.menu_grid_widget.grid_layout.count() >= 7
 
     # 3. Footer Bar Navigation & Menu Buttons
     assert hasattr(window, "footer_bar")
@@ -45,8 +52,8 @@ def test_main_window_tabs_and_dashboard(qapp, db_session):
         assert not text.startswith("👥  👥")
         assert not text.startswith("📦  📦")
 
-    # 4. Test GridModuleButton click directly opens module
-    first_grid_item = window.grid_layout.itemAt(0).widget()
+    # 4. Test MenuGridButton click directly opens module
+    first_grid_item = window.menu_grid_widget.grid_layout.itemAt(0).widget()
     assert first_grid_item is not None
     initial_tabs = window.tab_widget.count()
     first_grid_item.click()
@@ -124,3 +131,23 @@ def test_main_window_schedules_currency_autofetch_once(qapp, db_session, monkeyp
     qapp.processEvents()
 
 
+
+
+def test_ilk_gosterimde_dash_splitter_bir_kez_yeniden_yerlestirilir(qapp, db_session):
+    """Pencere ilk gösterildiğinde (showMaximized() henüz oturmadan) gösterge paneli dar kalabiliyordu;
+    kullanıcı pencereyi elle büyütüp küçültene kadar düzelmiyordu. showEvent artık bir olay döngüsü turu
+    sonra bölücüyü kendi güncel boyutuna göre yeniden dağıtıyor (tek seferlik, sonraki show()'larda tekrar etmez)."""
+    window = MainWindow(db_session=db_session)
+    assert window._ilk_gosterim_yapildi is False
+    calls = []
+    window.dash_splitter.setSizes = lambda sizes, orig=window.dash_splitter.setSizes: (calls.append(sizes), orig(sizes))[1]
+    window.show()
+    assert window._ilk_gosterim_yapildi is True
+    assert not calls                                                            # henüz olay döngüsü işlemedi (QTimer.singleShot(0,...))
+    QApplication.processEvents()
+    assert calls                                                                # nudge tetiklendi
+    onceki = len(calls)
+    window.hide()
+    window.show()
+    QApplication.processEvents()
+    assert len(calls) == onceki                                                 # yalnız ilk gösterimde; tekrar tetiklenmez

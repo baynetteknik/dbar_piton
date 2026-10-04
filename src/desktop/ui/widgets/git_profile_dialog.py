@@ -25,8 +25,8 @@ from PyQt6.QtWidgets import (
 )
 
 from src.desktop.services import git_profile_store as store
-from src.desktop.ui.components.dialog_style import apply_light_dialog_style
 from src.desktop.services.git_service import AUTH_GCM, AUTH_SSH, AUTH_TOKEN
+from src.desktop.ui.components.dialog_style import apply_light_dialog_style
 
 _HELP = {
     AUTH_GCM: "Kaydettikten sonra 'Google ile Giriş Yap' düğmesine basın: tarayıcı açılır, GitHub'da Google hesabınızla "
@@ -36,6 +36,29 @@ _HELP = {
     AUTH_SSH: "SSH adresi (git@github.com:kullanici/depo.git) kullanın. Ortak anahtarınızı GitHub → Settings → SSH keys'e ekleyin.",
 }
 
+
+_COMBO_STYLE = """
+    QComboBox {
+        combobox-popup: 0;
+        border: 1px solid #cbd5e1;
+        border-radius: 4px;
+        padding: 4px 6px;
+        background-color: white;
+        color: #0f172a;
+        font-size: 11px;
+    }
+    QComboBox QAbstractItemView {
+        outline: 0;
+        padding: 0px;
+        border: 1px solid #cbd5e1;
+        background-color: #ffffff;
+        color: #0f172a;
+    }
+    QComboBox QAbstractItemView::item {
+        padding: 3px 6px;
+        min-height: 20px;
+    }
+"""
 
 class GitProfileDialog(QDialog):
     def __init__(self, profile: dict[str, Any] | None = None, parent=None) -> None:
@@ -58,6 +81,7 @@ class GitProfileDialog(QDialog):
         self.txt_url.setPlaceholderText("https://github.com/kullanici/depo.git")
         self.txt_branch = QLineEdit(self.profile.get("branch", "main") or "main")
         self.cmb_auth = QComboBox()
+        self.cmb_auth.setStyleSheet(_COMBO_STYLE)
         self.cmb_auth.addItem("🔵 Google ile giriş (tarayıcı) — önerilen", AUTH_GCM)
         self.cmb_auth.addItem("🔑 Erişim belirteci (PAT)", AUTH_TOKEN)
         self.cmb_auth.addItem("🗝 SSH anahtarı", AUTH_SSH)

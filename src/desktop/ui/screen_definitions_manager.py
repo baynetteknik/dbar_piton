@@ -43,6 +43,7 @@ from src.desktop.core.screen_registry import (
 )
 from src.desktop.managers.profile_manager import ProfileManager
 from src.desktop.managers.theme_manager import ThemeManager
+from src.desktop.ui.components.button_style import btn_style
 from src.desktop.ui.components.collapsible_section import CollapsibleSection
 from src.desktop.ui.components.edge_panel import EdgeTriggeredPanel
 from src.desktop.ui.components.filterable_table import FilterableTableView
@@ -81,20 +82,7 @@ class ScreenDefinitionsManagerWidget(QWidget):
         self.load_screen_definitions()
 
     def toolbar_btn_style(self, bg_color="#ffffff", text_color="#1e293b", border_color="#cbd5e1"):
-        return f"""
-            QPushButton {{
-                background-color: {bg_color};
-                color: {text_color};
-                border: 1px solid {border_color};
-                border-radius: 6px;
-                padding: 8px 12px;
-                font-size: 11px;
-                font-weight: 700;
-                text-align: left;
-                font-family: 'Segoe UI';
-            }}
-            QPushButton:hover {{ background-color: #f1f5f9; }}
-        """
+        return btn_style(bg_color, text_color)
 
     def init_ui(self):
         main_layout = QHBoxLayout(self)
@@ -103,6 +91,7 @@ class ScreenDefinitionsManagerWidget(QWidget):
 
         combo_style = """
             QComboBox, QLineEdit {
+                combobox-popup: 0;
                 border: 1px solid #cbd5e1;
                 border-radius: 6px;
                 padding: 6px 10px;
@@ -115,7 +104,7 @@ class ScreenDefinitionsManagerWidget(QWidget):
                 background-color: #ffffff;
                 color: #0f172a;
                 outline: none;
-                padding: 2px 0px;
+                padding: 0px;
             }
             QComboBox QAbstractItemView::item {
                 min-height: 26px;
@@ -310,7 +299,27 @@ class ScreenDefinitionsManagerWidget(QWidget):
 
         self.combo_theme = QComboBox()
         self.combo_theme.addItems(["1. Kurumsal Lacivert", "2. Zümrüt Yeşili", "3. Koyu Antrasit", "4. Klasik Bordo"])
-        self.combo_theme.setStyleSheet("padding: 5px; background: white; border: 1px solid #cbd5e1; border-radius: 4px; font-weight: bold;")
+        self.combo_theme.setStyleSheet("""
+            QComboBox {
+                combobox-popup: 0;
+                padding: 5px;
+                background: white;
+                border: 1px solid #cbd5e1;
+                border-radius: 4px;
+                font-weight: bold;
+            }
+            QComboBox QAbstractItemView {
+                outline: 0;
+                padding: 0px;
+                border: 1px solid #cbd5e1;
+                background-color: #ffffff;
+                color: #0f172a;
+            }
+            QComboBox QAbstractItemView::item {
+                padding: 3px 6px;
+                min-height: 20px;
+            }
+        """)
         self.combo_theme.currentIndexChanged.connect(self._on_theme_changed)
         sec_theme.add_widget(self.combo_theme)
 
@@ -326,7 +335,27 @@ class ScreenDefinitionsManagerWidget(QWidget):
             "⚫ Koyu Antrasit - 🔵 Mavi Hover",
             "🔴 Klasik Bordo - 🔵 Lacivert Hover",
         ])
-        self.combo_menu_theme.setStyleSheet("padding: 5px; background: white; border: 1px solid #cbd5e1; border-radius: 4px; font-weight: bold;")
+        self.combo_menu_theme.setStyleSheet("""
+            QComboBox {
+                combobox-popup: 0;
+                padding: 5px;
+                background: white;
+                border: 1px solid #cbd5e1;
+                border-radius: 4px;
+                font-weight: bold;
+            }
+            QComboBox QAbstractItemView {
+                outline: 0;
+                padding: 0px;
+                border: 1px solid #cbd5e1;
+                background-color: #ffffff;
+                color: #0f172a;
+            }
+            QComboBox QAbstractItemView::item {
+                padding: 3px 6px;
+                min-height: 20px;
+            }
+        """)
         self.combo_menu_theme.currentIndexChanged.connect(self._on_menu_theme_changed)
         sec_theme.add_widget(self.combo_menu_theme)
 

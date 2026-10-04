@@ -21,7 +21,6 @@ from PyQt6.QtGui import (
     QKeySequence,
     QShortcut,
     QStandardItem,
-    QStandardItemModel,
 )
 from PyQt6.QtWidgets import (
     QComboBox,
@@ -37,11 +36,15 @@ from PyQt6.QtWidgets import (
     QTableWidget,
     QTableWidgetItem,
     QVBoxLayout,
-    QWidget,
 )
 
+from src.desktop.services import belge_hesap, sayi_bicimi
 from src.desktop.ui.components.current_row_highlighter import CurrentRowHighlighter
 from src.desktop.ui.components.filterable_table import FilterableTableView
+from src.desktop.ui.components.grid_delegates import ComboDelegate as _NavComboDelegate
+from src.desktop.ui.components.grid_delegates import NavDelegate
+from src.desktop.ui.widgets.entry_grid_base import EntryGridBase, KolonTanimi
+from src.desktop.ui.widgets.kullanilabilir_stok_etiketi import KullanilabilirStokEtiketi
 
 logger = logging.getLogger(__name__)
 
@@ -58,6 +61,8 @@ COL_BFIYAT = 8
 COL_ISK = 9
 COL_KDV = 10
 COL_NET = 11
+COL_DOVIZ = 12      # satırın para birimi (kod); TRY dışındaysa Kur ile TL'ye çevrilir
+COL_KUR = 13
 
 HEADERS = {
     COL_SELECT: ("☑", "select"),
@@ -72,12 +77,27 @@ HEADERS = {
     COL_ISK: ("İsk %", "iskonto_yuzde"),
     COL_KDV: ("KDV %", "kdv_yuzde"),
     COL_NET: ("Net Tutar", "net_tutar"),
+    COL_DOVIZ: ("Döviz", "doviz"),
+    COL_KUR: ("Kur", "kur"),
 }
 
 _READONLY_COLS = {COL_SEQ, COL_NET}
-_NUMERIC_COLS = {COL_MIKTAR, COL_BFIYAT, COL_ISK, COL_KDV}
-_RECALC_COLS = {COL_MIKTAR, COL_BFIYAT, COL_ISK, COL_KDV}
+_NUMERIC_COLS = {COL_MIKTAR, COL_BFIYAT, COL_ISK, COL_KDV, COL_KUR}
+_RECALC_COLS = {COL_MIKTAR, COL_BFIYAT, COL_ISK, COL_KDV, COL_KUR}
+TL_KODU = "TRY"
 _STOK_ARAMA_COLS = {COL_KOD, COL_ACIKLAMA}
+
+_FORMAT_HANELERI = {
+    COL_MIKTAR: lambda: sayi_bicimi.hane("miktar"),
+    COL_BFIYAT: lambda: sayi_bicimi.hane("fiyat"),
+    COL_ISK: lambda: 2,
+    COL_KUR: lambda: sayi_bicimi.hane("kur"),
+}
+
+_VARSAYILAN_GENISLIK = {
+    COL_SELECT: 34, COL_SEQ: 42, COL_TUR: 92, COL_KOD: 100, COL_BARKOD: 90, COL_ACIKLAMA: 230, COL_MIKTAR: 78, COL_BIRIM: 64,
+    COL_BFIYAT: 112, COL_ISK: 60, COL_KDV: 58, COL_NET: 112, COL_DOVIZ: 62, COL_KUR: 84,
+}
 
 BIRIMLER = ["Adet", "Kg", "Lt", "Mt", "M2", "M3", "Paket", "Kutu", "Koli", "Saat", "Gün"]
 KDV_ORANLARI = ["0", "1", "10", "20"]
@@ -121,7 +141,7 @@ def fmt_num(value: float, decimals: int = 2) -> str:
         return "0,00"
 
 
-class _LookupDelegate(QStyledItemDelegate):
+class _LookupDelegate(NavDelegate):
     """Hücrenin sağ kenarında tıklanabilir 🔍 gösterir; stok rehberini açar.
 
     Ayrıca hücreye yazarken canlı arama (typeahead) sunar: kod/açıklama
@@ -184,8 +204,19 @@ class _LookupDelegate(QStyledItemDelegate):
         self.closeEditor.emit(editor, QStyledItemDelegate.EndEditHint.NoHint)
 
 
-class _ComboDelegate(QStyledItemDelegate):
+class _ComboDelegate(NavDelegate):
     """Belirli kolonlar için açılır liste hücre editörü (birim, KDV%)."""
+
+    _QSS = (
+        "QComboBox { combobox-popup: 0; padding: 0px 4px; border: 1px solid #2563eb; background: #ffffff; color: #0f172a; }"
+        " QComboBox QAbstractItemView { padding: 0px; outline: 0; background-color: #ffffff; color: #1e293b; }"
+        " QComboBox QAbstractItemView::item { padding: 2px 4px; margin: 0px; min-height: 20px; }"
+    )
+    _VIEW_QSS = (
+        "QListView { background-color: #ffffff; color: #1e293b; outline: 0; padding: 0px; }"
+        " QListView::item { padding: 3px 4px; min-height: 20px; }"
+        " QListView::item:selected { background-color: #dbeafe; color: #1e3a8a; }"
+    )
 
     def __init__(self, options: list[str], editable: bool = True, parent=None):
         super().__init__(parent)
@@ -194,6 +225,9 @@ class _ComboDelegate(QStyledItemDelegate):
 
     def createEditor(self, parent, option, index):  # noqa: N802
         cb = QComboBox(parent)
+        cb.setStyleSheet(self._QSS)
+        cb.setItemDelegate(QStyledItemDelegate(cb))
+        cb.view().setStyleSheet(self._VIEW_QSS)
         cb.setEditable(self.editable)
         cb.addItems(self.options)
         return cb
@@ -272,29 +306,71 @@ class StokAramaDialog(QDialog):
         self.accept()
 
 
-class DocumentLinesGrid(QWidget):
-    """Belge kalemleri giriş grid'i (entry modunda FilterableTableView tabanlı)."""
+def _belge_kolonlari() -> list[KolonTanimi]:
+    """Belge kalemi sütun tanımları (`HEADERS` indeksleri = sütun sırası). Genişlik oranı/asgarisi varsayılan piksellerdir."""
+    tipler = {
+        COL_SELECT: "secim", COL_SEQ: "readonly", COL_NET: "readonly", COL_TUR: "combo", COL_BIRIM: "combo", COL_KDV: "combo", COL_DOVIZ: "combo",
+        COL_KOD: "lookup", COL_ACIKLAMA: "lookup", COL_MIKTAR: "para", COL_BFIYAT: "para", COL_ISK: "para", COL_KUR: "para",
+    }
+    hane = {COL_MIKTAR: sayi_bicimi.hane("miktar"), COL_BFIYAT: sayi_bicimi.hane("fiyat"), COL_ISK: 2, COL_KUR: sayi_bicimi.hane("kur")}
+    hiza = {c: "R" for c in (COL_MIKTAR, COL_BFIYAT, COL_ISK, COL_KDV, COL_NET, COL_KUR)}
+    return [
+        KolonTanimi(key=HEADERS[c][1], baslik=HEADERS[c][0], oran=_VARSAYILAN_GENISLIK[c], min_px=_VARSAYILAN_GENISLIK[c],
+                    tip=tipler.get(c, "text"), ondalik=hane.get(c, 2), bos_olabilir=False, hiza=hiza.get(c, "L"))
+        for c in sorted(HEADERS)
+    ]
+
+
+class DocumentLinesGrid(EntryGridBase):
+    """Belge kalemleri giriş grid'i: `EntryGridBase` (standart giriş motoru) + belgeye özgü stok arama, satır dövizi, KDV, toplam.
+
+    Geriye uyum: `grid` = `FilterableTableView` (kapsayıcı; fiş gridlerinde `grid` tablodur), `model` = `QStandardItemModel`."""
 
     totals_changed = pyqtSignal(dict)
 
     def __init__(self, profile_key: str = "belge_kalemleri", parent=None):
-        super().__init__(parent)
         self.profile_key = profile_key
+        self.PRESET_ID = profile_key
         self._recalc_guard = False
         self._doviz_sembol = "₺"
         self._doviz_kur = 1.0
         self._products: list[dict] = []
+        self._yerel = TL_KODU                                   # şirketin çalışma para birimi (`set_currencies` ile gelir)
+        self._kurlar: dict[str, float] = {TL_KODU: 1.0}      # para birimi kodu -> güncel kur (yerel para karşılığı)
+        self._lookup_del = None
         #: Opsiyonel: sağ-tık menüsüne belge düzeyi eylem ekleyen callable(menu)
         self.document_actions_provider = None
+        super().__init__(None, parent)
         self._init_ui()
+
+    @property
+    def grid(self) -> FilterableTableView:                # geriye uyum (bkz. sınıf açıklaması)
+        return self.entry
+
+    def kolonlar(self) -> list[KolonTanimi]:
+        return _belge_kolonlari()
+
+    # ---- editörler: belgeye özgü açılır listeler / stok arama ------------------------
+    def _delegate(self, k: KolonTanimi):
+        tv = self.tv
+        if k.key == HEADERS[COL_TUR][1]:
+            return _ComboDelegate(TUR_SECENEKLERI, editable=False, parent=tv)
+        if k.key == HEADERS[COL_BIRIM][1]:
+            return _ComboDelegate(BIRIMLER, editable=True, parent=tv)
+        if k.key == HEADERS[COL_KDV][1]:
+            return _ComboDelegate(KDV_ORANLARI, editable=True, parent=tv)
+        if k.key == HEADERS[COL_DOVIZ][1]:
+            return _NavComboDelegate(self._doviz_kodlari, parent=tv)
+        if k.tip == "lookup":                              # Stok Kodu / Açıklama: 🔍 + yazarken canlı arama (cari künyesindeki gibi)
+            if self._lookup_del is None:
+                self._lookup_del = _LookupDelegate(on_lookup=self._lookup_for_row, get_products=lambda: self._products,
+                                                   on_pick=self._apply_product_to_row, parent=tv)
+            return self._lookup_del
+        return super()._delegate(k)
 
     # ------------------------------------------------------------------
     def _init_ui(self):
-        lyt = QVBoxLayout(self)
-        lyt.setContentsMargins(0, 0, 0, 0)
-        lyt.setSpacing(4)
-
-        # İnce üst şerit: sadece "Kartlara da kaydet" + kalem sayacı
+        # İnce üst şerit: bilgi + kalem sayacı
         bar = QHBoxLayout()
         bar.setContentsMargins(2, 0, 2, 0)
         bar.setSpacing(6)
@@ -306,7 +382,7 @@ class DocumentLinesGrid(QWidget):
         info = QLabel(
             "ℹ️ Katalogda olmayan Malzeme/Hizmet kodu girince stok kartı açma sorulur.",
         )
-        info.setStyleSheet("font-size:10px;color:#94a3b8;")
+        info.setStyleSheet("font-size:11px;color:#475569;")
         # DİKKAT: setWordWrap(True) QLabel'a heightForWidth kazandırır; bu da üst
         # QVBoxLayout'u (kalem gridi + alt panel) hatalı hfw dağıtım moduna sokup
         # pencere kısaldığında Toplam widget'ının alt satırlarını kırpıyordu.
@@ -315,67 +391,38 @@ class DocumentLinesGrid(QWidget):
         info.setToolTip(_info_full)
         bar.addWidget(info, 1)
         bar.addStretch()
+        self.stok_etiketi = KullanilabilirStokEtiketi(parent=self)
+        bar.addWidget(self.stok_etiketi)
+        self.satir_secildi.connect(self._stok_goster)
         self.lbl_count = QLabel("0 kalem")
         self.lbl_count.setStyleSheet("font-size:10px;font-weight:600;color:#64748b;")
         bar.addWidget(self.lbl_count)
-        lyt.addLayout(bar)
-
-        self.grid = FilterableTableView(
-            headers_dict=HEADERS,
-            profile_key=self.profile_key,
-            select_column=COL_SELECT,
-            mode="entry",
-        )
-        self.model = QStandardItemModel(self)
-        self.model.setHorizontalHeaderLabels([HEADERS[c][0] for c in sorted(HEADERS)])
-        self.grid.table_view.setModel(self.model)
-        self.model.itemChanged.connect(self._on_item_changed)
-
-        self.grid.table_view.setItemDelegateForColumn(
-            COL_TUR, _ComboDelegate(TUR_SECENEKLERI, editable=False, parent=self),
-        )
-        self.grid.table_view.setItemDelegateForColumn(
-            COL_BIRIM, _ComboDelegate(BIRIMLER, editable=True, parent=self),
-        )
-        self.grid.table_view.setItemDelegateForColumn(
-            COL_KDV, _ComboDelegate(KDV_ORANLARI, editable=True, parent=self),
-        )
-        # Stok Kodu ve Açıklama hücrelerinde tıklanabilir 🔍 + yazarken
-        # canlı arama (typeahead) — cari künyesindeki ile aynı davranış.
-        lookup_del = _LookupDelegate(
-            on_lookup=self._lookup_for_row,
-            get_products=lambda: self._products,
-            on_pick=self._apply_product_to_row,
-            parent=self,
-        )
-        self.grid.table_view.setItemDelegateForColumn(COL_KOD, lookup_del)
-        self.grid.table_view.setItemDelegateForColumn(COL_ACIKLAMA, lookup_del)
+        self._lyt.insertLayout(0, bar)
 
         # Üzerinde çalışılan satır tüm genişliğince renklenir (yeniden kullanılabilir
         # bileşen; koşullu renklendirme delegate'iyle çakışmaz).
         self.row_highlighter = CurrentRowHighlighter(
-            self.grid.table_view, bg="#bfdbfe", fg="#0f172a",
+            self.tv, bg="#bfdbfe", fg="#0f172a",
         ).apply()
 
-        lyt.addWidget(self.grid, 1)
+        QShortcut(QKeySequence("Ins"), self.tv, activated=lambda: self.add_row(focus=True))
+        QShortcut(QKeySequence("Del"), self.tv, activated=self.remove_checked_rows)
+        QShortcut(QKeySequence("F10"), self.tv, activated=self.open_stock_lookup)
 
-        # Satır işlemleri: sağ-tık menüsü (butonlar yer kaplamasın)
-        self.grid.table_view.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
-        self.grid.table_view.customContextMenuRequested.connect(self._show_context_menu)
+    def set_stok_db(self, db) -> None:
+        self.stok_etiketi.db = db
 
-        QShortcut(QKeySequence("Ins"), self.grid.table_view,
-                  activated=lambda: self.add_row(focus=True))
-        QShortcut(QKeySequence("Del"), self.grid.table_view,
-                  activated=self.remove_checked_rows)
-        QShortcut(QKeySequence("F10"), self.grid.table_view,
-                  activated=self.open_stock_lookup)
+    def _stok_goster(self, row: int) -> None:
+        if row < 0 or row >= self.model.rowCount():
+            return self.stok_etiketi.temizle()
+        self.stok_etiketi.goster(self._cell(row, COL_KOD))
 
     def _lookup_for_row(self, row: int):
         self.grid.table_view.setCurrentIndex(self.model.index(row, COL_KOD))
         prefill = self._cell(row, COL_KOD) or self._cell(row, COL_ACIKLAMA)
         self.open_stock_lookup(prefill=prefill)
 
-    def _show_context_menu(self, pos):
+    def _baglam_menusu(self, pos):
         menu = QMenu(self)
         a_add = QAction("➕ Satır Ekle (Ins)", self)
         a_add.triggered.connect(lambda: self.add_row(focus=True))
@@ -400,8 +447,8 @@ class DocumentLinesGrid(QWidget):
             menu.addSeparator()
             self.document_actions_provider(menu)
         menu.addSeparator()
-        self.grid.add_column_actions_to_menu(menu)
-        menu.exec(self.grid.table_view.viewport().mapToGlobal(pos))
+        self.entry.add_column_actions_to_menu(menu)
+        menu.exec(self.tv.viewport().mapToGlobal(pos))
 
     # ------------------------------------------------------------------
     def set_products(self, products: list[dict]):
@@ -424,8 +471,12 @@ class DocumentLinesGrid(QWidget):
                     COL_TUR: "Malzeme",
                     COL_MIKTAR: "1", COL_ISK: "0", COL_KDV: "20",
                     COL_BFIYAT: "0", COL_BIRIM: "Adet",
+                    COL_DOVIZ: self._yerel, COL_KUR: "1",
                 }.get(col, "")
-                it = QStandardItem(str(data.get(field, default)))
+                metin = str(data.get(field, default))
+                if col in _FORMAT_HANELERI:                       # sayısal hücreler ayarlı hane sayısıyla gösterilir
+                    metin = fmt_num(parse_num(metin), _FORMAT_HANELERI[col]())
+                it = QStandardItem(metin)
                 it.setEditable(col not in _READONLY_COLS)
                 if col in _NUMERIC_COLS or col == COL_NET:
                     it.setTextAlignment(
@@ -443,12 +494,7 @@ class DocumentLinesGrid(QWidget):
             self.grid.table_view.edit(idx)
 
     def remove_checked_rows(self):
-        rows = sorted(self.grid.get_checked_rows(), reverse=True)
-        if not rows:
-            sel = self.grid.table_view.selectionModel().selectedRows()
-            rows = sorted((i.row() for i in sel), reverse=True)
-        for r in rows:
-            self.model.removeRow(r)
+        self.satirlari_sil(self.secili_satirlar())
         self._renumber()
         self._emit_totals()
 
@@ -457,37 +503,17 @@ class DocumentLinesGrid(QWidget):
         self._emit_totals()
 
     def _current_row(self) -> int:
-        idx = self.grid.table_view.currentIndex()
-        if idx.isValid():
-            return idx.row()
-        sel = self.grid.table_view.selectionModel().selectedRows()
-        return sel[0].row() if sel else -1
+        return self.aktif_satir()
 
     def move_selected_up(self):
-        r = self._current_row()
-        if r > 0:
-            self._recalc_guard = True
-            try:
-                row_items = self.model.takeRow(r)
-                self.model.insertRow(r - 1, row_items)
-            finally:
-                self._recalc_guard = False
-            self._renumber()
-            self.grid.table_view.selectRow(r - 1)
-            self._emit_totals()
+        self.satiri_tasi(-1)
 
     def move_selected_down(self):
-        r = self._current_row()
-        if 0 <= r < self.model.rowCount() - 1:
-            self._recalc_guard = True
-            try:
-                row_items = self.model.takeRow(r)
-                self.model.insertRow(r + 1, row_items)
-            finally:
-                self._recalc_guard = False
-            self._renumber()
-            self.grid.table_view.selectRow(r + 1)
-            self._emit_totals()
+        self.satiri_tasi(1)
+
+    def _satir_sonrasi(self) -> None:
+        self._renumber()
+        self._emit_totals()
 
     def load_lines(self, lines: list[dict]):
         self.clear_rows()
@@ -510,6 +536,7 @@ class DocumentLinesGrid(QWidget):
                 "iskonto_yuzde": parse_num(rec.get("iskonto_yuzde")),
                 "kdv_yuzde": parse_num(rec.get("kdv_yuzde")),
                 "net_tutar": parse_num(rec.get("net_tutar")),
+                "kur": self._satir_kuru(r),
             }
             rec["stoga_ekle"] = self._get_stoga_ekle(r)
             out.append(rec)
@@ -538,7 +565,7 @@ class DocumentLinesGrid(QWidget):
             self._set_cell(row, COL_ACIKLAMA, p.get("name", ""))
             self._set_cell(row, COL_BIRIM, p.get("unit", "Adet"))
             if p.get("price"):
-                self._set_cell(row, COL_BFIYAT, fmt_num(parse_num(p.get("price"))))
+                self._set_cell(row, COL_BFIYAT, fmt_num(parse_num(p.get("price")), sayi_bicimi.hane("fiyat")))
             if p.get("vat_rate"):
                 self._set_cell(row, COL_KDV, str(p.get("vat_rate")))
             if tur:
@@ -554,6 +581,20 @@ class DocumentLinesGrid(QWidget):
         self.row_highlighter.set_color(bg, fg)
 
     # ------------------------------------------------------------------
+    def set_currencies(self, kurlar: dict[str, float], yerel: str = TL_KODU):
+        """Satır döviz seçeneklerini ve güncel kurlarını (kod -> yerel para karşılığı) belirler; yerel para her zaman 1'dir."""
+        self._yerel = (yerel or TL_KODU).upper()
+        self._kurlar = {self._yerel: 1.0, **{k.upper(): float(v or 1.0) for k, v in (kurlar or {}).items() if k and k.upper() != self._yerel}}
+
+    def _doviz_kodlari(self) -> list[str]:
+        return sorted(self._kurlar, key=lambda k: (k != self._yerel, k))
+
+    def _satir_kuru(self, row: int) -> float:
+        """Satırın TL'ye çevirme kuru (TRY ise 1)."""
+        if (self._cell(row, COL_DOVIZ) or self._yerel).strip().upper() == self._yerel:
+            return 1.0
+        return parse_num(self._cell(row, COL_KUR)) or 1.0
+
     def set_currency(self, sembol: str, kur: float):
         self._doviz_sembol = sembol or "₺"
         self._doviz_kur = kur or 1.0
@@ -563,7 +604,16 @@ class DocumentLinesGrid(QWidget):
     def _on_item_changed(self, item: QStandardItem):
         if self._recalc_guard:
             return
-        if item.column() in _RECALC_COLS:
+        if item.column() == COL_DOVIZ:
+            kod = (item.text() or self._yerel).strip().upper()
+            self._recalc_guard = True
+            try:
+                self._set_cell(item.row(), COL_KUR, fmt_num(self._kurlar.get(kod, 1.0), sayi_bicimi.hane("kur")))
+                self._recalc_row(item.row())
+            finally:
+                self._recalc_guard = False
+            self._emit_totals()
+        elif item.column() in _RECALC_COLS:
             self._recalc_guard = True
             try:
                 self._recalc_row(item.row())
@@ -680,53 +730,33 @@ class DocumentLinesGrid(QWidget):
             self._set_stoga_ekle(row, True)
             self.lbl_count.setText(f"{self.model.rowCount()} kalem  ·  satır {row + 1} → stok kartı")
 
+    def _satir_sonucu(self, row: int) -> belge_hesap.SatirSonuc:
+        """Satırın hücrelerini okuyup HESABI `belge_hesap` servisine yaptırır (grid hesap yapmaz)."""
+        return belge_hesap.satir(
+            parse_num(self._cell(row, COL_MIKTAR)), parse_num(self._cell(row, COL_BFIYAT)), parse_num(self._cell(row, COL_ISK)),
+            parse_num(self._cell(row, COL_KDV)), self._satir_kuru(row))
+
     def _recalc_row(self, row: int):
         if row < 0 or row >= self.model.rowCount():
             return
-        miktar = parse_num(self._cell(row, COL_MIKTAR))
-        fiyat = parse_num(self._cell(row, COL_BFIYAT))
-        isk = parse_num(self._cell(row, COL_ISK))
-        net = miktar * fiyat * (1 - isk / 100.0)
         net_item = self.model.item(row, COL_NET)
         if net_item is None:
             net_item = QStandardItem()
             net_item.setEditable(False)
             self.model.setItem(row, COL_NET, net_item)
-        net_item.setText(fmt_num(net))
-
-    def _row_values(self, row: int) -> tuple[float, float, float, float, float]:
-        miktar = parse_num(self._cell(row, COL_MIKTAR))
-        fiyat = parse_num(self._cell(row, COL_BFIYAT))
-        isk = parse_num(self._cell(row, COL_ISK))
-        kdv_yuzde = parse_num(self._cell(row, COL_KDV))
-        brut = miktar * fiyat
-        satir_iskonto = brut * (isk / 100.0)
-        net = brut - satir_iskonto
-        kdv = net * (kdv_yuzde / 100.0)
-        return brut, satir_iskonto, net, kdv, kdv_yuzde
+        net_item.setText(fmt_num(self._satir_sonucu(row).net_para, sayi_bicimi.hane("tutar")))
 
     def _emit_totals(self):
-        ara_toplam = iskonto = matrah = kdv_toplam = 0.0
-        kdv_dagilim: dict[float, dict[str, float]] = {}
-        for r in range(self.model.rowCount()):
-            brut, s_isk, net, kdv, oran = self._row_values(r)
-            ara_toplam += brut
-            iskonto += s_isk
-            matrah += net
-            kdv_toplam += kdv
-            d = kdv_dagilim.setdefault(oran, {"matrah": 0.0, "kdv": 0.0})
-            d["matrah"] += net
-            d["kdv"] += kdv
-        genel = matrah + kdv_toplam
+        t = belge_hesap.belge_toplami([self._satir_sonucu(r) for r in range(self.model.rowCount())])
         self.lbl_count.setText(f"{self.model.rowCount()} kalem")
         self.totals_changed.emit({
-            "ara_toplam": ara_toplam,
-            "iskonto": iskonto,
-            "kdv_matrahi": matrah,
-            "kdv_toplam": kdv_toplam,
-            "genel_toplam": genel,
-            "satir_sayisi": self.model.rowCount(),
-            "kdv_dagilim": kdv_dagilim,
+            "ara_toplam": t.ara_toplam,
+            "iskonto": t.iskonto,
+            "kdv_matrahi": t.kdv_matrahi,
+            "kdv_toplam": t.kdv_toplam,
+            "genel_toplam": t.genel_toplam,
+            "satir_sayisi": t.satir_sayisi,
+            "kdv_dagilim": t.kdv_dagilim,
             "doviz_sembol": self._doviz_sembol,
             "doviz_kur": self._doviz_kur,
         })

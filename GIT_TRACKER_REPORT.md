@@ -1,5 +1,5 @@
 # 📊 TOYA ERP - Git & Görev Takip Raporu (git_tracker.db)
-**Son Güncelleme Zamanı:** 2026-09-20 13:40:41
+**Son Güncelleme Zamanı:** 2026-09-21 14:11:41
 
 ## 🚀 Yapılan ve Yapılacak İşler (Görev Durumları)
 | ID | Kategori | Görev / Özellik | Açıklama | Durum | İlgili Branch |
@@ -19,6 +19,7 @@
 ## 📦 Git Commit ve Push Geçmişi
 | Commit Hash | Tarih | Dal (Branch) | Commit Mesajı | Gönderim Durumu |
 |---|---|---|---|---|
+| `c431996` | 2026-09-21 14:11:15 +0300 | `feat/gorsel-tasarimci-ve-widget-katalogu` | kasa banka kartları yapıldı işlemlere geçilecek | 🟢 Gönderildi |
 | `fce72aa` | 2026-09-20 13:40:05 +0300 | `feat/gorsel-tasarimci-ve-widget-katalogu` | DÖVİZ KURLARI VE GİT E BAĞLANTI GÖNDERME AYARLARI TAMAMLANDI YEDEKLEME İŞLEMLERİNE GİRİLDE AMA HENUZ TAMAMLANMDI PORTAL İŞLEMLERİNE BAŞLANDI | 🟢 Gönderildi |
 | `ca4e21f` | 2026-09-20 12:09:23 +0300 | `feat/gorsel-tasarimci-ve-widget-katalogu` | DÖVİZ İŞLEMLERİ PAROLAMI UNUTTUM İÇİN İŞLEMLER AYARLAR BÖLÜMÜNDE YAPILAN GELİŞTİRMELER YEDEKLEME VS AMA HENUZ DENENMEDİ | 🟢 Gönderildi |
 | `ad2a89b` | 2026-09-20 08:40:46 +0300 | `feat/gorsel-tasarimci-ve-widget-katalogu` | 1- GİT için geliştirmeler yapıldı 2- Yedekleme sistemi yapıldı 3- döviz sistemi yapıldı | 🟢 Gönderildi |
@@ -38,7 +39,6 @@
 | `b29a8fd` | 2026-09-02 23:51:25 +0300 | `feat/gorsel-tasarimci-ve-widget-katalogu` | ozellik: Teklif Formu icin izole baski onizleme, vektorel PDF motoru ve A4 kurumsal sablon tamamlandi | 🟢 Gönderildi |
 | `71ad38c` | 2026-09-02 23:28:34 +0300 | `feat/gorsel-tasarimci-ve-widget-katalogu` | dokuman: Gorsel form ve rapor tasarimcisi sartnamesi genisletildi, widget katalogu tamamlandi ve ticari markalar temizlendi | 🟢 Gönderildi |
 | `65a0aab` | 2026-09-02 19:16:23 +0300 | `feat/dinamik-modul-gorev-yedekleme` | dia isimleri temizlenmesi | 🟢 Gönderildi |
-| `660b851` | 2026-09-02 00:04:04 +0300 | `feat/dinamik-modul-gorev-yedekleme` | teklif ve teklif fiş detay ekranında ilerleme kaydettik db girdlere geçeceğiz | 🟢 Gönderildi |
 
 ---
 *Bu rapor `git_tracker.db` SQLite veritabanı verilerinden otomatik üretilmiştir.*

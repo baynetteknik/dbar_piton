@@ -402,6 +402,112 @@ def test_selected_customer_id_flows_to_saved_quotation(qapp, db):
     assert db.get(Quotation, s.doc_id).customer_id == cid
 
 
+def test_odeme_plani_id_flows_to_saved_quotation_and_reloads(qapp, db):
+    """2026-10-02 (04.06): "Ödeme Planı" artık `PaymentPlan` tablosundan CANLI okunuyor (zaten öyleydi,
+    bkz. `BelgeVadeWidget._get_plans()`) VE seçilen planın gerçek ID'si `Quotation.payment_plan_id`'ye
+    (FK) yazılıyor — eskiden yalnızca görünen metin (`payment_plan`) kaydediliyordu. Kayıt sonrası tekrar
+    açılınca kombo ID'ye göre doğru satırı seçili getiriyor (metin eşleşmesine değil)."""
+    from src.core.models import PaymentPlan, Quotation
+
+    plan = PaymentPlan(code="30GVD", description="30 GÜN VADE", days=30, payment_type="Açık Hesap", is_active=True)
+    db.add(plan)
+    db.commit()
+
+    s = DocumentDetailScreen(db_session=db)
+    idx = next(
+        i for i in range(s.belge_vade.cmb_odeme_plani.count())
+        if isinstance(s.belge_vade.cmb_odeme_plani.itemData(i), dict)
+        and s.belge_vade.cmb_odeme_plani.itemData(i).get("id") == plan.id
+    )
+    s.belge_vade.cmb_odeme_plani.setCurrentIndex(idx)
+    s.cari.txt_cari_unvan.setText("ACME LTD")
+    s.lines.add_row({"kod": "A1", "aciklama": "Kalem", "miktar": "1",
+                     "birim_fiyat": "10", "kdv_yuzde": "20"})
+    s.lines._emit_totals()
+    assert s._persist(notify_empty=False)
+
+    q = db.get(Quotation, s.doc_id)
+    assert q.payment_plan_id == plan.id
+    assert q.payment_plan == "30GVD - 30 GÜN VADE"
+
+    s2 = DocumentDetailScreen(db_session=db, doc_id=s.doc_id)
+    assert s2.belge_vade.cmb_odeme_plani.currentData().get("id") == plan.id
+
+
+def test_nakit_odeme_plani_ile_fatura_kaydedilince_otomatik_kasa_tahsilat_fisi_olusur(qapp, db):
+    """2026-10-02 (04.07): Fatura, "Ödeme Tipi"=Nakit olan bir plana bağlıysa, kaydedilince otomatik Kasa
+    Tahsilat fişi oluşur (bkz. gelistirme/04_odeme_planlari/tasarim.md) ve kullanıcıya alt barda bildirilir
+    — sessiz otomasyon yok."""
+    from src.core.models import FinansFis, PaymentPlan
+    from src.desktop.services.finans_hesap_service import FinansHesapService
+
+    kasa = FinansHesapService(db).kaydet({"tur": "kasa", "ad": "Merkez Kasa"})
+    plan = PaymentPlan(code="NAKIT", description="NAKİT", odeme_tipi="nakit",
+                        hedef_finans_hesap_id=kasa.id, otomatik_fis_olustur=True, is_active=True)
+    db.add(plan)
+    db.commit()
+
+    s = DocumentDetailScreen(db_session=db)
+    s.cmb_doc_type.setCurrentText("FATURA: Yurt İçi Satış Faturası")
+    idx = next(
+        i for i in range(s.belge_vade.cmb_odeme_plani.count())
+        if isinstance(s.belge_vade.cmb_odeme_plani.itemData(i), dict)
+        and s.belge_vade.cmb_odeme_plani.itemData(i).get("id") == plan.id
+    )
+    s.belge_vade.cmb_odeme_plani.setCurrentIndex(idx)
+    s.cari.txt_cari_unvan.setText("ACME LTD")
+    s.lines.add_row({"kod": "A1", "aciklama": "Kalem", "miktar": "1",
+                     "birim_fiyat": "100", "kdv_yuzde": "20"})
+    s.lines._emit_totals()
+    assert s._persist(notify_empty=False)
+
+    fis = db.query(FinansFis).filter_by(kaynak_belge_id=s.doc_id, is_deleted=False).one()
+    assert fis.grup == "kasa"
+    assert s._son_oto_fis_mesaji is not None
+    assert fis.fis_no in s._son_oto_fis_mesaji
+    assert "Kasa Tahsilat" in s._son_oto_fis_mesaji
+
+
+def test_cok_satirli_karma_odeme_plani_ile_fatura_kaydedilince_iki_fis_olusur(qapp, db):
+    """2026-10-02 (04.11): "yarısı peşin yarısı kredi kartı" gibi karma bir plana bağlı fatura
+    kaydedilince HER satır kendi fişini üretir; alt bar bildirimi her ikisini de belirtir."""
+    from src.core.models import FinansFis, PaymentPlan, PaymentPlanLine
+    from src.desktop.services.finans_hesap_service import FinansHesapService
+
+    hs = FinansHesapService(db)
+    kasa = hs.kaydet({"tur": "kasa", "ad": "Merkez Kasa"})
+    kk_hesap = hs.kaydet({"tur": "kredi_karti", "ad": "Garanti Sanal POS"})
+    plan = PaymentPlan(code="KARMA", description="Yarı Nakit Yarı KK", otomatik_fis_olustur=True, is_active=True)
+    plan.satirlar = [
+        PaymentPlanLine(sira_no=1, odeme_tipi="nakit", tutar_formulu="TUTAR/2", hedef_finans_hesap_id=kasa.id),
+        PaymentPlanLine(sira_no=2, odeme_tipi="kredi_karti", tutar_formulu="KALAN", hedef_finans_hesap_id=kk_hesap.id),
+    ]
+    db.add(plan)
+    db.commit()
+
+    s = DocumentDetailScreen(db_session=db)
+    s.cmb_doc_type.setCurrentText("FATURA: Yurt İçi Satış Faturası")
+    idx = next(
+        i for i in range(s.belge_vade.cmb_odeme_plani.count())
+        if isinstance(s.belge_vade.cmb_odeme_plani.itemData(i), dict)
+        and s.belge_vade.cmb_odeme_plani.itemData(i).get("id") == plan.id
+    )
+    s.belge_vade.cmb_odeme_plani.setCurrentIndex(idx)
+    s.cari.txt_cari_unvan.setText("ACME LTD")
+    s.lines.add_row({"kod": "A1", "aciklama": "Kalem", "miktar": "1",
+                     "birim_fiyat": "500", "kdv_yuzde": "0"})
+    s.lines._emit_totals()
+    assert s._persist(notify_empty=False)
+
+    fisler = db.query(FinansFis).filter_by(kaynak_belge_id=s.doc_id, is_deleted=False).all()
+    assert len(fisler) == 2
+    assert {f.grup for f in fisler} == {"kasa", "banka"}
+    assert s._son_oto_fis_mesaji is not None
+    assert "Kasa Tahsilat" in s._son_oto_fis_mesaji
+    assert "Kredi Kartı Tahsilatı" in s._son_oto_fis_mesaji
+    assert " + " in s._son_oto_fis_mesaji   # birden fazla fiş olduğu belli olsun
+
+
 def test_import_lines_from_another_document(qapp, db):
     src_screen = DocumentDetailScreen(db_session=db)
     src_screen.cari.txt_cari_unvan.setText("KAYNAK")
@@ -435,3 +541,69 @@ def test_balance_requested_needs_selected_customer(qapp, db, monkeypatch):
     s.cari.apply_customer({"id": 42, "name": "X"})
     s._on_balance_requested("")
     assert opened.get("customer_id") == 42
+
+
+def _fatura_ortami(db):
+    """Otomatik işleme testleri için: bir ürün (stoklu), bir cari, bir depo."""
+    from src.core.models import Customer, Product, WarehouseDefinition
+    db.add_all([Product(sku="K1", name="Kablo", unit="Adet", stock=50, price=10.0),
+               Customer(fullname="ACME Ltd.", marketplace="local", customer_code="C1"),
+               WarehouseDefinition(code="A", name="Depo A", is_active=True)])
+    db.commit()
+    return db.query(Customer).one()
+
+
+def test_otomatik_isle_isareti_yalniz_hareket_ureten_turlerde_gorunur(qapp, db):
+    s = DocumentDetailScreen(db_session=db)
+    assert s.chk_otomatik_isle.isHidden()                                        # varsayılan tür: teklif
+    s.cmb_doc_type.setCurrentText("SİPARİŞ: Alınan Müşteri Siparişi")
+    assert s.chk_otomatik_isle.isHidden()
+    s.cmb_doc_type.setCurrentText("İRSALİYE: Sevk / Satış İrsaliyesi")
+    assert not s.chk_otomatik_isle.isHidden()
+    s.cmb_doc_type.setCurrentText("FATURA: Yurt İçi Satış Faturası")
+    assert not s.chk_otomatik_isle.isHidden() and not s.chk_otomatik_isle.isChecked()   # varsayılan işaretsiz
+
+
+def test_kaydet_isaretliyse_faturayi_otomatik_isler_stok_ve_cari(qapp, db):
+    from src.core.models import CariHareket, Product, Quotation
+    cust = _fatura_ortami(db)
+    s = DocumentDetailScreen(db_session=db)
+    s.cmb_doc_type.setCurrentText("FATURA: Yurt İçi Satış Faturası")
+    s.cari.apply_customer({"id": cust.id, "code": cust.customer_code, "name": cust.fullname})
+    s.lines.clear_rows()
+    s.lines.add_row({"kod": "K1", "miktar": "5", "birim_fiyat": "10", "kdv_yuzde": "20"})
+    s.lines._emit_totals()
+    s.chk_otomatik_isle.setChecked(True)
+    assert s._persist() is True
+    q = db.get(Quotation, s.doc_id)
+    assert q.hareket_durumu == "islendi"
+    assert db.query(Product).filter_by(sku="K1").one().stock == 45
+    assert db.query(CariHareket).filter_by(belge_id=q.id, is_deleted=False).count() == 1
+
+
+def test_kaydet_isaretsizse_yalniz_taslak_kaydeder(qapp, db):
+    from src.core.models import CariHareket, Product, Quotation
+    cust = _fatura_ortami(db)
+    s = DocumentDetailScreen(db_session=db)
+    s.cmb_doc_type.setCurrentText("FATURA: Yurt İçi Satış Faturası")
+    s.cari.apply_customer({"id": cust.id, "code": cust.customer_code, "name": cust.fullname})
+    s.lines.clear_rows()
+    s.lines.add_row({"kod": "K1", "miktar": "5", "birim_fiyat": "10", "kdv_yuzde": "20"})
+    s.lines._emit_totals()
+    assert not s.chk_otomatik_isle.isChecked()                                    # işaretlemeden kaydet
+    assert s._persist() is True
+    q = db.get(Quotation, s.doc_id)
+    assert q.hareket_durumu == "islenmedi"
+    assert db.query(Product).filter_by(sku="K1").one().stock == 50
+    assert db.query(CariHareket).filter_by(belge_id=q.id, is_deleted=False).count() == 0
+
+
+def test_1366_genislikte_sigar(qapp, db):
+    """TOYA ERP kuralı: ekranlar açıldığı monitöre tam sığmalı. Sol/sağ araç panelleri (EdgeTriggeredPanel) varsayılan
+    KAPALI olmalı — ikisi de pinli+açık başlarsa minimum genişlik ~1670px'e çıkıp 1366px'lik ekranlarda taşıyordu."""
+    s = DocumentDetailScreen(db_session=db)
+    assert not s.left_panel.is_open and not s.right_panel.is_open
+    assert s.minimumSizeHint().width() <= 1300
+    s.setGeometry(0, 0, 1366, 697)
+    s.show()
+    assert s.size().width() == 1366                                             # zorla büyümüyor

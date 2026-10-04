@@ -3,6 +3,18 @@
 Durum: kullanıcı bilinçli olarak erteledi ("biz yolumuza devam edelim"). Bu dosya, konu tekrar açıldığında
 bağlamı kaybetmemek içindir. Kod yazılmadı.
 
+## Karar: TOYA Aidat (`C:\xampp\htdocs\toya`) ile ORTAK YÜRÜTÜLMEYECEK (2026-09-29)
+Kullanıcı sordu: "geliştirlmekte olan sayfa düzenleyici ortak yürüyebilir mi peki" — Claude'un gerekçeli önerisi
+üzerine kullanıcı "sen bildiğin gibi yap o zaman" dedi, yani bu öneri onaylandı:
+- İki proje AYRI kod tabanı olarak kalır; TOYA Aidat projesine dokunulmaz ("zarar vermeden" kısıtı geçerliliğini korur).
+- Gerekçe: TOYA Aidat'ta 3 rakip/olgunlaşmamış editör (slider-builder, GrapesJS builder, toya-builder-engine) var,
+  gerçek bir e-ticaret altyapısı yok; TOYA ERP'nin metadata-odaklı mimarisine (bkz. `toya-erp-dry-metadata-architecture`
+  hafızası) mimari olarak ters düşer; paylaşılan kod tabanı riski (bir projedeki hata/değişiklik diğerini bozar).
+- TOYA'nın kendi portalı için bir sayfa/site tasarım aracı gerekirse, yukarıdaki "Önerilen yön" bölümündeki mimariyle
+  (JSON sayfa modeli, PHP üretici, GrapesJS çekirdeği) SIFIRDAN ve TOYA'nın kendi kod tabanında kurulur — Aidat'tan
+  kod taşınmaz, sadece fikir/mimari referans olarak faydalanılabilir.
+- Bu konu resmen ERTELENMİŞ durumda kalmaya devam ediyor; yalnızca "ortak mı, ayrı mı" sorusu kapandı.
+
 ## Hedef (kullanıcının tarifi)
 - Tek başına bir slider aracı DEĞİL; WoodMart tadında hazır tema (header / footer seçenekleri, e-ticaret şablonları)
   + Elementor / Slider Revolution kolaylığında sürükle-bırak sayfa tasarımı; WordPress olmadan, PHP bilmeden kullanılabilir.

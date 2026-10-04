@@ -38,25 +38,39 @@ from src.desktop.ui.components.three_panel_base import ThreePanelBaseWidget
 from src.desktop.ui.widgets.action_bar_widget import ActionBarWidget
 from src.desktop.ui.widgets.export_widget import ExportWidget
 from src.desktop.ui.widgets.filter_widget import FilterWidget
+from src.desktop.ui.widgets.gorev_kisayol_bolumu import GorevKisayolBolumu
 from src.desktop.ui.widgets.pagination_widget import PaginationWidget
 
 logger = logging.getLogger(__name__)
 
+#: Ekran modu -> (product_type filtresi ya da None=hariç tut, hariç tutulacak tipler,
+#: modül adı, profil anahtarı, sol panel başlığı, kısayol kodu, kod sütunu başlığı)
+KART_MODU_AYARLARI = {
+    "stok": (None, {"Hizmet", "Masraf"}, "Stok Yönetimi", "stok_list",
+             "STOK İŞLEMLERİ", "STKLIST001", "Stok Kodu"),
+    "hizmet": ("Hizmet", None, "Hizmet Tanımları", "hizmet_list",
+               "HİZMET İŞLEMLERİ", "HZMLIST001", "Ürün Kodu"),
+    "masraf": ("Masraf", None, "Masraf Tanımları", "masraf_list",
+               "MASRAF İŞLEMLERİ", "MSRLIST001", "Ürün Kodu"),
+}
+
 
 class StokListScreen(ThreePanelBaseWidget):
+    PROFIL_BOLUMU = True
     """
-    Stok Kart Liste Ekranı — STKLIST001
+    Stok / Hizmet / Masraf Kart Liste Ekranı — STKLIST001 (`kart_modu` ile filtrelenir)
     Teklif ve Cari ekranıyla aynı şablonu kullanır.
     """
 
+    BUS_KONULARI = ("stok", "stok_kart")
+
     toast_requested = pyqtSignal(str, str)
 
-    # Kısayol kodu
-    SCREEN_ID = "STKLIST001"
-
-    def __init__(self, db_session=None, company_id: int = 1, parent=None):
+    def __init__(self, db_session=None, company_id: int = 1, kart_modu: str = "stok", parent=None):
         self.company_id = company_id
-        self.profile_key = "stok_list"
+        self.kart_modu = kart_modu if kart_modu in KART_MODU_AYARLARI else "stok"
+        (self._tip_filtresi, self._haric_tutulan_tipler, module_name, self.profile_key,
+         self._islemler_basligi, self.SCREEN_ID, self._kod_basligi) = KART_MODU_AYARLARI[self.kart_modu]
         self.current_page = 1
         self.per_page = 25
         self.total_records = 0
@@ -65,11 +79,11 @@ class StokListScreen(ThreePanelBaseWidget):
         super().__init__(
             db_session=db_session,
             profile_key=self.profile_key,
-            module_name="Stok Yönetimi",
+            module_name=module_name,
             parent=parent,
         )
         self.setObjectName("StokCanvas")
-        register_layout_hint(self, "Stok Yönetimi", "Stok Kart Ana Ekranı")
+        register_layout_hint(self, module_name, "Stok Kart Ana Ekranı")
         self._apply_permissions()
 
     # ─────────────────────────────────────────────
@@ -78,7 +92,7 @@ class StokListScreen(ThreePanelBaseWidget):
     def setup_headers_dict(self) -> dict[int, tuple[str, str]]:
         return {
             0:  ("ID",           "id"),
-            1:  ("Stok Kodu",    "sku"),
+            1:  (self._kod_basligi, "sku"),
             2:  ("Barkod",       "barcode"),
             3:  ("Ürün Adı",     "name"),
             4:  ("Birim",        "unit"),
@@ -104,7 +118,7 @@ class StokListScreen(ThreePanelBaseWidget):
 
         # ─── SOL PANEL — ActionBarWidget ───
         self.action_bar = ActionBarWidget(
-            group_title="STOK İŞLEMLERİ",
+            group_title=self._islemler_basligi,
             convert_label=None,           # Stok'ta dönüştür yok
             hide_buttons=["convert"],     # Dönüştür butonu gizli
             initial_open=False,
@@ -133,6 +147,13 @@ class StokListScreen(ThreePanelBaseWidget):
         self.sec_profiles.add_layout(prof_btn_lyt)
 
         self.action_bar.add_custom_section(self.sec_profiles)
+
+        # GÖREVLER — seçili karta bağlı görev ekle / görevlerini gör (Masraf'ta otomatik
+        # ödeme hatırlatmalarıyla aynı "masraf" ilgili_tur'u kullanılır)
+        self.gorev_bolumu = GorevKisayolBolumu(
+            self.db, "masraf" if self.kart_modu == "masraf" else "stok", self,
+        )
+        self.action_bar.add_custom_section(self.gorev_bolumu)
 
         # Sinyal bağlantıları
         self.action_bar.new_clicked.connect(self.on_new_clicked)
@@ -172,32 +193,6 @@ class StokListScreen(ThreePanelBaseWidget):
         self.table_view.selectionModel().selectionChanged.connect(self.on_selection_changed)
         self.table_view.doubleClicked.connect(self.on_edit_clicked)
 
-        self.table_view.setStyleSheet("""
-            QTableView {
-                border: 1px solid #cbd5e1;
-                background-color: white;
-                gridline-color: #f1f5f9;
-                border-radius: 6px;
-                font-family: 'Segoe UI';
-                font-size: 12px;
-                color: #334155;
-            }
-            QTableView::item { padding: 6px; }
-            QTableView::item:selected {
-                background-color: #eff6ff;
-                color: #1d4ed8;
-                font-weight: 600;
-            }
-            QHeaderView::section {
-                background-color: #f8fafc;
-                color: #475569;
-                padding: 8px;
-                border: none;
-                border-right: 1px solid #cbd5e1;
-                border-bottom: 2px solid #cbd5e1;
-                font-weight: bold;
-            }
-        """)
 
         center_layout.addWidget(self.filterable_table, 1)
 
@@ -332,6 +327,13 @@ class StokListScreen(ThreePanelBaseWidget):
 
         try:
             stmt = select(Product).where(Product.is_deleted == False)
+            if self._tip_filtresi:
+                stmt = stmt.where(Product.product_type == self._tip_filtresi)
+            elif self._haric_tutulan_tipler:
+                stmt = stmt.where(
+                    Product.product_type.is_(None)
+                    | Product.product_type.not_in(self._haric_tutulan_tipler),
+                )
 
             # Arama filtresi
             search = filters.get("search", "").strip()
@@ -398,9 +400,10 @@ class StokListScreen(ThreePanelBaseWidget):
             if hasattr(self, "pagination"):
                 self.pagination.set_total(self.total_records)
 
-            # DB varsa ama kayıt yoksa demo göster
+            # DB varsa ama kayıt yoksa demo göster — yalnızca Stok ekranında (Hizmet/Masraf'ta demo veri anlamsız)
             if self.total_records == 0:
-                self._load_demo_data()
+                if self.kart_modu == "stok":
+                    self._load_demo_data()
                 return
 
             start = (self.current_page - 1) * self.per_page
@@ -493,6 +496,9 @@ class StokListScreen(ThreePanelBaseWidget):
             self.action_bar.btn_delete.setEnabled(has)
             self.action_bar.btn_duplicate.setEnabled(has)
             self.action_bar.btn_passive.setEnabled(has)
+        if hasattr(self, "gorev_bolumu"):
+            p = self.get_selected_product() if has else None
+            self.gorev_bolumu.kayit_sec(p.id if p is not None else None, f"{p.sku or ''} — {p.name or ''}".strip(" —") if p is not None else "")
 
     # ─────────────────────────────────────────────
     # CRUD İŞLEMLERİ
@@ -513,7 +519,8 @@ class StokListScreen(ThreePanelBaseWidget):
         try:
             from src.desktop.ui.screens.stok_kart_editor import StokKartEditorDialog
             dlg = StokKartEditorDialog(
-                db_session=self.db, company_id=self.company_id, parent=self,
+                db_session=self.db, company_id=self.company_id,
+                kart_modu=self.kart_modu, parent=self,
             )
             if dlg.exec():
                 self.refresh_table()
@@ -531,7 +538,7 @@ class StokListScreen(ThreePanelBaseWidget):
             from src.desktop.ui.screens.stok_kart_editor import StokKartEditorDialog
             dlg = StokKartEditorDialog(
                 db_session=self.db, product_id=pid,
-                company_id=self.company_id, parent=self,
+                company_id=self.company_id, kart_modu=self.kart_modu, parent=self,
             )
             if dlg.exec():
                 self.refresh_table()
@@ -680,6 +687,10 @@ class StokListScreen(ThreePanelBaseWidget):
             menu.addSeparator()
             menu.addAction(act_dup)
             menu.addAction(act_pas)
+            menu.addSeparator()
+            act_gorev = QAction("✅ Görev Ekle", self)
+            act_gorev.triggered.connect(self.gorev_bolumu.gorev_ekle)
+            menu.addAction(act_gorev)
 
         self.filterable_table.add_column_actions_to_menu(menu)
 

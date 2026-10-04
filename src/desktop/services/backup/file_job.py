@@ -110,22 +110,28 @@ def list_backups(dest: Path, slug: str) -> list[Path]:
     return sorted((p for p in d.iterdir() if p.is_file() and pat.match(p.name)), key=lambda p: pat.match(p.name).group(2))
 
 
+def retention_victims(names: list[str], slug: str, keep: int) -> list[str]:
+    """Verilen dosya adları arasından saklama kuralıyla silinecekler (en yeni `keep` küme kalır).
+    Küme = tam yedek + ondan sonraki artımlılar. Bu işe ait olmayan adlar yok sayılır. Yerel klasör ve bulut hedefleri ortak kullanır."""
+    pat = _pattern(slug)
+    mine = sorted((n for n in names if pat.match(n)), key=lambda n: pat.match(n).group(2))
+    sets: list[list[str]] = []
+    for n in mine:
+        if pat.match(n).group(1) == "full" or not sets:
+            sets.append([n])
+        else:
+            sets[-1].append(n)
+    return [n for old in sets[: max(0, len(sets) - max(1, keep))] for n in old]
+
+
 def apply_retention(dest: Path, slug: str, keep: int) -> list[Path]:
     """En yeni `keep` kümeyi bırakır. Küme = tam yedek + ondan sonraki artımlılar. @return silinenler"""
-    files = list_backups(dest, slug)
-    pat = _pattern(slug)
-    sets: list[list[Path]] = []
-    for p in files:
-        if pat.match(p.name).group(1) == "full" or not sets:
-            sets.append([p])
-        else:
-            sets[-1].append(p)
+    files = {p.name: p for p in list_backups(dest, slug)}
     removed: list[Path] = []
-    for old in sets[: max(0, len(sets) - max(1, keep))]:
-        for p in old:
-            try:
-                p.unlink()
-                removed.append(p)
-            except OSError:
-                pass
+    for name in retention_victims(list(files), slug, keep):
+        try:
+            files[name].unlink()
+            removed.append(files[name])
+        except OSError:
+            pass
     return removed

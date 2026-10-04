@@ -1,6 +1,6 @@
 import sys
 
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtWidgets import QApplication
 from qt_material import apply_stylesheet
 
@@ -23,6 +23,15 @@ def main():
         'font_size': '13px',
     }
     apply_stylesheet(app, theme='light_teal.xml', extra=extra)
+    # İpucu (tooltip) ve boş alan (placeholder) yazıları okunur olsun: qt_material'ın kuralından SONRA, uygulama başında bir kez eklenir
+    # (önceden yalnız Genel Ayarlar ekranı açılınca uygulanıyordu; o zamana kadar ipuçları temanın okunmaz varsayılanıyla çıkıyordu).
+    from src.desktop.ui.components.tooltip_style import apply_app_style
+    apply_app_style()
+    from src.desktop.ui.components.dialog_style import temali_statikleri_kur
+    temali_statikleri_kur()
+    # Tüm ipuçları (tablo hücreleri/başlıkları, sekmeler, menüler dahil) temadan bağımsız, okunur bir pencerede gösterilir.
+    from src.desktop.ui.components.tooltip_manager import TooltipManager
+    TooltipManager.install(app)
 
     # Yedekten geri yükleme hazırlandıysa veritabanı AÇILMADAN önce uygulanır (dosya açıkken değiştirilemez).
     try:
@@ -73,7 +82,13 @@ def main():
         window = MainWindow(session, user_config=config)
         # Ana pencere bulunduğu monitöre tam otursun (Windows'ta başlıktan tutup
         # başka ekrana taşındığında da o ekrana yeniden maksimize olur).
-        window.showMaximized()
+        # showMaximized() bir tık ertelenir: MainWindow.__init__ içindeki iç içe
+        # QSplitter/QTabWidget ağacı henüz gerçek boyutuyla bir kere yerleşmeden
+        # aynı anda maksimize edilince (Windows'ta DPI/monitör ataması henüz
+        # oturmamış olabiliyor) gösterge paneli tam ekrana oturmuyor, kullanıcı
+        # pencereyi elle yeniden boyutlandırana (çift tık ile büyüt/küçült) kadar
+        # dar kalıyordu. Olay döngüsüne bir tur bıraktırmak bunu çözüyor.
+        QTimer.singleShot(0, window.showMaximized)
         main_window_container.append(window)
 
     login.login_success.connect(on_login_success)

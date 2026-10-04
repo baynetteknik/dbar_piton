@@ -5,7 +5,7 @@ from PyQt6.QtWidgets import QApplication
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
-from src.core.models import Base, Customer, Product, User
+from src.core.models import Base, Customer, Gorev, Product, User
 from src.desktop.managers.permission_manager import PermissionManager
 from src.desktop.services.customer_service import CustomerService
 from src.desktop.services.product_service import ProductService
@@ -169,6 +169,67 @@ def test_stok_editor_standard(qapp, db):
     dlg.editor._on_save()
     assert p.product_type == "Hizmet" and p.currency == "TRY"
     assert p.base_price == 1850 and p.stock == 42    # stok karttan değil hareketlerden yönetilir
+
+
+def test_stok_editor_hizmet_tanimlari_alanlari_kaydedip_geri_yukler(qapp, db):
+    """Hizmet Tanımları (2026-09-29): stok takibi bayrağı + hesap kodları + KDV tevkifatı + KKEG + fatura
+    açıklama şablonu — yeni kart varsayılan olarak stok takip eder (Ticari Mal), kullanıcı kapatabilir."""
+    from src.desktop.ui.screens.stok_kart_editor import StokKartEditorDialog
+    p = Product(sku="HZ-DAN", name="Danışmanlık")
+    db.add(p)
+    db.commit()
+
+    dlg = StokKartEditorDialog(db_session=db, product_id=p.id)
+    assert dlg.editor._widgets["tracks_stock"].isChecked() is True   # varsayılan: stok takip edilir
+
+    dlg.editor._widgets["product_type"].setCurrentText("Hizmet")
+    dlg.editor._widgets["tracks_stock"].setChecked(False)
+    dlg.editor._widgets["sales_account_code"].setText("600")
+    dlg.editor._widgets["purchase_account_code"].setText("770")
+    dlg.editor._widgets["nondeductible_expense"].setChecked(True)
+    dlg.editor._widgets["invoice_description_template"].setText("Aylık danışmanlık hizmet bedeli")
+    dlg.editor._on_save()
+
+    assert p.tracks_stock is False
+    assert (p.sales_account_code, p.purchase_account_code) == ("600", "770")
+    assert p.nondeductible_expense is True
+    assert p.invoice_description_template == "Aylık danışmanlık hizmet bedeli"
+
+    dlg2 = StokKartEditorDialog(db_session=db, product_id=p.id)
+    assert dlg2.editor._widgets["tracks_stock"].isChecked() is False
+    assert dlg2.editor._widgets["sales_account_code"].text() == "600"
+
+
+def test_masraf_karti_duzenli_odeme_isaretlenince_gorevler_modulunde_hatirlatma_acar(db):
+    """Masraf Tanımları (2026-09-30): 'Düzenli Ödenen' işaretli bir Masraf kartı kaydedilince Görevler
+    modülünde aylık tekrarlı bir hatırlatma görevi otomatik açılır; tekrar kaydetmek yeni görev üretmez
+    (idempotent), bayrak kapatılınca açık hatırlatma gizlenir (silme=gizleme kuralı, 03.09 vb.)."""
+    svc = ProductService(db)
+    r = svc.save({"sku": "MSR-1", "name": "Ofis Kirası", "product_type": "Masraf",
+                  "is_recurring_expense": True, "recurring_due_day": 5,
+                  "recurring_reminder_days_before": 3})
+    assert r.success
+
+    gorevler = db.query(Gorev).filter_by(ilgili_tur="masraf", ilgili_id=r.product_id, is_deleted=False).all()
+    assert len(gorevler) == 1
+    assert gorevler[0].tur == "hatirlatma"
+    assert gorevler[0].tekrar == "aylik"
+    assert "Ofis Kirası" in gorevler[0].baslik
+    ilk_baslangic = gorevler[0].baslangic
+
+    # Aynı kart tekrar kaydedilince ikinci bir görev AÇILMAZ, var olan güncellenir.
+    svc.save({"sku": "MSR-1", "name": "Ofis Kirası", "product_type": "Masraf",
+              "is_recurring_expense": True, "recurring_due_day": 20,
+              "recurring_reminder_days_before": 3}, product_id=r.product_id)
+    gorevler2 = db.query(Gorev).filter_by(ilgili_tur="masraf", ilgili_id=r.product_id, is_deleted=False).all()
+    assert len(gorevler2) == 1
+    assert gorevler2[0].baslangic != ilk_baslangic  # vade günü değişti, hatırlatma zamanı da değişti
+
+    # Bayrak kapatılınca açık hatırlatma gizlenir.
+    svc.save({"sku": "MSR-1", "name": "Ofis Kirası", "product_type": "Masraf",
+              "is_recurring_expense": False}, product_id=r.product_id)
+    acik = db.query(Gorev).filter_by(ilgili_tur="masraf", ilgili_id=r.product_id, is_deleted=False).all()
+    assert acik == []
 
 
 # ---- Liste ekranları + yetki ----

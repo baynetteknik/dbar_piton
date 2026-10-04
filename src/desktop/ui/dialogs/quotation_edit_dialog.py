@@ -2,10 +2,9 @@
 
 import logging
 from datetime import datetime
-from typing import Any
 
-from PyQt6.QtCore import QDate, QTime, Qt
-from PyQt6.QtGui import QAction, QFont, QIcon
+from PyQt6.QtCore import QDate, Qt, QTime
+from PyQt6.QtGui import QAction
 from PyQt6.QtWidgets import (
     QAbstractItemView,
     QComboBox,
@@ -21,9 +20,8 @@ from PyQt6.QtWidgets import (
     QMessageBox,
     QPushButton,
     QSplitter,
-    QTabWidget,
     QTableWidget,
-    QTableWidgetItem,
+    QTabWidget,
     QTextEdit,
     QVBoxLayout,
     QWidget,
@@ -51,6 +49,8 @@ class QuotationEditDialog(QDialog):
         self.setWindowTitle(f"{title_prefix} Formu - TOYA ERP Standart Ekranı" if not quotation_id else f"{title_prefix} Düzenle - TOYA ERP Standart Ekranı")
         self.setMinimumSize(1100, 700)
         self.showMaximized()
+        from src.desktop.ui.components.window_fit_helper import zorla_ilk_yerlesim
+        zorla_ilk_yerlesim(self)
 
         self.init_ui()
         self.load_reference_data()
@@ -72,14 +72,22 @@ class QuotationEditDialog(QDialog):
         top_bar_lyt.setContentsMargins(6, 4, 6, 4)
         top_bar_lyt.setSpacing(12)
 
+        _COMBO_STYLE = (
+            "QComboBox { border: 1px solid #cbd5e1; border-radius: 4px; padding: 2px 6px; font-size: 11px; background: white; combobox-popup: 0; }"
+            " QComboBox QAbstractItemView { outline: 0; border: 1px solid #cbd5e1; background: white; padding: 0px; }"
+            " QComboBox QAbstractItemView::item { padding: 3px 6px; min-height: 20px; }"
+        )
+
         lbl_firma = QLabel("Firma:")
         lbl_firma.setStyleSheet("font-weight: bold; color: #475569; font-size: 11px;")
         self.cmb_top_firma = QComboBox()
+        self.cmb_top_firma.setStyleSheet(_COMBO_STYLE)
         self.cmb_top_firma.addItems(["GENEL", "MERKEZ"])
 
         lbl_turu = QLabel("Türü:")
         lbl_turu.setStyleSheet("font-weight: bold; color: #1e3a8a; font-size: 11px;")
         self.cmb_top_turu = QComboBox()
+        self.cmb_top_turu.setStyleSheet(_COMBO_STYLE)
 
         if self.document_kind == "Quotation":
             self.cmb_top_turu.addItems(["TEKLİF: (1) VERİLEN", "TEKLİF: (2) ALINAN"])
@@ -93,6 +101,7 @@ class QuotationEditDialog(QDialog):
         lbl_ust = QLabel("Üst İşlem Türü:")
         lbl_ust.setStyleSheet("font-weight: bold; color: #475569; font-size: 11px;")
         self.cmb_top_ust = QComboBox()
+        self.cmb_top_ust.setStyleSheet(_COMBO_STYLE)
         self.cmb_top_ust.addItems(["GR", "ST", "SR"])
 
         lbl_client = QLabel("İstemci:")
@@ -150,9 +159,11 @@ class QuotationEditDialog(QDialog):
         fis_layout.addRow(lbl_fis_title)
 
         self.cmb_sube = QComboBox()
+        self.cmb_sube.setStyleSheet(_COMBO_STYLE)
         self.cmb_sube.addItems(["MERKEZ ŞUBE", "İSTANBUL ŞUBE"])
 
         self.cmb_depo = QComboBox()
+        self.cmb_depo.setStyleSheet(_COMBO_STYLE)
         self.cmb_depo.addItems(["MERKEZ DEPO", "YEDEK DEPO"])
 
         prefix_code = "TEK" if self.document_kind == "Quotation" else "SIP"
@@ -167,6 +178,7 @@ class QuotationEditDialog(QDialog):
         date_box.addWidget(self.txt_saat)
 
         self.cmb_onay = QComboBox()
+        self.cmb_onay.setStyleSheet(_COMBO_STYLE)
         self.cmb_onay.addItems(["Teklif Durumunda", "Onaylandı", "Reddedildi"])
 
         self.date_son_tarih = QDateEdit(QDate.currentDate().addDays(15))
@@ -174,6 +186,7 @@ class QuotationEditDialog(QDialog):
 
         doviz_box = QHBoxLayout()
         self.cmb_doviz = QComboBox()
+        self.cmb_doviz.setStyleSheet(_COMBO_STYLE)
         self.cmb_doviz.addItems(["TL", "USD", "EUR"])
         self.txt_kur = QLineEdit("1,0000")
         doviz_box.addWidget(self.cmb_doviz)
@@ -387,6 +400,11 @@ class QuotationEditDialog(QDialog):
         self.table_items.insertRow(row)
 
         cmb_tur = QComboBox()
+        cmb_tur.setStyleSheet(
+            "QComboBox { combobox-popup: 0; padding: 1px 4px; font-size: 11px; }"
+            " QComboBox QAbstractItemView { outline: 0; padding: 0px; border: 1px solid #cbd5e1; }"
+            " QComboBox QAbstractItemView::item { padding: 3px 6px; min-height: 20px; }"
+        )
         cmb_tur.addItems(["Malzeme", "Hizmet", "Serbest"])
         cmb_tur.currentIndexChanged.connect(lambda idx, r=row: self.on_tur_changed(r, cmb_tur.currentText()))
 

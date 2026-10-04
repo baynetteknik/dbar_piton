@@ -19,8 +19,8 @@ from PyQt6.QtWidgets import (
     QVBoxLayout,
 )
 
-from src.desktop.ui.components.dialog_style import apply_light_dialog_style
 from src.desktop.services.currency_catalog import CURRENCY_CATALOG, CurrencyInfo
+from src.desktop.ui.components.dialog_style import apply_light_dialog_style
 
 
 class CurrencyPickerDialog(QDialog):

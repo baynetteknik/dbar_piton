@@ -44,6 +44,7 @@ from sqlalchemy import select
 
 from src.core.models import Customer, Product
 from src.desktop.managers.profile_manager import ProfileManager
+from src.desktop.services import belge_hesap
 from src.desktop.managers.theme_manager import ThemeManager
 from src.desktop.reports.teklif_report_service import TeklifReportService
 from src.desktop.ui.column_manager import ColumnManagerDialog
@@ -598,6 +599,8 @@ class TransactionDocumentDialog(QDialog):
     def showEvent(self, event) -> None:  # noqa: N802
         super().showEvent(event)
         self.showMaximized()
+        from src.desktop.ui.components.window_fit_helper import zorla_ilk_yerlesim
+        zorla_ilk_yerlesim(self)
 
     def setup_default_column_widths(self) -> None:
         """Sütun genişliklerini standartlara göre ayarlar."""
@@ -735,12 +738,21 @@ class TransactionDocumentDialog(QDialog):
                 border-radius: 3px;
                 min-height: 20px;
             }
+            QComboBox {
+                combobox-popup: 0;
+            }
             QComboBox QAbstractItemView {
                 background: #1e3a8a;
                 color: #ffffff;
                 border: 1px solid #3b82f6;
                 selection-background-color: #3b82f6;
                 selection-color: #ffffff;
+                outline: 0;
+                padding: 0px;
+            }
+            QComboBox QAbstractItemView::item {
+                padding: 3px 6px;
+                min-height: 18px;
             }
             QLabel {
                 color: #93c5fd;
@@ -970,8 +982,9 @@ class TransactionDocumentDialog(QDialog):
         self.combo_sidebar_profiles = QComboBox()
         self.combo_sidebar_profiles.setFixedHeight(24)
         self.combo_sidebar_profiles.setStyleSheet(
-            "QComboBox { border: 1px solid #cbd5e1; border-radius: 3px; font-size: 10px; }"
-            "QComboBox QAbstractItemView { background: #1e293b; color: #ffffff; }",
+            "QComboBox { border: 1px solid #cbd5e1; border-radius: 3px; font-size: 10px; combobox-popup: 0; }"
+            "QComboBox QAbstractItemView { background: #1e293b; color: #ffffff; outline: 0; padding: 0px; }"
+            "QComboBox QAbstractItemView::item { padding: 3px 6px; min-height: 18px; }",
         )
         self.combo_sidebar_profiles.currentTextChanged.connect(
             self._on_sidebar_profile_changed,
@@ -1274,7 +1287,9 @@ class TransactionDocumentDialog(QDialog):
         self.cmb_barcode_type.setFixedHeight(22)
         self.cmb_barcode_type.setFixedWidth(75)
         self.cmb_barcode_type.setStyleSheet(
-            "QComboBox { font-size: 10px; } QComboBox QAbstractItemView { background: #1e293b; color: #ffffff; }",
+            "QComboBox { font-size: 10px; combobox-popup: 0; }"
+            " QComboBox QAbstractItemView { background: #1e293b; color: #ffffff; outline: 0; padding: 0px; }"
+            " QComboBox QAbstractItemView::item { padding: 3px 6px; min-height: 18px; }",
         )
 
         bc_lyt.addWidget(lbl_bc)
@@ -1771,7 +1786,9 @@ class TransactionDocumentDialog(QDialog):
         combo_style = (
             "QLineEdit, QComboBox, QDateEdit { border: 1px solid #cbd5e1; border-radius: 3px; "
             "padding: 1px 4px; font-size: 10px; background: white; color: #0f172a; }"
-            "QComboBox QAbstractItemView { background: #1e293b; color: #ffffff; }"
+            "QComboBox { combobox-popup: 0; }"
+            "QComboBox QAbstractItemView { background: #ffffff; color: #1e293b; selection-background-color: #dbeafe; selection-color: #1e3a8a; outline: 0; padding: 0px; border: 1px solid #cbd5e1; }"
+            "QComboBox QAbstractItemView::item { padding: 3px 6px; min-height: 18px; }"
         )
 
         # Satır 1: Seri / No / Fiş
@@ -1854,7 +1871,7 @@ class TransactionDocumentDialog(QDialog):
         self.cmb_odeme_plani.setFixedHeight(field_h)
         self.cmb_odeme_plani.setStyleSheet(combo_style)
         self.cmb_odeme_plani.addItem("--- Ödeme Planı Seçin ---", None)
-        for p in self.ODEME_PLANLARI:
+        for p in self._odeme_planlari_yukle():
             self.cmb_odeme_plani.addItem(f"{p['kod']} - {p['aciklama']}", p)
         self.cmb_odeme_plani.currentIndexChanged.connect(self.on_odeme_plani_changed)
 
@@ -1881,7 +1898,9 @@ class TransactionDocumentDialog(QDialog):
         combo_style = (
             "QLineEdit, QComboBox { border: 1px solid #cbd5e1; border-radius: 3px; "
             "padding: 1px 4px; font-size: 10px; background: white; color: #0f172a; }"
-            "QComboBox QAbstractItemView { background: #1e293b; color: #ffffff; }"
+            "QComboBox { combobox-popup: 0; }"
+            "QComboBox QAbstractItemView { background: #ffffff; color: #1e293b; selection-background-color: #dbeafe; selection-color: #1e3a8a; outline: 0; padding: 0px; border: 1px solid #cbd5e1; }"
+            "QComboBox QAbstractItemView::item { padding: 3px 6px; min-height: 18px; }"
         )
 
         # Satır 1: Döviz / Kur / KDV
@@ -3415,6 +3434,32 @@ class TransactionDocumentDialog(QDialog):
     def on_vade_formul_changed(self, txt: str) -> None:
         self.on_vade_gun_changed(txt)
 
+    def _odeme_planlari_yukle(self) -> list[dict]:
+        """Ödeme Planları'nı (Genel Ayarlar'da tanımlanan) DB'den canlı okur; DB yoksa/boşsa eski sabit
+        listeye (`ODEME_PLANLARI`) düşer — bkz. `BelgeVadeWidget._get_plans()` (aynı desen, Fatura/
+        İrsaliye'nin asıl/varsayılan ekranı `DocumentDetailScreen` orada)."""
+        if self.db:
+            try:
+                from sqlalchemy import select
+
+                from src.core.models import PaymentPlan
+                rows = self.db.scalars(
+                    select(PaymentPlan).where(
+                        PaymentPlan.is_deleted == False, PaymentPlan.is_active == True,  # noqa: E712
+                    ),
+                ).all()
+                if rows:
+                    return [
+                        {
+                            "id": r.id, "kod": r.code or "", "aciklama": r.description or "",
+                            "gun": int(r.days or 0), "tip": r.payment_type or "Açık Hesap",
+                        }
+                        for r in rows
+                    ]
+            except Exception as e:  # noqa: BLE001
+                logger.warning(f"Ödeme planları DB'den alınamadı: {e}")
+        return self.ODEME_PLANLARI
+
     def on_odeme_plani_changed(self, idx: int) -> None:
         p = self.cmb_odeme_plani.currentData()
         if p and isinstance(p, dict):
@@ -3525,18 +3570,7 @@ class TransactionDocumentDialog(QDialog):
         return self._report_service
 
     def _calc_line_total(self, row_data: dict) -> float:
-        try:
-            qty = float(row_data.get("qty", 1) or 1)
-            price = float(row_data.get("price", 0) or 0)
-            d1 = float(row_data.get("disc1", 0) or 0)
-            d2 = float(row_data.get("disc2", 0) or 0)
-            d3 = float(row_data.get("disc3", 0) or 0)
-            vat = float(row_data.get("vat", 20) or 20)
-            base = qty * price
-            after_d = base * (1 - d1 / 100) * (1 - d2 / 100) * (1 - d3 / 100)
-            return round(after_d * (1 + vat / 100), 2)
-        except Exception:
-            return 0.0
+        return belge_hesap.eski_diyalog_satir_toplami(row_data)
 
     def _get_current_teklif_data(self) -> dict:
         firma = {

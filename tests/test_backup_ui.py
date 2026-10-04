@@ -1,7 +1,8 @@
 import sys
 
 import pytest
-from PyQt6.QtCore import QPoint, QSettings
+from PyQt6.QtCore import QPoint
+from PyQt6.QtTest import QTest
 from PyQt6.QtWidgets import QApplication
 
 from src.desktop.ui.backup import BackupWidget, NewTaskDialog, TaskDetailPopupDialog
@@ -79,9 +80,16 @@ def test_new_task_dialog_duplicate_name_validation(qapp, db_session):
 def test_backup_widget_quick_search_and_popups(qapp, db_session):
     """Tests quick search trigger and detail popup dialog initialization."""
     widget = BackupWidget(db_session)
+    widget.show()
+    widget.activateWindow()
+    assert QTest.qWaitForWindowActive(widget, 2000)
 
     # Trigger quick search
     widget.trigger_quick_search()
+    for _ in range(50):
+        if widget.search_box.hasFocus():
+            break
+        QTest.qWait(20)
     assert widget.left_panel.is_open is True
     assert widget.search_box.hasFocus()
 
@@ -94,17 +102,33 @@ def test_backup_widget_quick_search_and_popups(qapp, db_session):
 
 def test_backup_column_profile_persistence_and_settings(qapp, db_session):
     """Verifies column view profile persistence for backup profile key and settings module combo."""
-    settings = QSettings("baynetteknik", "dbar_piton")
-    settings.setValue("active_column_profile_backup", "TestBackupProfile")
-    settings.sync()
+    from PyQt6.QtGui import QStandardItemModel
 
-    ftv = FilterableTableView(headers_dict={0: ("ID", "id")}, profile_key="backup")
-    assert ftv.profile_key == "backup"
-    # Verify that active profile uses the scoped key active_column_profile_backup
-    assert settings.value("active_column_profile_backup", type=str) == "TestBackupProfile"
+    from src.desktop.managers.profile_manager import ProfileManager
 
-    # ViewSettingsWidget check
-    view_settings = ViewSettingsWidget()
-    idx = view_settings.module_combo.findData("backup")
-    assert idx != -1
-    assert "Görevler" in view_settings.module_combo.itemText(idx)
+    profile_key = "backup_tasks"
+    profile_name = "TestBackupProfile"
+    pm = ProfileManager(profile_key=profile_key)
+    previous_active = pm.get_active_profile_name()
+    ftv = FilterableTableView(headers_dict={0: ("Görev Adı", "name")}, profile_key=profile_key)
+    model = QStandardItemModel(0, 1, ftv)
+    model.setHorizontalHeaderLabels(["Görev Adı"])
+    ftv.table_view.setModel(model)
+    try:
+        QTest.qWait(80)
+        ftv.table_view.setColumnWidth(0, 173)
+        ftv.save_column_profile(profile_name)
+        reloaded = ProfileManager(profile_key=profile_key)
+        assert reloaded.get_active_profile_name() == profile_name
+        assert reloaded.load_profiles()[profile_name].column_settings.individual_columns["name"].width == 173
+
+        view_settings = ViewSettingsWidget()
+        idx = view_settings.module_combo.findData(profile_key)
+        assert idx != -1
+        view_settings.module_combo.setCurrentIndex(idx)
+        assert view_settings.get_current_profile_key() == profile_key
+        assert profile_name in view_settings.current_profiles
+        assert "Yedekleme" in view_settings.module_combo.itemText(idx)
+    finally:
+        pm.delete_profile(profile_name)
+        pm.set_active_profile_name(previous_active)

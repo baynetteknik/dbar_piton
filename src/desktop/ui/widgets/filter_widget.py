@@ -75,12 +75,21 @@ class FilterWidget(QWidget):
             QLineEdit:focus, QComboBox:focus, QDateEdit:focus {
                 border-color: #3b82f6;
             }
+            QComboBox {
+                combobox-popup: 0;
+            }
             QComboBox QAbstractItemView {
                 border: 1px solid #94a3b8;
                 background-color: #ffffff;
                 color: #0f172a;
                 selection-background-color: #2563eb;
                 selection-color: #ffffff;
+                outline: 0;
+                padding: 0px;
+            }
+            QComboBox QAbstractItemView::item {
+                padding: 3px 6px;
+                min-height: 20px;
             }
         """
 

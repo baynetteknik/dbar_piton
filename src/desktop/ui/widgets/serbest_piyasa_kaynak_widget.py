@@ -178,6 +178,30 @@ class SerbestPiyasaYonetimDialog(QDialog):
         return list(self._items)
 
 
+_COMBO_STYLE = """
+    QComboBox {
+        combobox-popup: 0;
+        border: 1px solid #cbd5e1;
+        border-radius: 4px;
+        padding: 4px 6px;
+        background-color: white;
+        color: #0f172a;
+        font-size: 11px;
+    }
+    QComboBox QAbstractItemView {
+        outline: 0;
+        padding: 0px;
+        border: 1px solid #cbd5e1;
+        background-color: #ffffff;
+        color: #0f172a;
+    }
+    QComboBox QAbstractItemView::item {
+        padding: 3px 6px;
+        min-height: 20px;
+    }
+"""
+
+
 class SerbestPiyasaKaynakField(QWidget):
     """Kayıtlı Serbest Piyasa kaynaklarından birini seçmeye yarayan kombo +
     yönetim penceresini açan ⚙ butonu. `CatalogSearchField` ile aynı
@@ -192,6 +216,7 @@ class SerbestPiyasaKaynakField(QWidget):
         lyt.setContentsMargins(0, 0, 0, 0)
         lyt.setSpacing(3)
         self.cmb = QComboBox()
+        self.cmb.setStyleSheet(_COMBO_STYLE)
         self.cmb.setMinimumWidth(160)
         self.cmb.currentIndexChanged.connect(lambda _i: self.changed.emit(self.text()))
         btn = QPushButton("⚙")

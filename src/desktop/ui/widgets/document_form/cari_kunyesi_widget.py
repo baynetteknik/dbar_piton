@@ -4,13 +4,19 @@ Evrak detaylarında (Teklif, Fatura, Sipariş) cari kartının ünvanı, vergi n
 bakiye durumu, risk limiti ve iletişim bilgilerini gösteren ve yöneten modüler bileşen.
 """
 
-from typing import Dict, Any, Optional
-from PyQt6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, 
-    QLabel, QLineEdit, QPushButton, QGroupBox, QFrame
-)
+from typing import Any, Dict
+
 from PyQt6.QtCore import Qt, pyqtSignal
-from PyQt6.QtGui import QFont, QColor
+from PyQt6.QtWidgets import (
+    QGridLayout,
+    QGroupBox,
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
+    QPushButton,
+    QVBoxLayout,
+    QWidget,
+)
 
 
 class CariHesapKunyesiWidget(QWidget):

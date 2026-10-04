@@ -1,7 +1,7 @@
 from .filter_tree import FilterTreeSidebar001
-from .summary_card import SummaryCardSidebar001
 from .git_left_sidebar import GitLeftSidebar
 from .git_right_sidebar import GitRightSidebar
+from .summary_card import SummaryCardSidebar001
 
 SIDEBAR_COMPONENTS = {
     "leftsidebar001": FilterTreeSidebar001,

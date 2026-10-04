@@ -5,22 +5,37 @@ HareketKalemleriDbGridWidget ve FinansWidget bileşenlerini %100 modüler birle�
 canlı hesaplamalı tam ekran Teklif / Fatura / Sipariş form penceresidir.
 """
 
-from typing import Dict, Any, Optional
-from PyQt6.QtWidgets import (
-    QDialog, QWidget, QVBoxLayout, QHBoxLayout, 
-    QSplitter, QFrame, QLabel, QPushButton, QScrollArea, QMessageBox
-)
-from PyQt6.QtCore import Qt, pyqtSignal, QSettings
-from PyQt6.QtGui import QFont
+from typing import Optional
 
-from src.desktop.ui.widgets.crud_actions_widget import CrudActionsWidget
-from src.desktop.ui.widgets.export_actions_widget import ExportActionsWidget
-from src.desktop.ui.widgets.document_form.cari_kunyesi_widget import CariHesapKunyesiWidget
-from src.desktop.ui.widgets.document_form.belge_vade_widget import BelgeVadeDetaylariWidget
-from src.desktop.ui.widgets.document_form.hareket_ayarlari_widget import HareketAyarlariWidget
-from src.desktop.ui.widgets.document_form.finans_widget import FinansWidget
-from src.desktop.ui.widgets.document_form.hareket_kalemleri_widget import HareketKalemleriDbGridWidget
+from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtWidgets import (
+    QDialog,
+    QFrame,
+    QHBoxLayout,
+    QLabel,
+    QMessageBox,
+    QScrollArea,
+    QSplitter,
+    QVBoxLayout,
+    QWidget,
+)
+
 from src.desktop.managers.theme_manager import ThemeManager
+from src.desktop.ui.widgets.crud_actions_widget import CrudActionsWidget
+from src.desktop.ui.widgets.document_form.belge_vade_widget import (
+    BelgeVadeDetaylariWidget,
+)
+from src.desktop.ui.widgets.document_form.cari_kunyesi_widget import (
+    CariHesapKunyesiWidget,
+)
+from src.desktop.ui.widgets.document_form.finans_widget import FinansWidget
+from src.desktop.ui.widgets.document_form.hareket_ayarlari_widget import (
+    HareketAyarlariWidget,
+)
+from src.desktop.ui.widgets.document_form.hareket_kalemleri_widget import (
+    HareketKalemleriDbGridWidget,
+)
+from src.desktop.ui.widgets.export_actions_widget import ExportActionsWidget
 
 
 class ModularDocumentDetailDialog(QDialog):

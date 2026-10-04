@@ -212,6 +212,19 @@ class SiteDialog(QDialog):
                 color: #0f172a;
                 font-size: 12px;
             }
+            QComboBox {
+                combobox-popup: 0;
+            }
+            QComboBox QAbstractItemView {
+                outline: 0;
+                padding: 0px;
+                border: 1px solid #cbd5e1;
+                background-color: white;
+            }
+            QComboBox QAbstractItemView::item {
+                padding: 3px 6px;
+                min-height: 20px;
+            }
             QLineEdit:focus, QComboBox:focus { border-color: #3b82f6; background-color: white; }
         """
 
@@ -620,8 +633,8 @@ class SitesWidget(QWidget):
         filter_lyt.addWidget(self.txt_search)
 
         combo_style = """
-            QComboBox { border: 1px solid #cbd5e1; border-radius: 6px; padding: 6px 10px; background-color: white; font-size: 12px; color: #0f172a; }
-            QComboBox QAbstractItemView { border: 1px solid #94a3b8; background-color: #ffffff; color: #0f172a; outline: none; padding: 2px 0px; }
+            QComboBox { border: 1px solid #cbd5e1; border-radius: 6px; padding: 6px 10px; background-color: white; font-size: 12px; color: #0f172a; combobox-popup: 0; }
+            QComboBox QAbstractItemView { border: 1px solid #94a3b8; background-color: #ffffff; color: #0f172a; outline: none; padding: 0px; }
             QComboBox QAbstractItemView::item { min-height: 26px; padding: 4px 10px; background-color: #ffffff; color: #0f172a; border-radius: 0px; }
             QComboBox QAbstractItemView::item:hover, QComboBox QAbstractItemView::item:selected { background-color: #2563eb; color: #ffffff; }
         """

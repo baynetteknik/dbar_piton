@@ -13,7 +13,6 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-
 from src.desktop.ui.components.tooltip_style import with_tooltip  # noqa: E402
 
 

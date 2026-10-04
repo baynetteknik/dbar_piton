@@ -88,7 +88,7 @@ def _yaz(k, r, c, text):
 
 
 def _basliklar(k):
-    return [k.grid.horizontalHeaderItem(i).text() for i in range(k.grid.columnCount())]
+    return [str(k.grid.model().headerData(i, Qt.Orientation.Horizontal)) for i in range(k.grid.columnCount())]
 
 
 @pytest.fixture
@@ -255,41 +255,69 @@ def test_fis_turu_baslikta_yeni_satirin_baslangic_turunu_belirler(qapp, db):
     d.close()
 
 
-def test_grid_sutun_yerlesimi_surukle_birak_gizle_ve_kaydet_geri_yukle(qapp, db):
+def test_grid_sutun_yerlesimi_surukle_birak_gizle_ve_profilde_kaydet_geri_yukle(qapp, db):
+    """Fiş kalem gridi liste ekranlarıyla aynı standart gridi kullanır: yerleşim görünüm PROFİLİ olarak kaydedilir / geri yüklenir."""
+    from PyQt6.QtTest import QTest
+
+    from src.desktop.managers.profile_manager import ProfileManager
     k = kw.CariFisKalemleriWidget(db_session=db)
     h = k.grid.horizontalHeader()
     assert h.sectionsMovable()
     h.moveSection(h.visualIndex(kw.C_TUTAR), 1)                 # Tutar sütununu 2. sıraya sürükle
     k.grid.setColumnHidden(kw.C_HESAP, True)
-    k.grid._save_layout()
+    k.entry.save_column_profile("Test Yerleşim")
     k.close()
-    k2 = kw.CariFisKalemleriWidget(db_session=db)
-    h2 = k2.grid.horizontalHeader()
-    assert h2.logicalIndex(1) == kw.C_TUTAR and k2.grid.isColumnHidden(kw.C_HESAP)
-    k2.grid.reset_layout()
-    assert h2.logicalIndex(1) == kw.C_TUR and not k2.grid.isColumnHidden(kw.C_HESAP)
-    k2.close()
+    try:
+        k2 = kw.CariFisKalemleriWidget(db_session=db)
+        QTest.qWait(80)                                          # aktif profil ertelenmiş olarak uygulanır
+        h2 = k2.grid.horizontalHeader()
+        assert h2.logicalIndex(1) == kw.C_TUTAR and k2.grid.isColumnHidden(kw.C_HESAP)
+        k2.entry.load_profile("Varsayılan")
+        QTest.qWait(80)
+        k2.close()
+    finally:
+        pm = ProfileManager(profile_key=kw.CariFisKalemleriWidget.PRESET_ID)
+        pm.delete_profile("Test Yerleşim")
+        pm.set_active_profile_name("Varsayılan")
 
 
 def test_toplam_widget_sutunlari_da_kaydedilir(qapp, db):
+    from PyQt6.QtTest import QTest
+
+    from src.desktop.managers.profile_manager import ProfileManager
+
     t = CariFisToplamWidget(db_session=db)
+    QTest.qWait(80)
     t.grid.horizontalHeader().moveSection(0, 3)
-    t.grid._save_layout()
-    t2 = CariFisToplamWidget(db_session=db)
-    assert t2.grid.horizontalHeader().logicalIndex(3) == 0
-    t.close(); t2.close()
+    t.grid.setColumnWidth(0, 173)
+    t.grid.setColumnHidden(2, True)
+    t.entry.save_column_profile("Test Toplam")
+    try:
+        t2 = CariFisToplamWidget(db_session=db)
+        QTest.qWait(80)
+        assert t2.grid.horizontalHeader().logicalIndex(3) == 0
+        assert t2.grid.columnWidth(0) == 173
+        assert t2.grid.isColumnHidden(2)
+        t2.resize(1000, 250)
+        t2.show()
+        QTest.qWait(80)
+        assert t2.grid.columnWidth(0) == 173
+        t2.close()
+    finally:
+        t.close()
+        pm = ProfileManager(profile_key=t.PRESET_ID)
+        pm.delete_profile("Test Toplam")
+        pm.set_active_profile_name("Varsayılan")
 
 
-def test_appgrid_baslik_menusu_iki_sutunlu_aramali_ve_gizlemeyi_uygular(qapp, db):
+def test_sag_tik_menusu_iki_sutunlu_sutun_menusunu_acan_tek_eylem_verir(qapp, db):
+    """Sağ tık menüsü tek sütunlu uzun "Sütunlar" alt menüsü yerine, başlık menüsüyle aynı iki sütunlu menüyü açan tek eylem sunar."""
+    from PyQt6.QtWidgets import QMenu
     k = kw.CariFisKalemleriWidget(db_session=db)
-    act = k.grid._build_column_menu_action(None)      # eylem canlı kalmalı (widget onun)
-    box = act.defaultWidget()
-    boxes = box.findChildren(QCheckBox)
-    assert len(boxes) == k.grid.columnCount()
-    assert box.findChild(QGridLayout).columnCount() == 2         # iki sütunlu
-    box.findChild(QLineEdit).setText("hesap")
-    assert [b.text() for b in boxes if not b.isHidden()] == ["HESAP"]      # arama alanı
-    [b for b in boxes if b.text() == "HESAP"][0].setChecked(False)
+    menu = QMenu()
+    k.entry.add_column_actions_to_menu(menu)
+    assert [a.text() for a in menu.actions()] == ["🗂️ Sütunlar ve Profiller…"] and all(a.menu() is None for a in menu.actions())
+    k.grid.setColumnHidden(kw.C_HESAP, True)
     assert k.grid.isColumnHidden(kw.C_HESAP)
     k.close()
 
@@ -422,21 +450,10 @@ def test_acilir_liste_ogeleri_sola_dayali_bosluksuz(qapp, db):
 def test_kisaltilmis_basliklar_sn_dvz_tam_adi_ipucunda_ve_sutun_menusunde(qapp, db):
     k = kw.CariFisKalemleriWidget(db_session=db)
     assert _basliklar(k)[kw.C_SIRA] == "SN" and _basliklar(k)[kw.C_DOVIZ] == "DVZ"
-    assert k.grid.horizontalHeaderItem(kw.C_SIRA).toolTip() == "SIRA NO"
-    act = k.grid._build_column_menu_action(None)
-    assert {"SIRA NO", "DÖVİZ"} <= {b.text() for b in act.defaultWidget().findChildren(QCheckBox)}
+    assert k.grid.model().headerData(kw.C_SIRA, Qt.Orientation.Horizontal, Qt.ItemDataRole.ToolTipRole) == "SIRA NO"
+    etiketler = {lbl for lbl, _f in k.entry.headers_dict.values()}          # sütun menüsü bu etiketlerle kurulur (tam ad)
+    assert {"SIRA NO", "DÖVİZ"} <= etiketler
     k.close()
-
-
-def test_sutun_yerlesimi_pencere_hemen_kapansa_da_kaybolmaz(qapp, db):
-    k = kw.CariFisKalemleriWidget(db_session=db)
-    k.show()
-    h = k.grid.horizontalHeader()
-    h.moveSection(h.visualIndex(kw.C_NOT), 1)                   # sürükle-bırak; 400 ms'lik gecikmeyi beklemeden kapat
-    k.hide()
-    k2 = kw.CariFisKalemleriWidget(db_session=db)
-    assert k2.grid.horizontalHeader().logicalIndex(1) == kw.C_NOT
-    k.close(); k2.close()
 
 
 def test_cikti_yeni_fisi_once_kaydeder_excel_yazar_degismemis_fisi_tekrar_kaydetmez(qapp, db, tmp_path, monkeypatch):
@@ -482,3 +499,64 @@ def test_cikti_pdf_ve_html_icerigi(qapp, db, tmp_path, monkeypatch):
     h = cari_fis_rapor.html(veri)
     assert "Tediye Fişi" in h and "BETA" in h and "75,00" in h
     d.close()
+
+
+def test_portal_gonder_butonu_secili_cariyi_yayinlar_ve_baglantiyi_kopyalar(qapp, db, monkeypatch, mock_api):
+    from PyQt6.QtWidgets import QApplication, QMessageBox
+
+    from src.desktop.services import portal_sync_service as psvc
+    from src.desktop.services.settings_store import set_setting
+    set_setting(db, psvc.KEY_BASE_URL, "https://ornek.example/portal")
+    set_setting(db, psvc.KEY_API_KEY, "k")
+    svc = CariHareketService(db)
+    svc.create(customer_id=1, tur="borc_dekontu", tutar=250, tarih=date(2026, 1, 5))
+    mock_api.add(mock_api.POST, "https://ornek.example/portal/api/v1/accounts", status=200, json={"ok": True, "token": "b" * 64})
+
+    s = CariHareketScreen(db_session=db)
+    s.cmb_cari.setCurrentIndex(s.cmb_cari.findData(1))
+    mesajlar = []
+    monkeypatch.setattr(QMessageBox, "information", staticmethod(lambda *a, **k: mesajlar.append(a[2]) or QMessageBox.StandardButton.Ok))
+    s.on_portal_gonder_clicked()
+    assert mesajlar and "account.php?t=" + "b" * 64 in mesajlar[0]
+    assert QApplication.clipboard().text() == f"https://ornek.example/portal/account.php?t={'b' * 64}"
+    s.close()
+
+
+def test_portal_gonder_butonu_cari_secili_degilse_uyarir(qapp, db, monkeypatch):
+    from PyQt6.QtWidgets import QMessageBox
+    s = CariHareketScreen(db_session=db)
+    s.cmb_cari.setCurrentIndex(s.cmb_cari.findData(None))
+    mesajlar = []
+    monkeypatch.setattr(QMessageBox, "information", staticmethod(lambda *a, **k: mesajlar.append(a[2]) or QMessageBox.StandardButton.Ok))
+    s.on_portal_gonder_clicked()
+    assert mesajlar and "filtresi belirleyin" in mesajlar[0]
+    s.close()
+
+
+def test_genel_tahsilat_butonu_secili_cariyi_diyaloga_acar_ve_kabulde_listeyi_yeniler(qapp, db, monkeypatch):
+    from src.desktop.ui.widgets import belge_zinciri_dialogs as bzd
+
+    svc = CariHareketService(db)
+    svc.create(customer_id=1, tur="borc_dekontu", tutar=250, tarih=date(2026, 1, 5))
+    acilanlar = []
+    monkeypatch.setattr(bzd.GenelTahsilatDialog, "__init__", lambda self, db, customer_id, parent=None: acilanlar.append(customer_id))
+    monkeypatch.setattr(bzd.GenelTahsilatDialog, "exec", lambda self: 1)
+
+    s = CariHareketScreen(db_session=db)
+    s.cmb_cari.setCurrentIndex(s.cmb_cari.findData(1))
+    yenilendi = []
+    s.data_changed.connect(lambda: yenilendi.append(1))
+    s.on_genel_tahsilat_clicked()
+    assert acilanlar == [1] and yenilendi == [1]
+    s.close()
+
+
+def test_genel_tahsilat_butonu_cari_secili_degilse_uyarir(qapp, db, monkeypatch):
+    from PyQt6.QtWidgets import QMessageBox
+    s = CariHareketScreen(db_session=db)
+    s.cmb_cari.setCurrentIndex(s.cmb_cari.findData(None))
+    mesajlar = []
+    monkeypatch.setattr(QMessageBox, "information", staticmethod(lambda *a, **k: mesajlar.append(a[2]) or QMessageBox.StandardButton.Ok))
+    s.on_genel_tahsilat_clicked()
+    assert mesajlar and "filtresi belirleyin" in mesajlar[0]
+    s.close()

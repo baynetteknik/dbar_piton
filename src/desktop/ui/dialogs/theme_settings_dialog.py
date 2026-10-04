@@ -4,14 +4,23 @@ Sadece Sistem Yöneticisinin (Admin) erişebileceği, canlı tema, satır yükse
 ve rol yetki simülasyon aracıdır. Hem bağımsız Dialog hem de gömülebilir Widget olarak çalışır.
 """
 
-from PyQt6.QtWidgets import (
-    QDialog, QWidget, QVBoxLayout, QHBoxLayout, QLabel, 
-    QSlider, QComboBox, QPushButton, QGroupBox, QSpinBox, QFrame
-)
 from PyQt6.QtCore import Qt
+from PyQt6.QtWidgets import (
+    QComboBox,
+    QDialog,
+    QFrame,
+    QGroupBox,
+    QHBoxLayout,
+    QLabel,
+    QPushButton,
+    QSlider,
+    QSpinBox,
+    QVBoxLayout,
+    QWidget,
+)
 
-from src.desktop.managers.theme_manager import ThemeManager
 from src.desktop.managers.permission_manager import PermissionManager
+from src.desktop.managers.theme_manager import ThemeManager
 
 
 class AppGridThemeSettingsWidget(QWidget):
@@ -82,7 +91,27 @@ class AppGridThemeSettingsWidget(QWidget):
             "3. Modern Koyu Antrasit",
             "4. Klasik ERP Bordosu"
         ])
-        self.combo_theme.setStyleSheet("padding: 6px; font-weight: bold; background: white; border: 1px solid #cbd5e1; border-radius: 4px;")
+        self.combo_theme.setStyleSheet("""
+            QComboBox {
+                combobox-popup: 0;
+                padding: 6px;
+                font-weight: bold;
+                background: white;
+                border: 1px solid #cbd5e1;
+                border-radius: 4px;
+            }
+            QComboBox QAbstractItemView {
+                outline: 0;
+                padding: 0px;
+                border: 1px solid #cbd5e1;
+                background-color: #ffffff;
+                color: #0f172a;
+            }
+            QComboBox QAbstractItemView::item {
+                padding: 3px 6px;
+                min-height: 20px;
+            }
+        """)
         t_layout.addWidget(self.combo_theme)
         main_layout.addWidget(grp_theme)
 
@@ -94,7 +123,27 @@ class AppGridThemeSettingsWidget(QWidget):
         self.combo_role = QComboBox()
         self.combo_role.addItems(["ADMIN", "MUHASEBE", "SATIS", "DEPO"])
         self.combo_role.setCurrentText(self.perm_mgr.current_role)
-        self.combo_role.setStyleSheet("padding: 6px; font-weight: bold; background: white; border: 1px solid #cbd5e1; border-radius: 4px;")
+        self.combo_role.setStyleSheet("""
+            QComboBox {
+                combobox-popup: 0;
+                padding: 6px;
+                font-weight: bold;
+                background: white;
+                border: 1px solid #cbd5e1;
+                border-radius: 4px;
+            }
+            QComboBox QAbstractItemView {
+                outline: 0;
+                padding: 0px;
+                border: 1px solid #cbd5e1;
+                background-color: #ffffff;
+                color: #0f172a;
+            }
+            QComboBox QAbstractItemView::item {
+                padding: 3px 6px;
+                min-height: 20px;
+            }
+        """)
         r_layout.addWidget(self.combo_role)
         
         lbl_role_hint = QLabel("💡 Rol seçildiğinde ekranlardaki aksiyon butonları (Yeni, Sil, Pasif vb.) yetki kuralına göre anında gizlenir/açılır.")
